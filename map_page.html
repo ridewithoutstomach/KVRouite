@@ -37,9 +37,6 @@
     rel="stylesheet"
   />
 
-  <!-- load settings related to the app -->
-  <script src="config.js"></script>
-
   <style>
     html, body {
       margin: 0; 
@@ -316,23 +313,22 @@
           <img src="icon/create_pt_video_time.png" style="width: 36px; height: 36px; vertical-align: middle;" />
         </button>
       </div>
+      <div id="mapillaryKeyWarning" style="display: none; position: absolute; top: 0; left: 0; right: 0;padding: 10px;
+        color: #b00;
+        font-weight: bold;
+        text-align: center;
+        z-index: 9999;
+        pointer-events: none;"></div>
     </div>
     <div id="nostreetview-alert">No Mapillary images found near this location.</div>
+    
   </div>
 
   <script>
     var clientId = '';
     var {Viewer} = mapillary;
     let mapillaryLinkFeature = null;
-
-    if (!CONFIG.mapillaryToken || CONFIG.mapillaryToken.trim() == '')
-      alert("Mapillary token is missing! Please add it in config.js.");
-
-    const mapillaryViewer = new Viewer({
-      accessToken: CONFIG.mapillaryToken,
-      container: 'mapillaryViewer',
-    });
-
+    let mapillaryViewer = null;
 
     function showNoStreetView(duration = 3000) {
       const alertBox = document.getElementById("nostreetview-alert");
@@ -356,7 +352,6 @@
 
         if (mapillaryViewer) {
           mapillaryViewer.resize();
-          pyLog("selectedCoord=" + selectedCoord);
           if(selectedCoord) 
            navigateStreetView(selectedCoord[1], selectedCoord[0]);
         }
@@ -404,6 +399,7 @@
     let mapTilerKey = "";
     let bingKey     = "";
     let mapboxKey   = "";
+    let mapillaryKey= ""; // Mapillary token
 
     // 0=OSM, 1=MapTiler, 2=Mapbox, 3=Bing
     let currentMapMode = 0;
@@ -517,42 +513,16 @@
 
       initMap();
 
-      mapillaryViewer.on('image',function () {
-        mapillaryViewer.getImage()
-          .then((image) => {
-            if (!image || !image.id) {
-              console.warn("Could not get current image.");
-              return;
-            }
-
-            const imageId = image.id;
-            console.log("Got image:", imageId);
-
-            fetch(`https://graph.mapillary.com/${imageId}?fields=geometry&access_token=${CONFIG.mapillaryToken}`)
-              .then(response => response.json())
-              .then(data => {
-                if (data.geometry && data.geometry.coordinates) {
-                  const [lon, lat] = data.geometry.coordinates;
-                  streetCoords = [lon, lat];
-                  drawMapillaryCrossMarker(lon, lat);
-                  map.getView().animate({center: ol.proj.fromLonLat(streetCoords), duration: 600});
-                } else {
-                  console.warn("No geometry for image", imageId);
-                }
-              })
-              .catch(err => {
-                console.error("Error fetching geometry:", err);
-              });
-          })
-          .catch(err => {
-            console.error("mapillaryViewer.getImage() failed:", err);
-          });
-      });
 
       //mapillaryViewer.moveTo('1151013448713326'); // initial view
       const viewerDiv = document.getElementById("mapillaryViewer");
       const header = document.getElementById("mapillaryViewerHeader");
       makeElementDraggable(viewerDiv, header);
+
+      if (!mapillaryKey || mapillaryKey.trim() === '') {
+        document.getElementById("mapillaryKeyWarning").innerText = "Mapillary key needed to display street view.";
+        document.getElementById("mapillaryKeyWarning").style.display = "block";
+      }
 
       const resizeObserver = new ResizeObserver(() => {
         if (mapillaryViewer) {
@@ -798,6 +768,46 @@
 
     }
 
+    function initMapillary()
+    {
+      mapillaryViewer = new Viewer({
+        accessToken: mapillaryKey,
+        container: 'mapillaryViewer',
+      });
+
+      mapillaryViewer.on('image',function () {
+        mapillaryViewer.getImage()
+          .then((image) => {
+            if (!image || !image.id) {
+              console.warn("Could not get current image.");
+              return;
+            }
+
+            const imageId = image.id;
+            console.log("Got image:", imageId);
+
+            fetch(`https://graph.mapillary.com/${imageId}?fields=geometry&access_token=${mapillaryKey}`)
+              .then(response => response.json())
+              .then(data => {
+                if (data.geometry && data.geometry.coordinates) {
+                  const [lon, lat] = data.geometry.coordinates;
+                  streetCoords = [lon, lat];
+                  drawMapillaryCrossMarker(lon, lat);
+                  map.getView().animate({center: ol.proj.fromLonLat(streetCoords), duration: 600});
+                } else {
+                  console.warn("No geometry for image", imageId);
+                }
+              })
+              .catch(err => {
+                console.error("Error fetching geometry:", err);
+              });
+          })
+          .catch(err => {
+            console.error("mapillaryViewer.getImage() failed:", err);
+          });
+      });
+    }
+
     /***********************************************************
      * 3) createSatelliteSource()
      ***********************************************************/
@@ -839,6 +849,11 @@
     function setMapTilerKey(newKey){ mapTilerKey=newKey; }
     function setBingKey(newKey){ bingKey=newKey; }
     function setMapboxKey(newKey){ mapboxKey=newKey; }
+    function setMapillaryKey(newKey){ 
+      mapillaryKey=newKey;
+      document.getElementById("mapillaryKeyWarning").style.display = "none";
+      initMapillary();
+    }
 
     /***********************************************************
      * 5) initModify => Move
@@ -1494,7 +1509,7 @@
 
    // Fetch the closest image to the clicked location
       fetch(
-        `https://graph.mapillary.com/images?access_token=${CONFIG.mapillaryToken}&fields=id&bbox=${left},${bottom},${right},${top_limit}`
+        `https://graph.mapillary.com/images?access_token=${mapillaryKey}&fields=id&bbox=${left},${bottom},${right},${top_limit}`
       )
         .then((response) => response.json())
         .then((data) => { 

@@ -199,6 +199,7 @@ class MainWindow(QMainWindow):
         self._maptiler_key = ""
         self._bing_key     = ""
         self._mapbox_key   = ""
+        self._mapillary_key   = ""
         
         self._load_map_keys_from_settings()
         
@@ -398,30 +399,6 @@ class MainWindow(QMainWindow):
         
         map_setup_menu = setup_menu.addMenu("Map Setup")
         
-        
-        
-        # Action 1: Size Yellow Point
-        
-         # Action 3: Size Black Point
-        action_size_black = QAction("Size Black Point", self)
-        action_size_black.triggered.connect(lambda: self._on_set_map_point_size("black"))
-        map_setup_menu.addAction(action_size_black)
-        
-        action_size_red = QAction("Size Red Point", self)
-        action_size_red.triggered.connect(lambda: self._on_set_map_point_size("red"))
-        map_setup_menu.addAction(action_size_red)
-        
-        # Action 2: Size blue Point
-        action_size_blue = QAction("Size Blue Point", self)
-        action_size_blue.triggered.connect(lambda: self._on_set_map_point_size("blue"))
-        map_setup_menu.addAction(action_size_blue)
-        
-        
-        action_size_yellow = QAction("Size Yellow Point", self)
-        action_size_yellow.triggered.connect(lambda: self._on_set_map_point_size("yellow"))
-        map_setup_menu.addAction(action_size_yellow)
-        
-        
         self._directions_enabled = False  # beim Start immer aus
 
         # 2) Eine neue Check-Action anlegen
@@ -437,7 +414,7 @@ class MainWindow(QMainWindow):
         self.action_map_directions.triggered.connect(self._on_map_directions_toggled)
         
         
-        mapviews_menu = map_setup_menu.addMenu("MapViews")
+        mapviews_menu = map_setup_menu.addMenu("Map Keys")
         
         # --> About Keys
         about_keys_action = QAction("About Keys...", self)
@@ -455,12 +432,38 @@ class MainWindow(QMainWindow):
         action_set_mapbox_key = QAction("Set Mapbox Key...", self)
         action_set_mapbox_key.triggered.connect(self._on_set_mapbox_key)
         mapviews_menu.addAction(action_set_mapbox_key)
+
+        # --> Set Mapillary Key
+        action_set_mapillary_key = QAction("Set Mapillary Key...", self)
+        action_set_mapillary_key.triggered.connect(self._on_set_mapillary_key)
+        mapviews_menu.addAction(action_set_mapillary_key)
         
         self.action_new_pts_video_time = QAction("Sync all with video", self)
         self.action_new_pts_video_time.setCheckable(True)
         self.action_new_pts_video_time.setChecked(False)  # Standard = OFF
         self.action_new_pts_video_time.triggered.connect(self._on_sync_point_video_time_toggled)
-        setup_menu.addAction(self.action_new_pts_video_time)
+        setup_menu.addAction(self.action_new_pts_video_time)               
+        
+        pts_size_menu = map_setup_menu.addMenu("Points Size")
+
+        action_size_black = QAction("Black Point", self)
+        action_size_black.triggered.connect(lambda: self._on_set_map_point_size("black"))
+        pts_size_menu.addAction(action_size_black)
+        
+        action_size_red = QAction("Red Point", self)
+        action_size_red.triggered.connect(lambda: self._on_set_map_point_size("red"))
+        pts_size_menu.addAction(action_size_red)
+        
+        # Action 2: Size blue Point
+        action_size_blue = QAction("Blue Point", self)
+        action_size_blue.triggered.connect(lambda: self._on_set_map_point_size("blue"))
+        pts_size_menu.addAction(action_size_blue)
+        
+        map_setup_menu.addMenu(pts_size_menu)
+        
+        action_size_yellow = QAction("Yellow Point", self)
+        action_size_yellow.triggered.connect(lambda: self._on_set_map_point_size("yellow"))
+        pts_size_menu.addAction(action_size_yellow)
                 
         self.action_enable_soft_opengl = QAction("Use sofware OpenGL", self)
         self.action_enable_soft_opengl.setCheckable(True)
@@ -659,6 +662,7 @@ class MainWindow(QMainWindow):
         self.gpx_control.minSpeedClicked.connect(self.gpx_control.on_min_speed_clicked)
         self.gpx_control.maxSpeedClicked.connect(self.gpx_control.on_max_speed_clicked)
         self.gpx_control.averageSpeedClicked.connect(self.gpx_control.on_average_speed_clicked)
+        self.gpx_control.averageSlopeClicked.connect(self.gpx_control.on_average_slope_clicked)
         self.gpx_control.showMinSlopeClicked.connect(self.gpx_control._on_show_min_slope)
         self.gpx_control.showMaxSlopeClicked.connect(self.gpx_control._on_show_max_slope)
 
@@ -967,10 +971,12 @@ class MainWindow(QMainWindow):
         enc_mt = s.value("mapTiler/key", "", str)
         enc_bi = s.value("bing/key", "", str)
         enc_mb = s.value("mapbox/key", "", str)
+        enc_ma = s.value("mapillary/key", "", str)
 
         self._maptiler_key = decode(enc_mt)
         self._bing_key     = decode(enc_bi)
         self._mapbox_key   = decode(enc_mb)
+        self._mapillary_key   = decode(enc_ma)
     
     def _save_map_key_to_settings(self, provider: str, plain_key: str):
         """
@@ -988,6 +994,9 @@ class MainWindow(QMainWindow):
         elif provider == "mapbox":
             s.setValue("mapbox/key", enc)
             self._mapbox_key = plain_key
+        elif provider == "mapillary":
+            s.setValue("mapillary/key", enc)
+            self._mapillary_key = plain_key
 
         # Jetzt sofort updaten => an map_page.html schicken
         self._update_map_page_keys()    
@@ -1011,6 +1020,8 @@ class MainWindow(QMainWindow):
         js_mb = f"setMapboxKey('{self._mapbox_key}')"
         page.runJavaScript(js_mb)
 
+        page.runJavaScript(f"setMapillaryKey('{self._mapillary_key}')")   
+
 
     def _on_set_maptiler_key(self):
         self._show_key_dialog("mapTiler", self._maptiler_key)
@@ -1020,6 +1031,9 @@ class MainWindow(QMainWindow):
 
     def _on_set_mapbox_key(self):
         self._show_key_dialog("mapbox", self._mapbox_key)
+
+    def _on_set_mapillary_key(self):
+        self._show_key_dialog("mapillary", self._mapillary_key)
 
     def _show_key_dialog(self, provider_name: str, current_val: str):
         """
@@ -1052,24 +1066,6 @@ class MainWindow(QMainWindow):
 
         dlg.exec()
 
-    def _on_about_keys(self):
-        """
-        Zeigt einen Dialog, wofür die Keys sind, wo man sie bekommt usw.
-        """
-        msg_html = (
-            "<h3>Map Keys Information</h3>"
-            "<p>Mit diesem Tool kannst du verschiedene Kartendienste nutzen:</p>"
-            "<ul>"
-            "<li>MapTiler (Satelliten-Kacheln)</li>"
-            "<li>Mapbox (Satellite)</li>"
-            "</ul>"
-            "<p>Bitte registriere dich bei jedem gewünschten Anbieter "
-            "und füge hier deinen API-Key ein. Beachte jeweils die Limits (Free-Tier) "
-            "und die Nutzungsbedingungen.</p>"
-        )
-
-        QMessageBox.information(self, "About Map Keys", msg_html)
-
 
     ###############################################################################
         
@@ -1089,6 +1085,7 @@ class MainWindow(QMainWindow):
             "<ul>"
             "<li><b>MapTiler:</b> <a href='https://www.maptiler.com/'>maptiler.com</a></li>"
             "<li><b>Mapbox:</b> <a href='https://www.mapbox.com/'>mapbox.com</a></li>"
+            "<li><b>Mapillary:</b> <a href='https://www.mapillary.com/dashboard/developers'>mapillary.com</a></li>"
             "</ul>"
             "<p>Please ensure you comply with each provider's usage policies.</p>"
         )

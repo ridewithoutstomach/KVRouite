@@ -80,6 +80,7 @@ class GPXControlWidget(QWidget):
     showMaxSlopeClicked = Signal()
     showMinSlopeClicked = Signal()
     averageSpeedClicked = Signal()
+    averageSlopeClicked = Signal()
     maxSpeedClicked = Signal()
     minSpeedClicked = Signal()
     closeGapsClicked = Signal()
@@ -198,6 +199,9 @@ class GPXControlWidget(QWidget):
         
         action_avgspeed = self.more_menu.addAction("AverageSpeed")
         action_avgspeed.triggered.connect(self.averageSpeedClicked.emit)
+
+        action_avgslope = self.more_menu.addAction("AverageSlope")
+        action_avgslope.triggered.connect(self.averageSlopeClicked.emit)
         
         self._action_closegaps = self.more_menu.addAction("Close Gaps")
         self._action_closegaps.triggered.connect(self.closeGapsClicked.emit)
@@ -1006,10 +1010,36 @@ class GPXControlWidget(QWidget):
 
         mw._highlight_index_everywhere(idx_min)    
         
+    def check_data_for_avg(self) -> bool:
+        mw = self._mainwindow 
+        gpx_data = mw.gpx_widget.gpx_list._gpx_data
+        if not gpx_data:
+            QMessageBox.warning(self, "No GPX Data", "No GPX data available.")
+            return False
+
+        n = len(gpx_data)
+        if n < 2:
+            QMessageBox.warning(self, "Too few points", "At least 2 GPX points are required.")
+            return False
         
+        b_idx = mw.gpx_widget.gpx_list._markB_idx
+        e_idx = mw.gpx_widget.gpx_list._markE_idx
+    
+        if b_idx is None or e_idx is None:
+            QMessageBox.warning(self, "No Range Selected",
+                "Please mark a range (markB..markE) first.")
+            return False
+
+        if (e_idx - b_idx) < 1:
+            QMessageBox.warning(self, "Invalid Range",
+                "The selected range must contain at least 2 points.")
+            return False
+        
+        return True
         
     def on_average_speed_clicked(self):
         mw = self._mainwindow 
+        gpx_data = mw.gpx_widget.gpx_list._gpx_data
         """
         Shows the current average speed for the selected range b_idx.. e_idx
         *without changing total time*.
@@ -1017,32 +1047,14 @@ class GPXControlWidget(QWidget):
         each subsegment has the same local speed (i.e., flatten spikes),
         but overall time remains the same.
         """
-        #from PySide6.QtWidgets import QMessageBox
-        
-
-        gpx_data = mw.gpx_widget.gpx_list._gpx_data
-        if not gpx_data:
-            QMessageBox.warning(self, "No GPX Data", "No GPX data available.")
+        if not self.check_data_for_avg():
             return
 
-        n = len(gpx_data)
-        if n < 2:
-            QMessageBox.warning(self, "Too few points", "At least 2 GPX points are required.")
-            return
-    
         b_idx = mw.gpx_widget.gpx_list._markB_idx
         e_idx = mw.gpx_widget.gpx_list._markE_idx
     
-        if b_idx is None or e_idx is None:
-            QMessageBox.warning(self, "No Range Selected",
-                "Please mark a range (markB..markE) first.")
-            return
         if b_idx > e_idx:
             b_idx, e_idx = e_idx, b_idx
-        if (e_idx - b_idx) < 1:
-            QMessageBox.warning(self, "Invalid Range",
-                "The selected range must contain at least 2 points.")
-            return
     
         # 1) Gesamt-Zeit
         t_start = gpx_data[b_idx]["time"]
@@ -1131,6 +1143,37 @@ class GPXControlWidget(QWidget):
         )
         mw.gpx_widget.gpx_list.clear_marked_range()
         mw.map_widget.clear_marked_range()
+
+    def on_average_slope_clicked(self):
+        if not self.check_data_for_avg():
+            return
+        
+        mw = self._mainwindow 
+        b_idx = mw.gpx_widget.gpx_list._markB_idx
+        e_idx = mw.gpx_widget.gpx_list._markE_idx
+        gpx_data = mw.gpx_widget.gpx_list._gpx_data
+    
+        if b_idx > e_idx:
+            b_idx, e_idx = e_idx, b_idx
+
+        weighted_sum = 0.0
+        total_dist = 0.0
+
+        for i in range(b_idx, e_idx - 1):
+            grad = gpx_data[i].get("gradient", 0.0)
+            dist = gpx_data[i].get("delta_m", 0.0)
+
+            weighted_sum += grad * dist
+            total_dist += dist
+
+        result = 0.0
+        if total_dist > 0:
+            result = weighted_sum / total_dist
+
+        QMessageBox.information(
+            self, "Average Slope",
+            f"Average slope in range {b_idx}..{e_idx}: {result:.2f}%"
+        )
     
     def _haversine_m(self, lat1, lon1, lat2, lon2):
         """
