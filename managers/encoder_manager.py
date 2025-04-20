@@ -57,6 +57,7 @@ class _StringStream:
     def flush(self):
         pass
 
+from config import MY_GLOBAL_TMP_DIR
 
 ##### hier xfade6_2.py rein kopieren!
 
@@ -276,25 +277,7 @@ genau platzieren (auch 'main_w'/'main_h'/'overlay_w'/'overlay_h' möglich).
 # 1) QSETTINGS => TEMP
 ###############################################################################
 
-def get_or_create_encoder_temp_dir():
-    s = QSettings("VGSync","VGSync")
-    key = "encoderTempDir"
-    current= s.value(key,"",type=str)
-    if not current:
-        default_path= os.path.join(tempfile.gettempdir(),"my_vgsync_encoder")
-        s.setValue(key,default_path)
-        current = default_path
-    os.makedirs(current,exist_ok=True)
-    return current
 
-def clear_encoder_temp_dir():
-    tdir = get_or_create_encoder_temp_dir()
-    try:
-        shutil.rmtree(tdir)
-    except:
-        pass
-    os.makedirs(tdir,exist_ok=True)
-    return tdir
     
 def compute_keep_segments(skip_instructions, total_duration):
     """
@@ -678,7 +661,7 @@ def get_keyframes(src):
             count+=1
             m = re.search(r'"best_effort_timestamp_time"\s*:\s*"([^"]+)"', line)
             t_str = m.group(1) if m else "?"
-            #print(f"\rKeyframes gefunden: {count} => Zeit: {t_str}", end='', flush=True)
+            print(f"\rKeyframes found: {count} => Time: {t_str}", end='', flush=True)
     p.wait()
     print()
     data= json.loads("".join(lines))
@@ -918,7 +901,8 @@ def overlay_segment_encode(
 def build_segments_with_skip_and_overlay(
     merged_file, kf_list, total_duration,
     skip_instructions, overlay_instructions,
-    encoder="libx265", hw_encode=None, crf=23, fps=None, width=None, preset=None
+    encoder="libx265", hw_encode=None, crf=23, fps=None, width=None, preset=None,
+    temp_dir=None
 ):
     """
     Erzeugt Segmente (normal/skip/overlay) streng aufsteigend entlang der Timeline,
@@ -949,7 +933,7 @@ def build_segments_with_skip_and_overlay(
     # Sortieren nach Startzeit
     events.sort(key=lambda x: x["start"])
 
-    temp_dir = get_or_create_encoder_temp_dir()
+    
     segments = []
     out_count = 1
     current_pos = 0.0
@@ -1135,9 +1119,14 @@ def xfade_main(cfg_path):
     width = cfg.get("width", None)
     preset = cfg.get("preset", None)
 
-    temp_dir = tempfile.mkdtemp()
+    temp_dir = MY_GLOBAL_TMP_DIR
+    os.makedirs(temp_dir, exist_ok=True)
     print("[INFO] TempDir:", temp_dir)
 
+    
+    
+   
+    
     total_duration = 0.0
     for v in videos:
         cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -1188,7 +1177,8 @@ def xfade_main(cfg_path):
         crf=crf,
         fps=fps,
         width=width,
-        preset=preset
+        preset=preset,
+        temp_dir=temp_dir 
     )
 
     final_concat_copy(parts, final_out)
@@ -1277,6 +1267,12 @@ class EncoderDialog(QDialog):
                     "Done",
                     "Video exported successfully!"
                 )
+                
+                try:
+                    shutil.rmtree(MY_GLOBAL_TMP_DIR)
+                    print("[INFO] TEMP-Ordner gelöscht:", MY_GLOBAL_TMP_DIR)
+                except Exception as e:
+                    print("[WARN] TEMP konnte nicht gelöscht werden:", e)
 
             except Exception as e:
                 print(f"[ERROR] {e}")
