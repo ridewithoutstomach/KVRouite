@@ -38,7 +38,7 @@ import subprocess
 import re
 import uuid
 import hashlib
-#import win32com.client  # pywin32
+
 
 
             
@@ -101,92 +101,6 @@ from managers.encoder_manager import EncoderDialog
 
 from datetime import datetime, timedelta
 
-def _get_fingerprint_windows():
-    print("[DEBUG Get new Fingerprint")
-    hostname = platform.node()
-    cpu_id = "CPU_UNKNOWN"
-    board_sn = "BOARD_UNKNOWN"
-
-    try:
-        locator = win32com.client.Dispatch("WbemScripting.SWbemLocator")
-        wmi_svc = locator.ConnectServer(".", "root\\cimv2")
-
-        cpus = wmi_svc.ExecQuery("SELECT ProcessorId FROM Win32_Processor")
-        for cpu in cpus:
-            cpu_id = str(cpu.ProcessorId).strip()
-            break
-
-        boards = wmi_svc.ExecQuery("SELECT SerialNumber FROM Win32_BaseBoard")
-        for bd in boards:
-            board_sn = str(bd.SerialNumber).strip()
-            break
-
-    except Exception as e:
-        print("[WARN] Could not read CPU/Board via pywin32 WMI:", e)
-
-    raw_str = f"{hostname}-{cpu_id}-{board_sn}"
-    h = hashlib.sha256(raw_str.encode("utf-8")).hexdigest().upper()
-    return h[:16]
-
-
-
-
-def _get_fingerprint_linux():
-    """
-    Liest unter Linux Hostname, CPU-Vendor/Serial aus /proc/cpuinfo, 
-    plus MAC-Adresse (uuid.getnode).
-    Bildet daraus einen SHA256-Hash und gibt die ersten 16 Hex-Zeichen zurück.
-    """
-    hostname = platform.node()
-    vendor = "UNKNOWN_VENDOR"
-    serial = "UNKNOWN_SERIAL"
-
-    # CPU-Info
-    try:
-        with open("/proc/cpuinfo", "r") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("vendor_id"):
-                    vendor = line.split(":")[1].strip()
-                elif line.startswith("Serial"):
-                    serial = line.split(":")[1].strip()
-    except:
-        pass
-
-    # MAC-Adresse
-    mac_int = uuid.getnode()
-    mac_hex = f"{mac_int:012X}"
-
-    raw_str = f"{hostname}-{vendor}-{serial}-{mac_hex}"
-    h = hashlib.sha256(raw_str.encode("utf-8")).hexdigest().upper()
-    return h[:16]
-
-
-def _get_fingerprint_universal():
-    """
-    Unterscheidet anhand von platform.system() zwischen 
-    Windows, Linux und sonstigen OS. 
-    - Windows: _get_fingerprint_windows()
-    - Linux:   _get_fingerprint_linux()
-    - Fallback: Hostname + MAC => Hash
-    """
-    os_name = platform.system().lower()
-    if os_name.startswith("win"):
-        return _get_fingerprint_windows()
-    elif os_name.startswith("linux"):
-        return _get_fingerprint_linux()
-    else:
-        # Fallback für macOS oder andere Systeme:
-        hostname = platform.node()
-        mac_int = uuid.getnode()
-        mac_hex = f"{mac_int:012X}"
-
-        raw_str = f"{hostname}-{mac_hex}"
-        h = hashlib.sha256(raw_str.encode("utf-8")).hexdigest().upper()
-        return h[:16]
-
-
-
 
 class MainWindow(QMainWindow):
     def __init__(self, user_wants_editing=False):
@@ -207,10 +121,7 @@ class MainWindow(QMainWindow):
        
         self._userDeclinedIndexing = False
         
-        #self._last_map_idx = None     
-        # Edit B  CodeCheck
-        #self.map_widget = MapWidget(mainwindow=self)        
-        # Edit 
+        
         self._video_at_end = False   # Merker, ob wir wirklich am Ende sind
         self._autoSyncVideoEnabled = False
         self._autoSyncNewPointsWithVideoTime = False
@@ -460,8 +371,7 @@ class MainWindow(QMainWindow):
         copyright_action = info_menu.addAction("Copyright + License")
         copyright_action.triggered.connect(self._show_copyright_dialog)
         
-        #dependencies_action = info_menu.addAction("Third-Party Libraries")
-        #dependencies_action.triggered.connect(self._show_dependencies_dialog)
+       
         
         
         
@@ -1079,34 +989,7 @@ class MainWindow(QMainWindow):
 
         # Im ChartWidget setzen
         self.chart.set_stop_threshold(new_val)    
-        
-    """    
-    def _show_dependencies_dialog(self):
-       
-       
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Third-Party Libraries")
-        msg.setTextFormat(Qt.RichText)
-        msg.setTextInteractionFlags(Qt.TextBrowserInteraction | Qt.LinksAccessibleByMouse)
     
-        msg.setText(
-            "<h3>This application uses open-source software:</h3>"
-            "<p><b>1. FFmpeg</b><br>"
-            "License: GNU Lesser General Public License v2.1 or later<br>"
-            "Source: <a href='https://ffmpeg.org'>ffmpeg.org</a><br>"
-            "Original Source Code: <a href='https://github.com/FFmpeg/FFmpeg'>GitHub Repository</a></p>"
-            
-            "<p><b>2. mpv</b><br>"
-            "License: GNU Lesser General Public License v2.1 or later<br>"
-            "Source: <a href='https://mpv.io'>mpv.io</a><br>"
-            "Original Source Code: <a href='https://github.com/mpv-player/mpv'>GitHub Repository</a></p>"
-            
-            "<p>The full license texts can be found in the <code>LICENSES/</code> folder inside the mpv and ffmpeg directories.</p>"
-        )
-    
-        msg.setStandardButtons(QMessageBox.Ok)
-        msg.exec()    
-    """    
     def _on_map_page_loaded(self, ok: bool):
         """
         Wird aufgerufen, sobald deine map.html im QWebEngineView fertig geladen ist.
@@ -1209,14 +1092,7 @@ class MainWindow(QMainWindow):
     
     
     
-    # views/mainwindow.py (Ausschnitt aus deiner MainWindow-Klasse)
-
    
-    
-
-    
-    
-    
     
     
      
@@ -1457,26 +1333,7 @@ class MainWindow(QMainWindow):
             # => Abbrechen
             return
         
-        """
-        'Set Begin' – überarbeitete Version mit korrektem Undo für AutoVideoSync=OFF
-    
-        CASE A) OFF
-        - Falls global_video_s == 0 => cut in GPX am markierten Punkt
-        - Falls global_video_s > 0 => wir behalten global_video_s Sekunden 
-            vor dem markierten GPX-Punkt. 
-            Falls (rel_s_marked - global_video_s) < 0 => Fehlermeldung 
-            => keine Undo-Snapshot anlegen => Abbruch
-            Sonst => wir legen Undo-Snapshot an, entfernen < cut_start, SHIFT => 0
-            Kein Video-Cut.
-
-        CASE B) ON
-        - Schneiden GPX am markierten Punkt => SHIFT => 0
-        - Video => cut 0..global_video_s
-        - Undo wie gehabt
-
-        => Hinterher: Chart / Map / MiniChart updaten.
-        """
-
+        
         
 
         # 1) Markierten GPX-Punkt

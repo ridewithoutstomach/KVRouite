@@ -191,11 +191,7 @@ def main():
 
     
     
-    # FFmpeg sicherstellen
-    #if not path_manager.ensure_ffmpeg(None):
-    #    QMessageBox.critical(None, "Missing FFmpeg", "Cannot proceed without FFmpeg.")
-    #    sys.exit(1)
-    #print("[DEBUG] After ensure_ffmpeg =>", shutil.which("ffmpeg"))
+   
 
     # Zusätzlicher Check
     parent_widget = QWidget()
