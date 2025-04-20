@@ -30,12 +30,10 @@ from PySide6.QtCore import QSettings
 # 1) Versions-Konfiguration & Modus
 ##############################################################################
 
-APP_VERSION = "3.28"
+APP_VERSION = "3.29"
 
-# Falls du nur über den Server prüfen willst, ob diese APP_VERSION freigegeben ist,
-# setze das hier auf True.
-# => Dann wird KEINE license.lic geladen (egal ob vorhanden).
-SERVER_VERSION_CHECK_ONLY = False
+
+#SERVER_VERSION_CHECK_ONLY = False
 
 ##############################################################################
 # 2) Hilfsfunktionen/Pfade
@@ -85,7 +83,9 @@ def _get_license_path() -> str:
 # Temp-Ordner
 base_temp = tempfile.gettempdir()
 TMP_KEYFRAME_DIR = os.path.join(base_temp, "my_vgsync_keyframes")
-MY_GLOBAL_TMP_DIR = os.path.join(base_temp, "my_cut_segments_global")
+
+MY_GLOBAL_TMP_DIR = os.path.join(base_temp, "my_vgsync_cut_segments")
+
 
 
 

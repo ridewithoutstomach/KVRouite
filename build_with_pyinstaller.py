@@ -68,6 +68,25 @@ def copy_tree_all(src_dir, dst_dir):
             dfile = os.path.join(tgt_sub, f)
             print("[COPY]", sfile, "->", dfile)
             shutil.copy2(sfile, dfile)
+            
+            
+def copy_only_pdfs(src_dir, dst_dir):
+    """
+    Kopiert nur PDF-Dateien aus src_dir (rekursiv) nach dst_dir.
+    """
+    if not os.path.isdir(src_dir):
+        print("[WARN] Quellverzeichnis fehlt oder ist kein Ordner:", src_dir)
+        return
+    os.makedirs(dst_dir, exist_ok=True)
+    for root, dirs, files in os.walk(src_dir):
+        for f in files:
+            if f.lower().endswith(".pdf"):
+                sfile = os.path.join(root, f)
+                rel_path = os.path.relpath(sfile, src_dir)
+                dfile = os.path.join(dst_dir, rel_path)
+                os.makedirs(os.path.dirname(dfile), exist_ok=True)
+                print("[COPY PDF]", sfile, "->", dfile)
+                shutil.copy2(sfile, dfile)            
 
 def build_windows():
     app_version = load_app_version()
@@ -136,11 +155,20 @@ def build_windows():
         shutil.copy2(icon_file, icon_target_path)
 
     # --- doc-Ordner nach _internal/doc ---
+    """
     doc_dir = os.path.join(BASE_DIR, "doc")
     if os.path.isdir(doc_dir):
         doc_target_dir = os.path.join(internal_dir, "doc")
         print(f"[INFO] Kopiere doc/ nach {doc_target_dir}")
         copy_tree_all(doc_dir, doc_target_dir)
+    else:
+        print("[INFO] 'doc' Ordner nicht vorhanden oder kein Ordner. Überspringe Kopie.")
+    """
+    doc_dir = os.path.join(BASE_DIR, "doc")
+    if os.path.isdir(doc_dir):
+        doc_target_dir = os.path.join(internal_dir, "doc")
+        print(f"[INFO] Kopiere nur PDF-Dateien aus doc/ nach {doc_target_dir}")
+        copy_only_pdfs(doc_dir, doc_target_dir)
     else:
         print("[INFO] 'doc' Ordner nicht vorhanden oder kein Ordner. Überspringe Kopie.")
 

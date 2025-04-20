@@ -428,6 +428,5 @@ class VideoControlWidget(QWidget):
 
         self.overlayClicked.emit()
         
-        # Beispiel: Du könntest ein Signal emitten oder einen Dialog öffnen.
-        # self.someOvlClicked.emit()   # falls du ein extra Signal willst
+        
     
