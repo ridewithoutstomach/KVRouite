@@ -1271,8 +1271,10 @@ class EncoderDialog(QDialog):
                 try:
                     shutil.rmtree(MY_GLOBAL_TMP_DIR)
                     print("[INFO] TEMP-Ordner gelöscht:", MY_GLOBAL_TMP_DIR)
+                    os.makedirs(MY_GLOBAL_TMP_DIR, exist_ok=True)
                 except Exception as e:
                     print("[WARN] TEMP konnte nicht gelöscht werden:", e)
+                    os.makedirs(MY_GLOBAL_TMP_DIR, exist_ok=True)
 
             except Exception as e:
                 print(f"[ERROR] {e}")
