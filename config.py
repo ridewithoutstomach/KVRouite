@@ -83,7 +83,9 @@ def _get_license_path() -> str:
 # Temp-Ordner
 base_temp = tempfile.gettempdir()
 TMP_KEYFRAME_DIR = os.path.join(base_temp, "my_vgsync_keyframes")
-MY_GLOBAL_TMP_DIR = os.path.join(base_temp, "my_vgsync_segments_global")
+
+MY_GLOBAL_TMP_DIR = os.path.join(base_temp, "my_vgsync_cut_segments")
+
 
 
 
