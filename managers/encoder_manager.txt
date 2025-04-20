@@ -39,7 +39,6 @@ import tempfile
 import shutil
 import contextlib
 
-
 from PySide6.QtCore import Qt, QSettings
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
@@ -47,11 +46,6 @@ from PySide6.QtWidgets import (
     QPushButton, QFileDialog, QApplication,
     QMessageBox
 )
-
-from pathlib import Path
-
-from config import MY_GLOBAL_TMP_DIR 
-
 
 # Hilfsklasse, um print(...) in ein Callback zu leiten:
 class _StringStream:
@@ -282,6 +276,25 @@ genau platzieren (auch 'main_w'/'main_h'/'overlay_w'/'overlay_h' möglich).
 # 1) QSETTINGS => TEMP
 ###############################################################################
 
+def get_or_create_encoder_temp_dir():
+    s = QSettings("VGSync","VGSync")
+    key = "encoderTempDir"
+    current= s.value(key,"",type=str)
+    if not current:
+        default_path= os.path.join(tempfile.gettempdir(),"my_vgsync_encoder")
+        s.setValue(key,default_path)
+        current = default_path
+    os.makedirs(current,exist_ok=True)
+    return current
+
+def clear_encoder_temp_dir():
+    tdir = get_or_create_encoder_temp_dir()
+    try:
+        shutil.rmtree(tdir)
+    except:
+        pass
+    os.makedirs(tdir,exist_ok=True)
+    return tdir
     
 def compute_keep_segments(skip_instructions, total_duration):
     """
@@ -936,8 +949,7 @@ def build_segments_with_skip_and_overlay(
     # Sortieren nach Startzeit
     events.sort(key=lambda x: x["start"])
 
-    #temp_dir = get_or_create_encoder_temp_dir()
-    temp_dir = MY_GLOBAL_TMP_DIR
+    temp_dir = get_or_create_encoder_temp_dir()
     segments = []
     out_count = 1
     current_pos = 0.0
@@ -1123,11 +1135,8 @@ def xfade_main(cfg_path):
     width = cfg.get("width", None)
     preset = cfg.get("preset", None)
 
-    #temp_dir = tempfile.mkdtemp()
-    temp_dir = MY_GLOBAL_TMP_DIR
-    os.makedirs(temp_dir, exist_ok=True) 
-    print("[INFO] Using global TempDir:", temp_dir)
-    
+    temp_dir = tempfile.mkdtemp()
+    print("[INFO] TempDir:", temp_dir)
 
     total_duration = 0.0
     for v in videos:
@@ -1252,11 +1261,7 @@ class EncoderDialog(QDialog):
 
         # 3) c in eine temp-Datei schreiben, damit wir "xfade_main(...)" 
         #    ohne sys.argv aufrufen können:
-        #temp_cfg = os.path.join(tempfile.gettempdir(), "xfade_temp.json")
-        temp_cfg = os.path.join(
-            MY_GLOBAL_TMP_DIR,  # Globales Verzeichnis nutzen
-            "xfade_temp.json"
-        )
+        temp_cfg = os.path.join(tempfile.gettempdir(), "xfade_temp.json")
         with open(temp_cfg, "w", encoding="utf-8") as f2:
             json.dump(c, f2, indent=2)
 
@@ -1272,14 +1277,6 @@ class EncoderDialog(QDialog):
                     "Done",
                     "Video exported successfully!"
                 )
-                temp_dir = Path(MY_GLOBAL_TMP_DIR)
-                for item in temp_dir.glob('*'):
-                    if item.is_file():
-                        item.unlink()
-                    else:
-                        shutil.rmtree(item)
-
-
 
             except Exception as e:
                 print(f"[ERROR] {e}")
