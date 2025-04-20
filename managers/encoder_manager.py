@@ -39,7 +39,6 @@ import tempfile
 import shutil
 import contextlib
 
-
 from PySide6.QtCore import Qt, QSettings
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
@@ -47,11 +46,6 @@ from PySide6.QtWidgets import (
     QPushButton, QFileDialog, QApplication,
     QMessageBox
 )
-
-from pathlib import Path
-
-from config import MY_GLOBAL_TMP_DIR 
-
 
 # Hilfsklasse, um print(...) in ein Callback zu leiten:
 class _StringStream:
@@ -74,8 +68,18 @@ class _StringStream:
 # Neue Logik der copy cuts integriert!
 ############################################################################
 
-###################
-# 10.4.2025 - endfix!!!
+#
+
+# Aktuell wird nur das erste overlay richtug gesetzt der cut und das zweite overlay wird garnicht erst abgearbeitet
+# das Endvideo sollte 1min20s sein und der Kreisel ist am Schild ausgeschnitten
+# aktuelle Video-Länge: 2:12s
+
+# Video startet bei dem Parkplatz beim ersten weissen balken
+# erstes Overlay am baum
+# Kreisel bei Schild geschnitten
+# zweites overlay: beim baustellenschild
+# Ende: Schild Barrabco
+
 #################
 
 # nutze hierzu die config6.json
@@ -272,17 +276,6 @@ genau platzieren (auch 'main_w'/'main_h'/'overlay_w'/'overlay_h' möglich).
 # 1) QSETTINGS => TEMP
 ###############################################################################
 
-<<<<<<< HEAD
-    
-def compute_keep_segments(skip_instructions, total_duration):
-    """
-    Gibt die Segmente zurück, die **behalten** werden sollen,
-    also zwischen -2 (Anfangs-Trim) und -1 (End-Trim)
-    Nur Bereiche außerhalb dieser Skips werden behalten.
-    """
-    trim_ranges = [ (s, e) for s, e, mode in skip_instructions if mode in (-2, -1) and e > s ]
-    trim_ranges.sort()
-=======
 def get_or_create_encoder_temp_dir():
     s = QSettings("VGSync","VGSync")
     key = "encoderTempDir"
@@ -302,8 +295,170 @@ def clear_encoder_temp_dir():
         pass
     os.makedirs(tdir,exist_ok=True)
     return tdir
->>>>>>> parent of 43b597c (optimize encoder-mode)
+    
+def compute_keep_segments(skip_instructions, total_duration):
+    """
+    Gibt die Segmente zurück, die **behalten** werden sollen,
+    also zwischen -2 (Anfangs-Trim) und -1 (End-Trim)
+    Nur Bereiche außerhalb dieser Skips werden behalten.
+    """
+    trim_ranges = [ (s, e) for s, e, mode in skip_instructions if mode in (-2, -1) and e > s ]
+    trim_ranges.sort()
 
+    keep_segments = []
+    current = 0.0
+
+    for s, e in trim_ranges:
+        if s > current:
+            keep_segments.append([current, s])
+        current = max(current, e)
+
+    if current < total_duration:
+        keep_segments.append([current, total_duration])
+
+    return keep_segments
+
+    
+def remap_time(t, timeline_map):
+    """
+    Mappt eine Zeit aus Original-Zeitleiste auf neue Timeline (nach Pre-Trim)
+    Gibt None zurück, wenn die Zeit nicht im behaltenen Bereich liegt
+    """
+    for i, entry in enumerate(timeline_map):
+        src_start = entry["src_start"]
+        src_end = entry["src_end"]
+        dst_start = entry["dst_start"]
+        if src_start <= t < src_end:
+            return dst_start + (t - src_start)
+        if i == len(timeline_map) - 1 and abs(t - src_end) < 1e-6:
+            return dst_start + (src_end - src_start)
+    return None
+
+
+def pre_trim_input_videos(videos, keep_segments, temp_dir):
+    """
+    Schneidet alle relevanten Keep-Segmente aus allen Videos heraus,
+    wobei die Zeitachsen über die gesamte Videoliste laufen.
+    Gibt: Liste Trim-Dateien, Mapping-Table mit src_start/src_end/dst_start
+    """
+    result_files = []
+    timeline_map = []
+    dst_time = 0.0
+    counter = 1
+
+    # Ermittele Gesamtlänge der Videos
+    durations = []
+    for v in videos:
+        cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+               "-of", "default=noprint_wrappers=1:nokey=1", v]
+        out = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        durations.append(float(out.stdout.strip()))
+
+    video_ranges = []  # Liste: (video_index, start_time_in_video, abs_time_start)
+    current_abs = 0.0
+    for i, dur in enumerate(durations):
+        video_ranges.append((i, 0.0, current_abs))
+        current_abs += dur
+
+    for seg_start, seg_end in keep_segments:
+        for i, (vidx, local_start, abs_start) in enumerate(video_ranges):
+            abs_end = abs_start + durations[vidx]
+            if seg_end <= abs_start:
+                continue
+            if seg_start >= abs_end:
+                continue
+
+            # Schnittbereich im aktuellen Video (teilweise oder ganz)
+            cut_start = max(seg_start, abs_start)
+            cut_end = min(seg_end, abs_end)
+
+            ss_local = cut_start - abs_start
+            duration = cut_end - cut_start
+
+            if duration <= 0:
+                continue
+
+            outname = os.path.join(temp_dir, f"trim_{counter:03d}_{int(cut_start)}_{int(cut_end)}.mp4")
+            cmd = [
+                "ffmpeg", "-hide_banner", "-y",
+                "-ss", f"{ss_local:.3f}",
+                "-i", videos[vidx],
+                "-t", f"{duration:.3f}",
+                "-map", "0:v:0", "-c", "copy",
+                outname
+            ]
+            print("PRE-TRIM:", " ".join(cmd))
+            #subprocess.run(cmd, check=True)
+            run_command_gui(cmd, log_func=print)  # oder deine GUI-Logfunktion
+
+            result_files.append(outname)
+            timeline_map.append({
+                "src_start": cut_start,
+                "src_end": cut_end,
+                "dst_start": dst_time
+            })
+            dst_time += duration
+            counter += 1
+
+    return result_files, timeline_map
+    
+    
+def run_command_gui(cmd, log_func=print):
+    """
+    Führt einen externen Befehl aus und streamt stdout + stderr live in die GUI (z. B. QTextEdit).
+    """
+    log_func(f"[CMD] {' '.join(cmd)}")
+
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,  # Hier kommt auch das ffmpeg-Encoding rein!
+        bufsize=1,
+        universal_newlines=True,
+    )
+
+    for line in process.stdout:
+        if line:
+            log_func(line.rstrip())
+
+    process.wait()
+    if process.returncode != 0:
+        raise subprocess.CalledProcessError(process.returncode, cmd)
+        
+def remap_instructions(skip_instructions, overlay_instructions, timeline_map):
+    """
+    Remapt skip_instructions und overlay_instructions auf die neue Zeitachse nach Pre-Trim.
+    - Nur Skips mit value >= 0.1 (also keine -1/-2) werden berücksichtigt
+    - Der dritte Wert wird als xfade_duration übernommen
+    """
+    new_skips = []
+    for s, e, val in skip_instructions:
+        if val in (-1, -2):  # Pre-Trim Skips -> wurden bereits geschnitten
+            continue
+        rs = remap_time(s, timeline_map)
+        re = remap_time(e, timeline_map)
+        if rs is not None and re is not None and re > rs:
+            new_skips.append([rs, re, val])  # val ist hier xfade_dur
+
+    new_overlays = []
+    for ov in overlay_instructions:
+        rs = remap_time(ov["start"], timeline_map)
+        re = remap_time(ov["end"], timeline_map)
+        if rs is not None and re is not None and re > rs:
+            new_overlays.append({
+                "start": rs,
+                "end":   re,
+                "fade_in": ov.get("fade_in", 1.0),
+                "fade_out": ov.get("fade_out", 1.0),
+                "image": ov["image"],
+                "scale": ov.get("scale", 1.0),
+                "x": ov.get("x", 0),
+                "y": ov.get("y", 0)
+            })
+
+    return new_skips, new_overlays
+
+    
 ###############################################################################
 # 2) GPU-PRESET MAP
 ###############################################################################
@@ -410,32 +565,6 @@ def get_cpu_closedgop_params(enc_name="libx265"):
 
 def get_gpu_closedgop_params(hw_encode):
     return ["-bf","0","-g","15"]
-    
-def run_ffmpeg_live(cmd, log_callback=None):
-    """
-    Führt den gegebenen ffmpeg-Befehl aus und gibt stdout/stderr Zeile für Zeile
-    an log_callback weiter (z. B. print oder Textfeld).
-    """
-    process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        universal_newlines=True,
-        bufsize=1
-    )
-
-    for line in process.stdout:
-        if log_callback:
-            log_callback(line)
-        else:
-            print(line, end="")
-
-    process.stdout.close()
-    return_code = process.wait()
-    if return_code != 0:
-        raise subprocess.CalledProcessError(return_code, cmd)
-    
-    
 
 ###############################################################################
 # 5) CPU CRF vs GPU pseudo-CRF
@@ -514,14 +643,11 @@ def encode_closedgop(
     if filter_str:
         cmd+= ["-vf", filter_str]
 
-    #cmd+= [outname]
-    #print("ENCODE_CLOSEDGOP:", " ".join(cmd))
-    #subprocess.run(cmd, check=True)
-    cmd += [outname]
+    cmd+= [outname]
     print("ENCODE_CLOSEDGOP:", " ".join(cmd))
-
-    # Falls print() umgeleitet ist => nutzt EncoderDialog
-    run_ffmpeg_live(cmd, log_callback=print)
+    #subprocess.run(cmd, check=True)
+    run_command_gui(cmd, log_func=print)  # oder deine GUI-Logfunktion
+    
 
 ###############################################################################
 # 8) KEYFRAMES => live counter
@@ -530,7 +656,7 @@ def encode_closedgop(
 import re
 
 def get_keyframes(src):
-    print(f"\nIndexing Keyframes in {src} ...")
+    print(f"\nIndexing Keyframes in [may take a while - stay tuned ] {src} ...")
     pattern= re.compile(r'"best_effort_timestamp_time"\s*:\s*"')
     cmd=[
         "ffprobe","-hide_banner",
@@ -823,8 +949,7 @@ def build_segments_with_skip_and_overlay(
     # Sortieren nach Startzeit
     events.sort(key=lambda x: x["start"])
 
-    #temp_dir = get_or_create_encoder_temp_dir()
-    temp_dir = MY_GLOBAL_TMP_DIR
+    temp_dir = get_or_create_encoder_temp_dir()
     segments = []
     out_count = 1
     current_pos = 0.0
@@ -863,11 +988,11 @@ def build_segments_with_skip_and_overlay(
         # 2) Schauen, ob wir SKIP oder OVERLAY haben
         if ev["type"] == "skip":
             overlap = ev["overlap"]
-            if t2 > total_duration:
-                t2 = total_duration
-            if t1 >= total_duration:
-                debug_logs.append(f"[SKIP] JSON-Bereich {t1:.2f}..{t2:.2f} liegt komplett hinter Video-Ende => skip!")
-                continue
+            #if t2 > total_duration:
+            #    t2 = total_duration
+            #if t1 >= total_duration:
+            #    debug_logs.append(f"[SKIP] JSON-Bereich {t1:.2f}..{t2:.2f} liegt komplett hinter Video-Ende => skip!")
+            #    continue
                 
             # Wir "skippen" [t1..t2], aber crossfaden über overlap
             # => Segment A = [normal_end..(t1+overlap)]
@@ -980,151 +1105,97 @@ def build_segments_with_skip_and_overlay(
     print("=================================================\n")
 
     return segments
+    
+    
 
 
 ###############################################################################
 # MAIN
 ###############################################################################
 def xfade_main(cfg_path):
-
-    with open(cfg_path,"r",encoding="utf-8") as f:
-        c= json.load(f)
-
-    videos= c["videos"]
-    skip_list= c.get("skip_instructions",[])
-    overlay_list= c.get("overlay_instructions",[])
-    #merged_out= c["merged_output"]
-    merged_out = c["merged_output"]
-    endcut_s = None
-    if skip_list and isinstance(skip_list[-1], list) and len(skip_list[-1]) == 3:
-        if skip_list[-1][2] == -1:
-            endcut_s = skip_list[-1][0]
-            print(f"[INFO] Endcut erkannt bei {endcut_s:.3f}s — wird beim Mergen angewendet.")
-            skip_list = skip_list[:-1]
-
-    # Prüfe: Startcut mit -2?
-    startcut_s = None
-    if skip_list and isinstance(skip_list[0], list) and len(skip_list[0]) == 3:
-        if skip_list[0][2] == -2:
-            startcut_s = skip_list[0][1]
-            print(f"[INFO] Startcut erkannt bis {startcut_s:.3f}s — wird beim Mergen angewendet.")
-            skip_list = skip_list[1:]
     
-    
-    final_out= c["final_output"]
+    #if len(sys.argv) < 2:
+    #    print("Usage: python script.py config.json")
+    #    sys.exit(1)
 
-    hw_encode= c.get("hardware_encode","none")
-    encoder= c.get("encoder","libx265")
-    
-    if startcut_s is not None:
-        print(f"[INFO] Verschiebe alle skip/overlay Zeiten um -{startcut_s:.3f}s")
-        for i in range(len(skip_list)):
-            skip_list[i][0] = max(0.0, skip_list[i][0] - startcut_s)
-            skip_list[i][1] = max(0.0, skip_list[i][1] - startcut_s)
-        for ov in overlay_list:
-            ov["start"] = max(0.0, ov["start"] - startcut_s)
-            ov["end"]   = max(0.0, ov["end"] - startcut_s)
-    
-    crf= c.get("crf",23)  # default 23, if not given
-    fps= c.get("fps",30)
-    width= c.get("width",None)
-    preset= c.get("preset",None)
+    #with open(sys.argv[1], "r", encoding="utf-8") as f:
+    #    cfg = json.load(f)
+    with open(cfg_path, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+        
+    videos = cfg["videos"]
+    skip_list = cfg.get("skip_instructions", [])
+    overlay_list = cfg.get("overlay_instructions", [])
+    merged_out = cfg["merged_output"]
+    final_out = cfg["final_output"]
+    hw_encode = cfg.get("hardware_encode", "none")
+    encoder = cfg.get("encoder", "libx265")
+    crf = cfg.get("crf", 23)
+    fps = cfg.get("fps", 30)
+    width = cfg.get("width", None)
+    preset = cfg.get("preset", None)
 
-<<<<<<< HEAD
-    #temp_dir = tempfile.mkdtemp()
-    temp_dir = MY_GLOBAL_TMP_DIR
-    os.makedirs(temp_dir, exist_ok=True) 
-    print("[INFO] Using global TempDir:", temp_dir)
-    
-=======
-    tdir= clear_encoder_temp_dir()
-    print("[INFO] TempDir =>", tdir)
->>>>>>> parent of 43b597c (optimize encoder-mode)
+    temp_dir = tempfile.mkdtemp()
+    print("[INFO] TempDir:", temp_dir)
 
-    # merged => in tdir
-    base_name= os.path.basename(merged_out)
-    merged_path= os.path.join(tdir, base_name)
+    total_duration = 0.0
+    for v in videos:
+        cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+               "-of", "default=noprint_wrappers=1:nokey=1", v]
+        out = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        total_duration += float(out.stdout.strip())
 
-    # => concat
-    concat_txt= os.path.join(tdir,"concat_input.txt")
-    with open(concat_txt,"w",encoding="utf-8") as f:
-        for v in videos:
-            abspath= os.path.abspath(v)
-            f.write(f"file '{abspath}'\n")
+    keep_segments = compute_keep_segments(skip_list, total_duration)
+    print("[INFO] Keep segments:", keep_segments)
 
-    # => encode => CRF or GPU
+    trimmed_parts, timeline_map = pre_trim_input_videos(videos, keep_segments, temp_dir)
+    print("[INFO] Timeline map:", timeline_map)
+
+    concat_txt = os.path.join(temp_dir, "concat_input.txt")
+    with open(concat_txt, "w", encoding="utf-8") as f:
+        for path in trimmed_parts:
+            f.write(f"file '{os.path.abspath(path)}'\n")
+
+    merged_path = os.path.join(temp_dir, merged_out)
     encode_closedgop(
-        concat_file= concat_txt,
-        outname= merged_path,
-        encoder= encoder,
-        hw_encode= hw_encode,
-        fps= fps,
-        crf= crf,
-        width= width,
-        preset= preset
-    )
-    
-    if startcut_s is not None or endcut_s is not None:
-        trimmed = os.path.splitext(merged_path)[0] + "_trimmed.mp4"
-        cut_start = startcut_s if startcut_s is not None else 0.0
-        cut_end = endcut_s if endcut_s is not None else None
-
-        if cut_end is not None:
-            copy_cut(merged_path, cut_start, cut_end, trimmed)
-            print(f"[INFO] Video geschnitten auf {cut_start:.3f}s .. {cut_end:.3f}s (Start/Endcut).")
-        else:
-            # Nur Startcut
-            cmd = [
-                "ffmpeg", "-hide_banner", "-y",
-                "-ss", f"{cut_start:.3f}",
-                "-i", merged_path,
-                "-map", "0:v:0",
-                "-c", "copy",
-                trimmed
-            ]
-            print(f"[INFO] Nur Startcut: {cut_start:.3f}s =>", " ".join(cmd))
-            subprocess.run(cmd, check=True)
-
-        merged_path = trimmed
-        
-        
-        
-    # => Keyframes
-    cmd_dur=[
-        "ffprobe","-v","error",
-        "-show_entries","format=duration",
-        "-of","default=noprint_wrappers=1:nokey=1",
-        merged_path
-    ]
-    rr= subprocess.run(cmd_dur,capture_output=True,text=True,check=True)
-    total_dur= float(rr.stdout.strip())
-
-    kf= get_keyframes(merged_path)
-
-    # => skip + overlay
-    parted= build_segments_with_skip_and_overlay(
-        merged_file= merged_path,
-        kf_list= kf,
-        total_duration= total_dur,
-        skip_instructions= skip_list,
-        overlay_instructions= overlay_list,
-        encoder= encoder,
-        hw_encode= hw_encode,
-        crf= crf,
-        fps= fps,
-        width= width,
-        preset= preset
+        concat_file=concat_txt,
+        outname=merged_path,
+        encoder=encoder,
+        hw_encode=hw_encode,
+        fps=fps,
+        crf=crf,
+        width=width,
+        preset=preset
     )
 
-    # => final
-    final_concat_copy(parted, final_out)
+    cmd_dur = ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+               "-of", "default=noprint_wrappers=1:nokey=1", merged_path]
+    rr = subprocess.run(cmd_dur, capture_output=True, text=True, check=True)
+    new_duration = float(rr.stdout.strip())
+    print("[INFO] Merged duration:", new_duration)
 
-    print("\n=== DONE ===")
-    print("Ergebnis =>", final_out)
-    print("CRF/GPU => CPU => -crf | GPU => -rc vbr_hq -cq <CRF>.\n")
+    kf = get_keyframes(merged_path)
+    remapped_skips, remapped_overlays = remap_instructions(skip_list, overlay_list, timeline_map)
 
+    parts = build_segments_with_skip_and_overlay(
+        merged_file=merged_path,
+        kf_list=kf,
+        total_duration=new_duration,
+        skip_instructions=remapped_skips,
+        overlay_instructions=remapped_overlays,
+        encoder=encoder,
+        hw_encode=hw_encode,
+        crf=crf,
+        fps=fps,
+        width=width,
+        preset=preset
+    )
 
+    final_concat_copy(parts, final_out)
+    print("\n== DONE == Final video:", final_out)
 
+if __name__ == "__main__":
+    main()
 
 
 
@@ -1190,11 +1261,7 @@ class EncoderDialog(QDialog):
 
         # 3) c in eine temp-Datei schreiben, damit wir "xfade_main(...)" 
         #    ohne sys.argv aufrufen können:
-        #temp_cfg = os.path.join(tempfile.gettempdir(), "xfade_temp.json")
-        temp_cfg = os.path.join(
-            MY_GLOBAL_TMP_DIR,  # Globales Verzeichnis nutzen
-            "xfade_temp.json"
-        )
+        temp_cfg = os.path.join(tempfile.gettempdir(), "xfade_temp.json")
         with open(temp_cfg, "w", encoding="utf-8") as f2:
             json.dump(c, f2, indent=2)
 
@@ -1210,14 +1277,6 @@ class EncoderDialog(QDialog):
                     "Done",
                     "Video exported successfully!"
                 )
-                temp_dir = Path(MY_GLOBAL_TMP_DIR)
-                for item in temp_dir.glob('*'):
-                    if item.is_file():
-                        item.unlink()
-                    else:
-                        shutil.rmtree(item)
-
-
 
             except Exception as e:
                 print(f"[ERROR] {e}")
