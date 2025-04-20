@@ -2825,7 +2825,7 @@ class GPXControlWidget(QWidget):
         # Optional: Elevation linear B->E
         eleB = gpx_data[b_idx]["ele"]
         eleE = gpx_data[e_idx]["ele"]
-        total_count = len(new_points)-1
+        total_count = len(new_points)
         for i in range(1, total_count):
             frac = i/total_count
             new_points[i]["ele"] = eleB + frac*(eleE-eleB)

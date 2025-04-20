@@ -930,7 +930,8 @@ class MainWindow(QMainWindow):
         js_mb = f"setMapboxKey('{self._mapbox_key}')"
         page.runJavaScript(js_mb)
 
-        page.runJavaScript(f"setMapillaryKey('{self._mapillary_key}')")   
+        if self._mapillary_key:
+            page.runJavaScript(f"setMapillaryKey('{self._mapillary_key}')")   
 
 
     def _on_set_maptiler_key(self):
