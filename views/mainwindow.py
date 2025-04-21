@@ -1701,7 +1701,8 @@ class MainWindow(QMainWindow):
         recalc_gpx_data(gpx_data)
         self.gpx_widget.set_gpx_data(gpx_data)
         self._gpx_data = gpx_data
-    
+        self._update_gpx_overview()
+        
         # Chart, Mini-Chart usw. aktualisieren
         self.chart.set_gpx_data(gpx_data)
         if self.mini_chart_widget:
@@ -1710,6 +1711,7 @@ class MainWindow(QMainWindow):
         # Map neu laden
         route_geojson = self._build_route_geojson_from_gpx(gpx_data)
         self.map_widget.loadRoute(route_geojson, do_fit=False)
+        
 
         print(f"[INFO] Inserted new GPX point (DirectionsEnabled={self._directions_enabled}); total now {len(gpx_data)} pts.")
 
