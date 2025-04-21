@@ -572,7 +572,6 @@ class MainWindow(QMainWindow):
         self.gpx_control.minSpeedClicked.connect(self.gpx_control.on_min_speed_clicked)
         self.gpx_control.maxSpeedClicked.connect(self.gpx_control.on_max_speed_clicked)
         self.gpx_control.averageSpeedClicked.connect(self.gpx_control.on_average_speed_clicked)
-        self.gpx_control.averageSlopeClicked.connect(self.gpx_control.on_average_slope_clicked)
         self.gpx_control.showMinSlopeClicked.connect(self.gpx_control._on_show_min_slope)
         self.gpx_control.showMaxSlopeClicked.connect(self.gpx_control._on_show_max_slope)
 

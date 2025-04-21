@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 )
 
 from PySide6.QtCore import Qt, Signal, QPoint
+from PySide6.QtGui import QIcon
 
 from datetime import timedelta
 from core.gpx_parser import recalc_gpx_data
@@ -80,7 +81,6 @@ class GPXControlWidget(QWidget):
     showMaxSlopeClicked = Signal()
     showMinSlopeClicked = Signal()
     averageSpeedClicked = Signal()
-    averageSlopeClicked = Signal()
     maxSpeedClicked = Signal()
     minSpeedClicked = Signal()
     closeGapsClicked = Signal()
@@ -171,8 +171,8 @@ class GPXControlWidget(QWidget):
         self._buttons_layout.addWidget(self.chEle_button)
 
         # 7) ch%
-        self.chPercent_button = QPushButton("ch%", self)
-        self.chPercent_button.setToolTip("Change the percent of a point")
+        self.chPercent_button = QPushButton("%↗",self)
+        self.chPercent_button.setToolTip("Display and change the slope of points")
         self.chPercent_button.setMaximumWidth(50)
         self.chPercent_button.clicked.connect(self.chPercentClicked.emit)
         self._buttons_layout.addWidget(self.chPercent_button)
@@ -199,9 +199,6 @@ class GPXControlWidget(QWidget):
         
         action_avgspeed = self.more_menu.addAction("AverageSpeed")
         action_avgspeed.triggered.connect(self.averageSpeedClicked.emit)
-
-        action_avgslope = self.more_menu.addAction("AverageSlope")
-        action_avgslope.triggered.connect(self.averageSlopeClicked.emit)
         
         self._action_closegaps = self.more_menu.addAction("Close Gaps")
         self._action_closegaps.triggered.connect(self.closeGapsClicked.emit)
@@ -1144,36 +1141,6 @@ class GPXControlWidget(QWidget):
         mw.gpx_widget.gpx_list.clear_marked_range()
         mw.map_widget.clear_marked_range()
 
-    def on_average_slope_clicked(self):
-        if not self.check_data_for_avg():
-            return
-        
-        mw = self._mainwindow 
-        b_idx = mw.gpx_widget.gpx_list._markB_idx
-        e_idx = mw.gpx_widget.gpx_list._markE_idx
-        gpx_data = mw.gpx_widget.gpx_list._gpx_data
-    
-        if b_idx > e_idx:
-            b_idx, e_idx = e_idx, b_idx
-
-        weighted_sum = 0.0
-        total_dist = 0.0
-
-        for i in range(b_idx, e_idx - 1):
-            grad = gpx_data[i].get("gradient", 0.0)
-            dist = gpx_data[i].get("delta_m", 0.0)
-
-            weighted_sum += grad * dist
-            total_dist += dist
-
-        result = 0.0
-        if total_dist > 0:
-            result = weighted_sum / total_dist
-
-        QMessageBox.information(
-            self, "Average Slope",
-            f"Average slope in range {b_idx}..{e_idx}: {result:.2f}%"
-        )
     
     def _haversine_m(self, lat1, lon1, lat2, lon2):
         """

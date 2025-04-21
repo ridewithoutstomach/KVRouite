@@ -96,7 +96,7 @@
 
     #btnNewStreetPoint {
       position: absolute;
-      top: 40px;
+      top: 60px;
       left: 30px;
       z-index: 9999;
       cursor: pointer;
@@ -522,6 +522,7 @@
       if (!mapillaryKey || mapillaryKey.trim() === '') {
         document.getElementById("mapillaryKeyWarning").innerText = "Mapillary key needed to display street view.";
         document.getElementById("mapillaryKeyWarning").style.display = "block";
+        document.getElementById("btnNewStreetPoint").style.display = "none";
       }
 
       const resizeObserver = new ResizeObserver(() => {
@@ -619,8 +620,6 @@
               } else {
                 console.warn("Image geometry not available.");
               }
-            }).catch((err) => {
-              console.error("Failed to get viewer image:", err);
             });
       }
 
@@ -852,6 +851,7 @@
     function setMapillaryKey(newKey){ 
       mapillaryKey=newKey;
       document.getElementById("mapillaryKeyWarning").style.display = "none";
+      document.getElementById("btnNewStreetPoint").style.display = "block";
       initMapillary();
     }
 
