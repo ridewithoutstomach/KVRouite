@@ -543,12 +543,12 @@ def determine_encoder(cpu_encoder="libx265", hw_encode=None):
 
 def get_cpu_closedgop_params(enc_name="libx265"):
     if enc_name=="libx264":
-        return ["-x264-params","bframes=0:scenecut=0","-g","15","-keyint_min","15"]
+        return ["-x264-params","bframes=0:scenecut=0","-g","5","-keyint_min","5"]
     else:
-        return ["-x265-params","bframes=0:no-open-gop=1:scenecut=0","-g","15","-keyint_min","15"]
+        return ["-x265-params","bframes=0:no-open-gop=1:scenecut=0","-g","5","-keyint_min","5"]
 
 def get_gpu_closedgop_params(hw_encode):
-    return ["-bf","0","-g","15"]
+    return ["-bf","0","-g","5"]
 
 ###############################################################################
 # 5) CPU CRF vs GPU pseudo-CRF
