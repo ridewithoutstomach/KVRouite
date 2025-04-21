@@ -654,6 +654,7 @@ def get_keyframes(src):
     p= subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
     lines=[]
     count=0
+    spinner = ['|', '/', '-', '\\']
     while True:
         line= p.stdout.readline()
         if not line: break
@@ -662,7 +663,10 @@ def get_keyframes(src):
             count+=1
             m = re.search(r'"best_effort_timestamp_time"\s*:\s*"([^"]+)"', line)
             t_str = m.group(1) if m else "?"
-            print(f"\rKeyframes found: {count} => Time: {t_str}", end='', flush=True)
+            
+            if count % 50 == 0:
+                print(f"\rKeyframes found: {count} => Time: {t_str}", end='', flush=True)
+            
     p.wait()
     print()
     data= json.loads("".join(lines))
