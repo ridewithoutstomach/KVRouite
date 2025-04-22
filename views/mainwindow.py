@@ -175,6 +175,10 @@ class MainWindow(QMainWindow):
         dummy_action = QAction("New Project", self)
         file_menu.addAction(dummy_action)
         dummy_action.triggered.connect(self._on_new_project_triggered)
+
+        edit_menu = menubar.addMenu("Edit")
+        undo_action = QAction("Undo", self)
+        edit_menu.addAction(undo_action)
         
         view_menu = menubar.addMenu("View")
 
@@ -498,6 +502,7 @@ class MainWindow(QMainWindow):
         self.gpx_control = GPXControlWidget()
         self.bottom_right_layout.addWidget(self.gpx_control, stretch=1)
         
+        undo_action.triggered.connect(self.gpx_control.on_undo_range_clicked)
         
         self.gpx_widget = GPXWidget()
         
@@ -4347,6 +4352,5 @@ class MainWindow(QMainWindow):
             insert_pos = len(gpx_data)
         gpx_data.insert(insert_pos, new_pt)
         return insert_pos  # Index des neuen Punktes in gpx_data
-    
     
 
