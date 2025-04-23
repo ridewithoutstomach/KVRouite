@@ -341,11 +341,11 @@
     }
 
     function enableVideoMapMode(enable) {
-      const mapEl = document.getElementById("map");
+      const mapEl = document.getElementById("mapContainer");
       const viewerEl = document.getElementById("mapillaryViewer");
 
       if (enable) {
-        mapEl.style.flex = "0 0 40%";
+        mapEl.style.flex = "0 0 50%";
         viewerEl.style.height = "60%";
         viewerEl.style.overflow = "hidden";
         viewerEl.style.display = "flex";
