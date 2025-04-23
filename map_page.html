@@ -525,7 +525,13 @@
         document.getElementById("btnNewStreetPoint").style.display = "none";
       }
 
-      //resizeObserver.observe(viewerDiv);
+      const resizeObserver = new ResizeObserver(() => {
+        if (mapillaryViewer) {
+          mapillaryViewer.resize();  // This tells Mapillary to re-render properly
+        }
+      });
+
+      resizeObserver.observe(viewerDiv);
 
       const collapseBtn = document.getElementById("collapseViewerBtn");
       collapseBtn.addEventListener("click", () => {
@@ -566,9 +572,6 @@
         setTimeout(() => map.updateSize(), 100);
       }
 
-      if (mapillaryViewer) {
-        setTimeout(() => mapillaryViewer.resize(), 100);
-      }
     });
 
 
