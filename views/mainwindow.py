@@ -160,18 +160,15 @@ class MainWindow(QMainWindow):
         # Menüs
         menubar = self.menuBar()
         file_menu = menubar.addMenu("File")
-        self.playlist_menu = menubar.addMenu("Playlist")
         
         load_gpx_action = QAction("Open GPX", self)
         load_gpx_action.triggered.connect(self.load_gpx_file)
         file_menu.addAction(load_gpx_action)
 
-
         load_mp4_action = QAction("Open MP4", self)
         load_mp4_action.triggered.connect(self.load_mp4_files)
         file_menu.addAction(load_mp4_action)
         
-
         dummy_action = QAction("New Project", self)
         file_menu.addAction(dummy_action)
         dummy_action.triggered.connect(self._on_new_project_triggered)
@@ -179,6 +176,8 @@ class MainWindow(QMainWindow):
         edit_menu = menubar.addMenu("Edit")
         undo_action = QAction("Undo", self)
         edit_menu.addAction(undo_action)
+
+        self.playlist_menu = menubar.addMenu("Playlist")
         
         view_menu = menubar.addMenu("View")
 
@@ -503,6 +502,7 @@ class MainWindow(QMainWindow):
         self.bottom_right_layout.addWidget(self.gpx_control, stretch=1)
         
         undo_action.triggered.connect(self.gpx_control.on_undo_range_clicked)
+        undo_action.setShortcut("Ctrl+Z")
         
         self.gpx_widget = GPXWidget()
         
