@@ -171,8 +171,9 @@ class GPXControlWidget(QWidget):
         self._buttons_layout.addWidget(self.chEle_button)
 
         # 7) ch%
-        self.chPercent_button = QPushButton("%↗",self)
-        self.chPercent_button.setToolTip("Display and change the slope of points")
+        #self.chPercent_button = QPushButton("%↗",self)
+        self.chPercent_button = QPushButton("ch%",self)
+        self.chPercent_button.setToolTip("Change the slope of a point/range of points")
         self.chPercent_button.setMaximumWidth(50)
         self.chPercent_button.clicked.connect(self.chPercentClicked.emit)
         self._buttons_layout.addWidget(self.chPercent_button)
@@ -197,7 +198,7 @@ class GPXControlWidget(QWidget):
         action_maxspeed.triggered.connect(self.maxSpeedClicked.emit)
         action_minispeed.triggered.connect(self.minSpeedClicked.emit)
         
-        action_avgspeed = self.more_menu.addAction("AverageSpeed")
+        action_avgspeed = self.more_menu.addAction("Show AverageSpeed")
         action_avgspeed.triggered.connect(self.averageSpeedClicked.emit)
         
         self._action_closegaps = self.more_menu.addAction("Close Gaps")
