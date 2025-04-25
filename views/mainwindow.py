@@ -178,7 +178,7 @@ class MainWindow(QMainWindow):
         dummy_action.triggered.connect(self._on_new_project_triggered)
 
         edit_menu = menubar.addMenu("Edit")
-        undo_action = QAction("Undo", self)
+        undo_action = QAction("Undo - ", self)
         undo_action.setShortcut(QKeySequence("Ctrl+Z"))  # ⌨ STRG+Z
         edit_menu.addAction(undo_action)
         
@@ -393,7 +393,7 @@ class MainWindow(QMainWindow):
         setup_menu.addAction(reset_config_action)
         
 
-        info_menu = menubar.addMenu("Info")
+        info_menu = menubar.addMenu("About")
         
         copyright_action = info_menu.addAction("Copyright + License")
         copyright_action.triggered.connect(self._show_copyright_dialog)
