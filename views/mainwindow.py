@@ -52,6 +52,7 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtGui import QIcon
+from PySide6.QtGui import QKeySequence
 
 
 from PySide6.QtWidgets import (
@@ -108,7 +109,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         
         self._counter_url = "http://vgsync.casa-eller.de/project/counter.php"
-        
+        self._undo_stack = []
         
         self._maptiler_key = ""
         self._bing_key     = ""
@@ -178,6 +179,7 @@ class MainWindow(QMainWindow):
 
         edit_menu = menubar.addMenu("Edit")
         undo_action = QAction("Undo", self)
+        undo_action.setShortcut(QKeySequence("Ctrl+Z"))  # ⌨ STRG+Z
         edit_menu.addAction(undo_action)
         
         view_menu = menubar.addMenu("View")
@@ -502,7 +504,7 @@ class MainWindow(QMainWindow):
         self.gpx_control = GPXControlWidget()
         self.bottom_right_layout.addWidget(self.gpx_control, stretch=1)
         
-        undo_action.triggered.connect(self.gpx_control.on_undo_range_clicked)
+        undo_action.triggered.connect(self.on_global_undo)
         
         self.gpx_widget = GPXWidget()
         
@@ -560,7 +562,7 @@ class MainWindow(QMainWindow):
         
         self.gpx_control.cutClicked.connect(self.gpx_control.on_cut_range_clicked)
         self.gpx_control.removeClicked.connect(self.gpx_control.on_remove_range_clicked)
-        self.gpx_control.undoClicked.connect(self.gpx_control.on_undo_range_clicked)
+        #self.gpx_control.undoClicked.connect(self.gpx_control.on_undo_range_clicked)
         
         
         
@@ -627,7 +629,8 @@ class MainWindow(QMainWindow):
         self.video_control.markBClicked.connect(self.cut_manager.on_markB_clicked)
         self.video_control.markEClicked.connect(self.cut_manager.on_markE_clicked)
         self.video_control.cutClicked.connect(self.on_cut_clicked_video)
-        self.video_control.undoClicked.connect(self.on_undo_clicked_video)
+        #self.video_control.undoClicked.connect(self.on_undo_clicked_video)
+        #self.video_control.undoClicked.connect(self.on_global_undo)
         
         self.video_control.markClearClicked.connect(self.cut_manager.on_markClear_clicked)
         self.cut_manager.cutsChanged.connect(self._on_cuts_changed)
@@ -1805,13 +1808,9 @@ class MainWindow(QMainWindow):
     
         
         
-    
+    """
     def on_undo_clicked_video(self):
-        """
-        Wird aufgerufen, wenn im VideoControlWidget 'undo' geklickt wird.
-        1) Video-Cut-Undo via cut_manager
-        2) Falls autoSyncVideo=ON => GPX-Liste => undo_delete()
-        """
+       
         # 1) Video-Undo:
         self.map_widget.view.page().runJavaScript("showLoading('Undo GPX-Range...');")
         self.cut_manager.on_undo_clicked()
@@ -1832,8 +1831,14 @@ class MainWindow(QMainWindow):
             self.mini_chart_widget.set_gpx_data(self._gpx_data)
     
         self.map_widget.view.page().runJavaScript("hideLoading();")
-        
+    """    
     def on_cut_clicked_video(self):
+        self.register_video_undo_snapshot()
+        
+        if self._autoSyncVideoEnabled and self._edit_mode in ("copy", "encode"):
+            self.register_gpx_undo_snapshot()  # ❗ Vor dem Cut!
+        
+        
         """
         Wird aufgerufen, wenn der 'cut'-Button im VideoControlWidget gedrückt wird.
         1) Führt den normalen Video-Cut via cut_manager durch
@@ -1905,7 +1910,7 @@ class MainWindow(QMainWindow):
         
         if self.gpx_control:
             self.gpx_control.update_set_gpx2video_state(
-                video_edit_on=self.action_edit_video.isChecked(),
+                video_edit_on=self.action_toggle_video.isChecked(),
                 auto_sync_on=checked
             )
             
@@ -4352,5 +4357,46 @@ class MainWindow(QMainWindow):
             insert_pos = len(gpx_data)
         gpx_data.insert(insert_pos, new_pt)
         return insert_pos  # Index des neuen Punktes in gpx_data
+        
+    def on_global_undo(self):
+        if self._undo_stack:
+            undo_fn = self._undo_stack.pop()
+            undo_fn()  # Die gespeicherte Undo-Funktion ausführen
+        else:
+            print("Undo stack is empty.")    
     
+    def register_gpx_undo_snapshot(self):
+        gpx_snapshot = copy.deepcopy(self.gpx_widget.gpx_list._gpx_data)
 
+        def undo():
+            self.gpx_widget.set_gpx_data(gpx_snapshot)
+            self._gpx_data = gpx_snapshot
+            self._update_gpx_overview()
+            self.chart.set_gpx_data(gpx_snapshot)
+            if self.mini_chart_widget:
+                self.mini_chart_widget.set_gpx_data(gpx_snapshot)
+            route_geojson = self._build_route_geojson_from_gpx(gpx_snapshot)
+            self.map_widget.loadRoute(route_geojson, do_fit=False)
+
+        self._undo_stack.append(undo)
+
+    def register_video_undo_snapshot(self):
+        snapshot = copy.deepcopy(self.cut_manager._cut_intervals)
+
+        def undo():
+            self.cut_manager._cut_intervals = copy.deepcopy(snapshot)
+            self.timeline.clear_all_cuts()
+            for (start, end) in snapshot:
+                self.timeline.add_cut_interval(start, end)
+
+            self.cut_manager.video_editor.set_cut_intervals(snapshot)
+            self.timeline.update()
+
+            # 🆕: Letzten Cut-Endpunkt ermitteln
+            if snapshot:
+                last_end = snapshot[-1][1]
+                self.cut_manager.video_editor.set_cut_time(last_end)
+            else:
+                self.cut_manager.video_editor.set_cut_time(0.0)
+
+        self._undo_stack.append(undo)

@@ -41,7 +41,7 @@ class VideoControlWidget(QWidget):
     markBClicked             = Signal()
     markEClicked             = Signal()
     cutClicked               = Signal()
-    undoClicked              = Signal()
+    #undoClicked              = Signal()
     markClearClicked         = Signal()
     safeClicked              = Signal()
     syncClicked              = Signal()
@@ -201,10 +201,10 @@ class VideoControlWidget(QWidget):
         
         
         
-        self.undo_button = QPushButton("Undo")
-        self.undo_button.setFixedWidth(45)
-        self.undo_button.clicked.connect(self.undoClicked.emit)
-        layout.addWidget(self.undo_button)
+        #self.undo_button = QPushButton("Undo")
+        #self.undo_button.setFixedWidth(45)
+        #self.undo_button.clicked.connect(self.undoClicked.emit)
+        #layout.addWidget(self.undo_button)
 
         self.sync_button = QPushButton("GSync")
         self.sync_button.setToolTip("Show the corresponding GPX-Point")
@@ -241,7 +241,7 @@ class VideoControlWidget(QWidget):
         self.cut_button.setVisible(enabled)
         
         self.go_to_end_button.setVisible(enabled)
-        self.undo_button.setVisible(enabled)
+        #self.undo_button.setVisible(enabled)
         
         
     def show_ovl_button(self, show: bool):

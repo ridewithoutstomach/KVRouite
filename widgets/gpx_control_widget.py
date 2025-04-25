@@ -75,7 +75,7 @@ class GPXControlWidget(QWidget):
     chTimeClicked = Signal()
     chEleClicked = Signal()
     chPercentClicked = Signal()
-    undoClicked = Signal()
+    #undoClicked = Signal()
     smoothClicked = Signal()
     saveClicked = Signal()
     showMaxSlopeClicked = Signal()
@@ -233,14 +233,14 @@ class GPXControlWidget(QWidget):
               
 
         # 8) Undo
-        self.undo_button = QPushButton("Undo", self)
-        self.undo_button.setMaximumWidth(50)
-        self.undo_button.clicked.connect(self.undoClicked.emit)
-        self._buttons_layout.addWidget(self.undo_button)
+        #self.undo_button = QPushButton("Undo", self)
+        #self.undo_button.setMaximumWidth(50)
+        #self.undo_button.clicked.connect(self.undoClicked.emit)
+        #self._buttons_layout.addWidget(self.undo_button)
 
         # 9) Smooth
         self.smooth_button = QPushButton("Smooth", self)
-        self.undo_button.setMaximumWidth(50)
+        #self.undo_button.setMaximumWidth(50)
         self.smooth_button.setToolTip("Smooth the complete GPX \nChoose this only if you have complete edited!")
         self.smooth_button.clicked.connect(self.smoothClicked.emit)
         self._buttons_layout.addWidget(self.smooth_button)
@@ -401,8 +401,10 @@ class GPXControlWidget(QWidget):
             dlg.accept()
 
             # Undo-Snapshot
-            old_data = copy.deepcopy(gpx_data)
-            mw.gpx_widget.gpx_list._history_stack.append(old_data)
+            #old_data = copy.deepcopy(gpx_data)
+            #mw.gpx_widget.gpx_list._history_stack.append(old_data)
+            self.register_gpx_undo_snapshot()
+            
 
             # (A) Gesamtstrecke 2D in [b_idx.. e_idx]
             total_2d = calc_total_2d_distance(b_idx, e_idx)
@@ -515,9 +517,10 @@ class GPXControlWidget(QWidget):
             return
     
         # 2) Undo-Snapshot
-        old_data = copy.deepcopy(gpx_data)
-        mw.gpx_widget.gpx_list._history_stack.append(old_data)
-    
+        #old_data = copy.deepcopy(gpx_data)
+        #mw.gpx_widget.gpx_list._history_stack.append(old_data)
+        self.register_gpx_undo_snapshot()
+        
         # 3) Alle lat/lon im Bereich B..E sammeln
         latlon_list = []
         for i in range(b_idx, e_idx+1):
@@ -737,8 +740,9 @@ class GPXControlWidget(QWidget):
             return
     
         # => Undo-Snapshot
-        old_data = copy.deepcopy(gpx_data)
-        mw.gpx_widget.gpx_list._history_stack.append(old_data)
+        #old_data = copy.deepcopy(gpx_data)
+        #mw.gpx_widget.gpx_list._history_stack.append(old_data)
+        self.register_gpx_undo_snapshot()
     
         # alt = gpx_len_sec, neu = video_len
         old_duration = gpx_len_sec
@@ -936,12 +940,16 @@ class GPXControlWidget(QWidget):
         self.markE_button.setVisible(visible)    
     
     def _process_delete_points(self,shift_next: bool = True):
+        
         """
         Wird ausgelöst, wenn der Delete-Button (Mülleimer) 
         im gpx_control_widget geklickt wurde.
         => Leitet an die gpx_list weiter.
         """
         mw = self._mainwindow
+        gpx_data = mw.gpx_widget.gpx_list._gpx_data
+        mw.register_gpx_undo_snapshot()
+        
         mw.map_widget.view.page().runJavaScript("showLoading('Deleting GPX-Range...');")
         mw.gpx_widget.gpx_list.delete_selected_range(shift_next)
         mw._update_gpx_overview()
@@ -1097,9 +1105,10 @@ class GPXControlWidget(QWidget):
             return  # aborted
     
         # 4) Undo-Snapshot
-        old_data = copy.deepcopy(gpx_data)
-        mw.gpx_widget.gpx_list._history_stack.append(old_data)
-    
+        #old_data = copy.deepcopy(gpx_data)
+        #mw.gpx_widget.gpx_list._history_stack.append(old_data)
+        self.register_gpx_undo_snapshot()
+        
         # 5) partial-dist array
         partial_dist = [0.0]
         cum = 0.0
@@ -1282,9 +1291,10 @@ class GPXControlWidget(QWidget):
         flatten_val   = spin_flat.value()
     
         # 2) Undo => Kopie
-        old_data = copy.deepcopy(gpx_data)
-        mw.gpx_widget.gpx_list._history_stack.append(old_data)
-    
+        #old_data = copy.deepcopy(gpx_data)
+        #mw.gpx_widget.gpx_list._history_stack.append(old_data)
+        self.register_gpx_undo_snapshot()
+        
         # 3) => smoothing
         self._apply_smoothing(gpx_data, box_smoothing, flatten_val)
     
@@ -1446,9 +1456,10 @@ class GPXControlWidget(QWidget):
                 return
     
             # => Undo-Snapshot
-            old_data = copy.deepcopy(gpx_data)
-            mw.gpx_widget.gpx_list._history_stack.append(old_data)
-    
+            #old_data = copy.deepcopy(gpx_data)
+            #mw.gpx_widget.gpx_list._history_stack.append(old_data)
+            self.register_gpx_undo_snapshot()
+            
             # => wende offset an: gpx_data[b_idx..e_idx]
             for i in range(b_idx, e_idx + 1):
                 old_ele = gpx_data[i].get("ele", 0.0)
@@ -1490,8 +1501,9 @@ class GPXControlWidget(QWidget):
     
             # Undo
             
-            old_data = copy.deepcopy(gpx_data)
-            mw.gpx_widget.gpx_list._history_stack.append(old_data)
+            #old_data = copy.deepcopy(gpx_data)
+            #mw.gpx_widget.gpx_list._history_stack.append(old_data)
+            self.register_gpx_undo_snapshot()
     
             # Dialog => neue absolute Höhe
             dlg = QDialog(self)
@@ -1607,8 +1619,9 @@ class GPXControlWidget(QWidget):
     
             # 1) Undo snapshot
             
-            old_data = copy.deepcopy(gpx_data)
-            mw.gpx_widget.gpx_list._history_stack.append(old_data)
+            #old_data = copy.deepcopy(gpx_data)
+            #mw.gpx_widget.gpx_list._history_stack.append(old_data)
+            self.register_gpx_undo_snapshot()
     
             t_prev = gpx_data[row - 1].get("time", None)
             t_curr = gpx_data[row].get("time", None)
@@ -1699,9 +1712,10 @@ class GPXControlWidget(QWidget):
         # ----------------------------------------------------------------
         else:
             # 1) Undo snapshot
-            old_data = copy.deepcopy(gpx_data)
-            mw.gpx_widget.gpx_list._history_stack.append(old_data)
-    
+            #old_data = copy.deepcopy(gpx_data)
+            #mw.gpx_widget.gpx_list._history_stack.append(old_data)
+            self.register_gpx_undo_snapshot()
+            
             # 2) Calculate old total duration in [B..E]
             t_start = gpx_data[b_idx]["time"]
             t_end   = gpx_data[e_idx]["time"]
@@ -1852,8 +1866,9 @@ class GPXControlWidget(QWidget):
                 return
     
             # => Undo
-            old_data = copy.deepcopy(gpx_data)
-            mw.gpx_widget.gpx_list._history_stack.append(old_data)
+            #old_data = copy.deepcopy(gpx_data)
+            #mw.gpx_widget.gpx_list._history_stack.append(old_data)
+            self.register_gpx_undo_snapshot()
     
             # lat/lon/ele for row-1 and row
             lat1, lon1, ele1 = (
@@ -1949,8 +1964,9 @@ class GPXControlWidget(QWidget):
         # ------------------------------------------------------------------
         else:
             # => Undo
-            old_data = copy.deepcopy(gpx_data)
-            mw.gpx_widget.gpx_list._history_stack.append(old_data)
+            #old_data = copy.deepcopy(gpx_data)
+            #mw.gpx_widget.gpx_list._history_stack.append(old_data)
+            self.register_gpx_undo_snapshot()
     
             lat_b, lon_b, ele_b = (
                 gpx_data[b_idx].get("lat", 0.0),
@@ -2235,8 +2251,9 @@ class GPXControlWidget(QWidget):
         # ---------------------------------------------
         # 3) Undo-Snapshot
         # ---------------------------------------------
-        old_data = copy.deepcopy(gpx_data)
-        mw.gpx_widget.gpx_list._history_stack.append(old_data)
+        #old_data = copy.deepcopy(gpx_data)
+        #mw.gpx_widget.gpx_list._history_stack.append(old_data)
+        self.register_gpx_undo_snapshot()
 
         # ---------------------------------------------
         # 4) Fixen der Fehler - am besten in absteigender Index-Reihenfolge
@@ -2376,8 +2393,9 @@ class GPXControlWidget(QWidget):
             return
 
         # 3) Undo-Snapshot
-        old_data = copy.deepcopy(gpx_data)
-        mw.gpx_widget.gpx_list._history_stack.append(old_data)
+        #old_data = copy.deepcopy(gpx_data)
+        #mw.gpx_widget.gpx_list._history_stack.append(old_data)
+        self.register_gpx_undo_snapshot()
 
         # 4) Entfernen der betroffenen Indizes (in absteigender Reihenfolge!)
         zero_step_indices.sort(reverse=True)
@@ -2432,8 +2450,9 @@ class GPXControlWidget(QWidget):
     
         # 1) Undo-Snapshot
         
-        old_data = copy.deepcopy(gpx_data)
-        mw.gpx_widget.gpx_list._history_stack.append(old_data)
+        #old_data = copy.deepcopy(gpx_data)
+        #mw.gpx_widget.gpx_list._history_stack.append(old_data)
+        self.register_gpx_undo_snapshot()
     
         # 2) Löschen der Daten von 0..b_idx (inkl. b_idx)
         del gpx_data[0 : b_idx+1]
@@ -2520,8 +2539,9 @@ class GPXControlWidget(QWidget):
     
         # 1) Undo-Snapshot
         
-        old_data = copy.deepcopy(gpx_data)
-        mw.gpx_widget.gpx_list._history_stack.append(old_data)
+        #old_data = copy.deepcopy(gpx_data)
+        #mw.gpx_widget.gpx_list._history_stack.append(old_data)
+        self.register_gpx_undo_snapshot()
     
         # 2) Löschen ab e_idx (inkl.) bis zum Ende
         del gpx_data[e_idx:]
@@ -2584,8 +2604,9 @@ class GPXControlWidget(QWidget):
 
         # 1) Undo-Snapshot
         
-        old_data = copy.deepcopy(gpx_data)
-        mw.gpx_widget.gpx_list._history_stack.append(old_data)
+        #old_data = copy.deepcopy(gpx_data)
+        #mw.gpx_widget.gpx_list._history_stack.append(old_data)
+        self.register_gpx_undo_snapshot()
 
         # 2) Koordinaten
         lat1, lon1, ele1 = gpx_data[b_idx]["lat"], gpx_data[b_idx]["lon"], gpx_data[b_idx]["ele"]
@@ -2661,8 +2682,9 @@ class GPXControlWidget(QWidget):
       
     
         # 1) Undo-Snapshot
-        old_data = copy.deepcopy(gpx_data)
-        mw.gpx_widget.gpx_list._history_stack.append(old_data)
+        #old_data = copy.deepcopy(gpx_data)
+        #mw.gpx_widget.gpx_list._history_stack.append(old_data)
+        self.register_gpx_undo_snapshot()
 
         lat1, lon1 = gpx_data[b_idx]["lat"], gpx_data[b_idx]["lon"]
         lat2, lon2 = gpx_data[e_idx]["lat"], gpx_data[e_idx]["lon"]
@@ -2823,3 +2845,24 @@ class GPXControlWidget(QWidget):
 
         mw.gpx_widget.gpx_list.clear_marked_range()
         mw.map_widget.clear_marked_range()
+
+    def register_gpx_undo_snapshot(self):
+        mw = self._mainwindow
+        if not mw:
+            return
+
+        gpx_data = mw.gpx_widget.gpx_list._gpx_data
+        if not gpx_data:
+            return
+
+        snapshot = copy.deepcopy(gpx_data)
+
+        def undo():
+            mw.gpx_widget.set_gpx_data(snapshot)
+            mw._gpx_data = snapshot
+            mw._update_gpx_overview()
+            mw.chart.set_gpx_data(snapshot)
+            if mw.mini_chart_widget:
+                mw.mini_chart_widget.set_gpx_data(snapshot)
+
+        mw._undo_stack.append(undo)
