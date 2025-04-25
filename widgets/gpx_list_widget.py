@@ -544,7 +544,7 @@ class GPXListWidget(QWidget):
         self.table.blockSignals(False)
  
 
-    def delete_selected_range(self):
+    def delete_selected_range(self, shift: bool = True):
         """
         Löscht [markB..markE], 
         setzt Zeitlücke = 1s,
@@ -590,7 +590,7 @@ class GPXListWidget(QWidget):
         del self._gpx_data[b:e+1]
     
         # 3) Zeitlücke = 1 Sek
-        if b > 0 and b < len(self._gpx_data):
+        if shift and b > 0 and b < len(self._gpx_data):
             time_before = self._gpx_data[b-1]["time"]
             time_after  = self._gpx_data[b]["time"]
             old_gap = (time_after - time_before).total_seconds()

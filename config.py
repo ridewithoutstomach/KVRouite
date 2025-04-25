@@ -170,3 +170,12 @@ def clear_temp_directories():
             except Exception as e:
                 print(f"[WARN] Konnte {tmp_dir} nicht löschen: {e}")
         os.makedirs(tmp_dir, exist_ok=True)  # Neu anlegen, falls nötig        
+
+def set_soft_opengl_enabled(enabled: bool):
+    s = QSettings("VGSync", "VGSync")
+    s.setValue("softOpenGLEnabled", enabled)
+
+def is_soft_opengl_enabled() -> bool:
+    s = QSettings("VGSync", "VGSync")
+    val = s.value("softOpenGLEnabled", False, type=bool)
+    return val

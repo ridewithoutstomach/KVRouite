@@ -41,3 +41,4 @@ ffmpeg/doc/**
 mpv/*
 !mpv/
 !mpv/VGSync_mpv.txt
+config.js

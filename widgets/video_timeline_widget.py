@@ -67,6 +67,14 @@ class VideoTimelineWidget(QWidget):
         self._overlay_intervals = []
         self.setContextMenuPolicy(Qt.DefaultContextMenu)
         
+    def clear_all_cuts(self):
+        """
+        Entfernt alle Cut-Intervalle aus der Timeline.
+        """
+        self._cut_intervals = []
+        self.update()
+    
+        
     def add_overlay_interval(self, start_s: float, end_s: float):
         """
         Speichert ein Overlay-Zeitintervall, damit wir es in Blau markieren können.
