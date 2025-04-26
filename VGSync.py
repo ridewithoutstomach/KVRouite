@@ -156,7 +156,14 @@ def main():
             sys.exit(1)
         if not path_manager.ensure_ffmpeg_mac(None):
             QMessageBox.critical(None, "Missing FFmpeg (macOS)", "FFmpeg wurde nicht gefunden.")
+    elif current_os == "Linux":
+        if not path_manager.ensure_mpv_linux("/usr/lib/x86_64-linux-gnu/libmpv.so.2"):
+            QMessageBox.critical(None, "Missing MPV (Linux)", "libmpv.so.2 wurde nicht gefunden.\nInstalliere mit:\nsudo apt install libmpv-dev")
             sys.exit(1)
+        # ffmpeg prüfen – z. B. nur ob im PATH
+        if not shutil.which("ffmpeg"):
+            QMessageBox.critical(None, "Missing FFmpeg", "FFmpeg ist nicht im PATH.")
+            sys.exit(1)  
     else:
         QMessageBox.critical(None, "Unsupported OS", f"Dein Betriebssystem ({current_os}) wird derzeit nicht unterstützt.")
         sys.exit(1)

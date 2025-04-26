@@ -1,117 +1,142 @@
-# VGSync
+VGSync
+======
 
-VGSync is a Python-based desktop application designed to synchronize GPX data with video footage. It uses `mpv` for high-precision video playback and `ffmpeg` for media processing.
+VGSync is a Python-based desktop application designed to synchronize GPX data with video footage. Its a Videoa and GPX synchronising tool. It uses "mpv" for high-precision video playback and "ffmpeg" for media processing.
 
 - Version: see Releases
-- Platform: Windows 64-bit only
+- Platforms: Windows 64-bit (official support), Linux (tested on Kubuntu 24.04.2)
 - License: GNU General Public License v3.0 or later (GPL-3.0-or-later)
 
----
+-------------------------------------------------------------------------------
 
-## Requirements
+Requirements
+------------
 
-- Python 3.10.9 (64-bit) / Python 3.12.0 (64-bit)
-- `mpv` binary (must be placed in `mpv/`)
-- `ffmpeg` binary (must be placed in `ffmpeg/`)
+- Python 3.10.9 (64-bit) or Python 3.12.0 (64-bit)
+- mpv binary (must be placed in "mpv/" folder)
+- ffmpeg binary (must be placed in "ffmpeg/" folder)
 
-> Binaries are **not included in the Git repository** due to size limitations.  
-> You must download and extract them manually from the GitHub [Releases](https://github.com/ridewithoutstomach/VGSync/releases).
+Note:
+Binaries are NOT included in the Git repository due to size limitations.
+You must manually download and extract them from the GitHub Releases page.
 
----
+-------------------------------------------------------------------------------
 
-## Installation
+Installation
+------------
 
-We strongly recommend using a Python virtual environment:
+We strongly recommend using a Python virtual environment.
 
-```bash
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-```
+Linux:
 
-### 🔧 Install External Binaries
+    sudo apt update
+    sudo apt install ffmpeg libmpv-dev
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install -r requirements.txt
 
-Download the following ZIP files from the latest [VGSync Release](https://github.com/ridewithoutstomach/VGSync/releases/tag/v3.27):
+Windows:
 
-- [ffmpeg.zip](https://github.com/ridewithoutstomach/VGSync/releases/download/binaries-ffmpeg-mpv-v1/ffmpeg.zip) → extract into: `ffmpeg/`
-- [mpv.zip](https://github.com/ridewithoutstomach/VGSync/releases/download/binaries-ffmpeg-mpv-v1/mpv.zip) → extract into: `mpv/`
+    python -m venv venv
+    venv\Scripts\activate
+    pip install -r requirements.txt
 
+-------------------------------------------------------------------------------
 
-The folders `ffmpeg/` and `mpv/` contain `VGSync_ffmpeg.txt` and `VGSync_mpv.txt` as guidance.
+Install External Binaries (Windows)
+--------------------------
 
----
+Download the following ZIP files from the latest VGSync Release:
 
-## Running the Application
+- ffmpeg.zip → extract into "ffmpeg/" folder
+- mpv.zip → extract into "mpv/" folder
 
-```bash
-python VGSync.py
-```
+The "ffmpeg/" and "mpv/" folders include guidance files ("VGSync_ffmpeg.txt" and "VGSync_mpv.txt") describing the expected contents.
 
-## Pre-Built Windows Executable
+-------------------------------------------------------------------------------
 
-If you prefer not to install Python or deal with dependencies manually, you can use the **pre-built Windows binary**:
+Running the Application
+------------------------
 
-1. Download the ZIP file (`VGSync_3.27_Win_x64.zip` or similarly named `VGSync_[VERSION]_Win_x64.zip`) from the [GitHub Releases page](https://github.com/ridewithoutstomach/VGSync/releases).
-2. Extract the ZIP file into any folder of your choice.
-3. Double-click `VGSync.exe` to run the application.
----
+To start VGSync:
 
-## Building the Windows Executable
+    python VGSync.py
 
-```bash
-python build_with_pyinstaller.py
-```
+Important for Linux users:
+After launching the application, please enable "Use Software OpenGL" 
+in the Config menu to ensure proper video playback.
 
-The resulting `.exe` file will be located at:
+-------------------------------------------------------------------------------
 
-```
-dist/VGSync_3.27/VGSync.exe
-```
+Windows Executable
+------------------
 
----
+If you prefer not to install Python or manage dependencies manually,
+you can use the pre-built Windows binary:
 
-## Third-Party Components
+1. Download the ZIP file (e.g., "VGSync_3.27_Win_x64.zip") from the GitHub Releases page.
+2. Extract the ZIP file into any folder.
+3. Double-click "VGSync.exe" to run the application.
+
+-------------------------------------------------------------------------------
+
+Building the Windows Executable Manually
+----------------------------------------
+
+To create your own Windows executable:
+
+    python build_with_pyinstaller.py
+
+The resulting executable will be located at:
+
+    dist/VGSync_3.27/VGSync.exe
+
+-------------------------------------------------------------------------------
+
+Third-Party Components
+-----------------------
 
 This project includes and relies on the following third-party components:
 
-### FFmpeg
-
+FFmpeg
 - Version: 7.1-full_build
 - License: GPLv3
 - Website: https://ffmpeg.org
-- Binaries provided in: `ffmpeg/`
-- Original source code included in: `third-party-src/FFmpeg-7.1-source.zip`
-- Release notes are included in the source archive
+- Binaries provided in: "ffmpeg/"
+- Original source code included in: "third-party-src/FFmpeg-7.1-source.zip"
+- Release notes included in the source archive
 
-### mpv
-
+mpv
 - Version: 0.40.0
 - License: LGPLv2.1+
 - Website: https://mpv.io
-- Binaries provided in: `mpv/`
-- Original source code included in: `third-party-src/mpv-0.40.0-source.zip`
-- Release notes are included in the source archive
+- Binaries provided in: "mpv/"
+- Original source code included in: "third-party-src/mpv-0.40.0-source.zip"
+- Release notes included in the source archive
 
-All third-party components are redistributed in accordance with their respective licenses. The complete and unmodified source code is included in the `third-party-src/` directory and will be retained and made available for at least three (3) years in accordance with GPL and LGPL requirements.
+All third-party components are redistributed in accordance with their respective licenses.
+The complete and unmodified source code is included in the "third-party-src/" directory 
+and will be retained and made available for at least three (3) years in accordance with GPL and LGPL requirements.
 
----
+-------------------------------------------------------------------------------
 
-## License
+License
+-------
 
 This project is licensed under the GNU General Public License v3.0 or later.
 
 You are free to:
-
 - Use, copy, and distribute this software
 - Study and modify the source code
 - Redistribute modified versions under the same license
 
-The full text of the license is included in the file `LICENSE`.
+The full text of the license is included in the "LICENSE" file.
 
-This distribution includes the full source code of VGSync, along with all required third-party binaries and their sources, in compliance with GPL requirements.
+-------------------------------------------------------------------------------
 
----
-
-## Contact
+Contact
+-------
 
 For questions, suggestions, or contributions, please open an issue or pull request on GitHub.
+
+-------------------------------------------------------------------------------
