@@ -172,6 +172,16 @@ class MainWindow(QMainWindow):
         load_mp4_action.triggered.connect(self.load_mp4_files)
         file_menu.addAction(load_mp4_action)
         
+        
+        save_project_action = QAction("Save Project", self)
+        save_project_action.triggered.connect(self.save_project)
+        file_menu.addAction(save_project_action)
+
+        load_project_action = QAction("Load Project", self)
+        load_project_action.triggered.connect(self.load_project)
+        file_menu.addAction(load_project_action)
+
+        
 
         dummy_action = QAction("New Project", self)
         file_menu.addAction(dummy_action)
@@ -4405,3 +4415,144 @@ class MainWindow(QMainWindow):
                 self.cut_manager.video_editor.set_cut_time(0.0)
 
         self._undo_stack.append(undo)
+
+    def save_project(self):
+        """
+        Speichert das aktuelle Projekt in eine JSON-Datei.
+        """
+        filename, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "VGSync Project (*.vgsyncproj)")
+        if not filename:
+            return
+        if not filename.endswith(".vgsyncproj"):
+            filename += ".vgsyncproj"
+        project_data = {
+            "playlist": self.playlist,
+            "video_durations": self.video_durations,
+            "global_keyframes": self.global_keyframes,
+            "gpx_data": self.gpx_widget.gpx_list._gpx_data,
+            "cut_intervals": self.cut_manager._cut_intervals,
+            "gpx_markers": {
+                "markB_idx": self.gpx_widget.gpx_list._markB_idx,
+                "markE_idx": self.gpx_widget.gpx_list._markE_idx
+            },
+            "overlays": self._overlay_manager.get_all_overlays(),
+        }
+
+    
+    
+        try:
+            with open(filename, "w", encoding="utf-8") as f:
+                json.dump(project_data, f, indent=2, default=str)
+            QMessageBox.information(self, "Project Saved", f"Project saved to:\n{filename}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save project:\n{e}")
+
+        
+
+    def load_project(self):
+        """
+        Lädt ein Projekt aus einer .vgsyncproj-Datei und stellt den kompletten Zustand vollständig wieder her.
+        """
+        filename, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "VGSync Project (*.vgsyncproj)")
+        if not filename:
+            return
+
+        try:
+            with open(filename, "r", encoding="utf-8") as f:
+                project_data = json.load(f)
+
+            # 1. Playlist und Videolängen
+            self.playlist = project_data.get("playlist", [])
+            self.video_durations = project_data.get("video_durations", [])
+            self.global_keyframes = project_data.get("global_keyframes", [])
+
+            # 2. GPX-Daten laden + reparieren (datetime aus String machen)
+            gpx_data = project_data.get("gpx_data", [])
+            for pt in gpx_data:
+                if "time" in pt and isinstance(pt["time"], str):
+                    try:
+                        pt["time"] = datetime.fromisoformat(pt["time"])
+                    except Exception:
+                        pass  # Falls Zeit kaputt, bleibt String
+
+            self._gpx_data = gpx_data
+            self.gpx_widget.gpx_list._gpx_data = gpx_data
+
+            # 3. Cuts laden
+            self.cut_manager._cut_intervals = project_data.get("cut_intervals", [])
+            if self.video_durations:
+                total_duration = sum(self.video_durations)
+                self.timeline.set_total_duration(total_duration)
+
+                boundaries = []
+                accum = 0.0
+                for d in self.video_durations:
+                    accum += d
+                    boundaries.append(accum)
+                self.timeline.set_boundaries(boundaries)
+            
+
+            # 4. GPX Markierungen B/E laden
+            gpx_markers = project_data.get("gpx_markers", {})
+            self.gpx_widget.gpx_list._markB_idx = gpx_markers.get("markB_idx", None)
+            self.gpx_widget.gpx_list._markE_idx = gpx_markers.get("markE_idx", None)
+
+            # 5. Overlays laden
+            overlays = project_data.get("overlays", [])
+            self._overlay_manager.clear_overlays()
+            for ovl in overlays:
+                self._overlay_manager.add_overlay(ovl)
+
+            # 6. VideoEditor neu setzen
+            self.video_editor.set_playlist(self.playlist)
+            if self.video_durations:
+                self.video_editor.set_multi_durations(self.video_durations)
+
+            self.video_editor.set_cut_intervals(self.cut_manager._cut_intervals)
+
+            if self.video_durations:
+                total_duration = sum(self.video_durations)
+                self.video_editor.set_total_length(total_duration)
+
+            if self.cut_manager._cut_intervals:
+                cut_duration = self._calculate_cut_total_duration()
+                self.video_editor.set_cut_time(cut_duration)
+            else:
+                self.video_editor.set_cut_time(0.0)
+
+            # 7. GPX Widgets neu aufbauen
+            self.gpx_widget.set_gpx_data(gpx_data)
+            self.chart.set_gpx_data(gpx_data)
+            if self.mini_chart_widget:
+                self.mini_chart_widget.set_gpx_data(gpx_data)
+
+            route_geojson = self._build_route_geojson_from_gpx(gpx_data)
+            self.map_widget.loadRoute(route_geojson, do_fit=True)
+
+            self._update_gpx_overview()
+
+            # 8. Timeline neu aufbauen
+            self.timeline.clear_all_cuts()
+            for start_s, end_s in self.cut_manager._cut_intervals:
+                self.timeline.add_cut_interval(start_s, end_s)
+
+            self.timeline.update()
+
+            QMessageBox.information(self, "Project Loaded", f"Project loaded from:\n{filename}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load project:\n{e}")
+        
+    def _calculate_cut_total_duration(self):
+        """
+        Berechnet die Gesamtdauer nach Anwendung aller Cuts.
+        """
+        if not self.video_durations:
+            return 0.0
+        original_total = sum(self.video_durations)
+        cut_total = original_total
+        for start, end in self.cut_manager._cut_intervals:
+            cut_total -= (end - start)
+        return max(0.0, cut_total)
+
+    
