@@ -4039,74 +4039,8 @@ class MainWindow(QMainWindow):
 
         # Falls du nur sub recalc willst, ist das aufwändiger.
         
-    def _on_new_project_triggered(self):
-        """
-        Führt einen "Soft-Reset" durch, ohne das Programm neu zu starten.
-        Alle Daten (GPX, Videos, Markierungen) werden entfernt.
-        """
         
-
-        answer = QMessageBox.question(
-            self,
-            "New Project",
-            "All data (GPX, video playlist, cuts, marks) will be removed.\n"
-            "Do you really want to start a new project?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-        if answer == QMessageBox.Yes:
-            # 1) Playback stoppen
-            self.on_stop()  # oder self.video_editor.stop(), + selbst is_playing=False etc.
     
-            # 2) Video-Cuts entfernen
-            self.cut_manager._cut_intervals.clear()  # or use an API remove_all_cuts()
-            self.cut_manager.markB_time_s = -1
-            self.cut_manager.markE_time_s = -1
-
-            # 3) Timeline zurücksetzen
-            self.timeline.set_markB_time(-1)
-            self.timeline.set_markE_time(-1)
-            self.timeline._cut_intervals.clear()  # interne Liste
-            self.timeline.set_marker_position(0.0)
-            self.timeline.set_total_duration(0.0)
-
-            # 4) GPX-Widget + GPX-Daten leeren
-            self.gpx_widget.set_gpx_data([])
-            self._gpx_data = []
-            # Undo-Stack der gpx_list leeren
-            self.gpx_widget.gpx_list._history_stack.clear()
-            # Markierungen
-            self.gpx_widget.gpx_list.clear_marked_range()
-
-            # 5) Playlist und Video-Durations leeren
-            self.playlist.clear()
-            self.video_durations.clear()
-            #self.video_editor.rebuild_vlc_playlist([])  # leere Liste => kein Video
-            self.video_editor.set_playlist([])
-            
-            self.playlist_menu.clear()  # <-- Wichtig!
-            self.video_editor.set_total_length(0.0)
-            self.video_editor.set_cut_time(0.0)
-
-
-            # 6) Falls du globale Keyframes (self.global_keyframes) hast:
-            self.global_keyframes.clear()
-
-            # 7) Ggf. GUI-Anzeigen zurücksetzen (z.B. chart, map)
-            self.chart.set_gpx_data([])
-            if self.mini_chart_widget:
-                self.mini_chart_widget.set_gpx_data([])
-            self.map_widget.loadRoute(None, do_fit=False)
-            
-            self.map_widget.loadRoute({"type":"FeatureCollection","features":[]}, do_fit=False)
-    
-            # 8) Info an den User
-            QMessageBox.information(
-                self,
-                "Project Cleared",
-                "All data was cleared. You can now load new GPX/videos."
-            )
-
     def add_or_update_point_on_map(self, stable_id: str, lat: float, lon: float, 
                                 color: str="#000000", size: int=4):
         """
@@ -4127,6 +4061,79 @@ class MainWindow(QMainWindow):
 
     
     
+    def _on_new_project_triggered(self):
+        """
+        Setzt das Projekt zurück für einen neuen Start.
+        (Originalstruktur beibehalten, nur Overlay und mpv-Stop fixen)
+        """
+        reply = QMessageBox.question(
+            self,
+            "New Project",
+            "Are you sure you want to start a new project?\nAll unsaved changes will be lost.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        # mpv Player stoppen und leeren
+        if self.video_editor._player:
+            try:
+                self.video_editor._player.command("stop")  # <<< neu ergänzt
+                self.video_editor._player.command("playlist-clear")
+            except Exception as e:
+                print(f"[WARN] Could not clear playlist: {e}")
+
+        # interne Video-Infos leeren
+        self.playlist.clear()
+        self.video_durations.clear()
+        self.global_keyframes.clear()
+    
+        self.video_editor.playlist = []
+        self.video_editor.multi_durations = []
+        self.video_editor.boundaries = []
+        self.video_editor.is_playing = False
+        self.video_editor._current_index = 0
+        self.video_editor.set_total_length(0.0)
+        self.video_editor.set_cut_time(0.0)
+        self.video_editor.current_time_label.setText("")
+
+        # Timeline löschen
+        self.timeline.clear_all_cuts()
+        self.timeline.clear_overlay_intervals()  # <<< richtig ersetzt
+        self.timeline.set_total_duration(0.0)
+        self.timeline.set_boundaries([])
+
+        # GPX Daten löschen
+        self._gpx_data.clear()
+        self.gpx_widget.set_gpx_data([])
+        self.chart.set_gpx_data([])
+        if self.mini_chart_widget:
+            self.mini_chart_widget.set_gpx_data([])
+        
+        self.map_widget.loadRoute({"type": "FeatureCollection", "features": []}, do_fit=True)
+    
+        # Cuts löschen
+        self.cut_manager._cut_intervals.clear()
+        self.cut_manager.markB_time_s = -1.0
+        self.cut_manager.markE_time_s = -1.0
+
+        # Overlays löschen
+        self._overlay_manager._overlays.clear()
+
+        # Undo-Stack löschen
+        self._undo_stack.clear()
+
+        # interne Zustände
+        self.first_video_frame_shown = False
+        self.real_total_duration = 0.0
+        self.playlist_counter = 0
+
+        # Timeline und Editor neu zeichnen
+        self.timeline.update()
+        self.video_editor.update()
+
+        QMessageBox.information(self, "New Project", "New project started successfully.")
      
 
     
