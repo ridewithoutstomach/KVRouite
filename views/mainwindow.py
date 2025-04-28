@@ -4472,6 +4472,13 @@ class MainWindow(QMainWindow):
             self.playlist = project_data.get("playlist", [])
             self.video_durations = project_data.get("video_durations", [])
             self.global_keyframes = project_data.get("global_keyframes", [])
+            if self.video_durations:
+                self.real_total_duration = sum(self.video_durations)
+            else:
+                self.real_total_duration = 0.0
+                
+            self.video_durations = project_data.get("video_durations", [])
+            
 
             # 2. GPX-Daten laden + reparieren (datetime aus String machen)
             gpx_data = project_data.get("gpx_data", [])
