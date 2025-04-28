@@ -165,26 +165,37 @@ class MainWindow(QMainWindow):
         file_menu.addAction(dummy_action)
         dummy_action.triggered.connect(self._on_new_project_triggered)
 
+        file_menu.addSeparator()
+
         load_project_action = QAction("Load Project", self)
         load_project_action.triggered.connect(self.load_project)
         file_menu.addAction(load_project_action)
         
-        load_gpx_action = QAction("Open GPX", self)
+        load_gpx_action = QAction("Import GPX", self)
         load_gpx_action.triggered.connect(self.load_gpx_file)
         file_menu.addAction(load_gpx_action)
 
-        load_mp4_action = QAction("Open MP4", self)
+        load_mp4_action = QAction("Import video", self)
         load_mp4_action.triggered.connect(self.load_mp4_files)
         file_menu.addAction(load_mp4_action)
 
         self.recent_menu = QMenu("Open Recent", self)
-        file_menu.addMenu(self.recent_menu)
-    
+        file_menu.addMenu(self.recent_menu)    
         self.update_recent_files_menu()
+
+        file_menu.addSeparator()
         
         save_project_action = QAction("Save Project", self)
         save_project_action.triggered.connect(self.save_project)
         file_menu.addAction(save_project_action)
+
+        save_gpx_action = QAction("Export GPX", self)
+        save_gpx_action.triggered.connect(self.on_save_gpx_clicked)
+        file_menu.addAction(save_gpx_action)
+
+        render_action = QAction("Export video", self)
+        render_action.triggered.connect(self.on_render_clicked)
+        file_menu.addAction(render_action)
 
 
         edit_menu = menubar.addMenu("Edit")
@@ -581,7 +592,7 @@ class MainWindow(QMainWindow):
         
         
         
-        self.gpx_control.saveClicked.connect(self.gpx_control.on_save_gpx_clicked)
+        #self.gpx_control.saveClicked.connect(self.gpx_control.on_save_gpx_clicked)
             
         
         
@@ -663,7 +674,7 @@ class MainWindow(QMainWindow):
        
             
         
-        self.video_control.safeClicked.connect(self.on_safe_clicked)
+       # self.video_control.safeClicked.connect(self.on_render_clicked)
 
        
 
@@ -3253,7 +3264,7 @@ class MainWindow(QMainWindow):
         
         
     ## on_safe_click
-    def on_safe_clicked(self):
+    def on_render_clicked(self):
         # 1) Sicherheitsabfrage
         msg = QMessageBox(self)
         msg.setWindowTitle("Are you sure?")
@@ -4618,3 +4629,67 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.critical(self, "Error", f"Unsupported file type:\n{path}")
             return
+
+    def on_save_gpx_clicked(self):
+        
+        """
+        Wird aufgerufen, wenn man im GPXControlWidget den Safe-Button drückt.
+        => Speichert die GPX-Daten, ggf. gekürzt auf finale Videolänge,
+        falls Videos geladen wurden.
+        """
+        #from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+        # 1) Dateidialog
+        out_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save GPX File",
+            "export.gpx",
+            "GPX Files (*.gpx)"
+        )
+        if not out_path:
+            return
+            
+        if not self.playlist or not self.video_durations:
+            # => gar kein Video => wir beschneiden NICHT
+            final_duration_s = float('inf')
+        else:
+            # => Video vorhanden => berechne final_length
+            final_duration_s = self.real_total_duration
+            sum_cuts_s = self.cut_manager.get_total_cuts()
+            final_duration_s -= sum_cuts_s
+            if final_duration_s < 0:
+                final_duration_s = 0
+
+        # 3) GPX-Daten => z. B. gpx_list._gpx_data
+        gpx_data = self.gpx_widget.gpx_list._gpx_data
+        if not gpx_data:
+            QMessageBox.warning(self, "No GPX", "Keine GPX-Daten vorhanden!")
+            return
+
+        # 4) Kürzen => alle Punkte, deren rel_s <= final_duration_s
+        truncated = []
+        for pt in gpx_data:
+            rel_s = pt.get("rel_s", 0.0)
+            if rel_s <= final_duration_s:
+                truncated.append(pt)
+            else:
+                break  # Annahme: Zeit ist aufsteigend
+
+        if len(truncated) < 2:
+            QMessageBox.warning(self, "Truncation", 
+                "Nach Kürzen an die Videolänge bleibt kein sinnvolles GPX übrig!")
+            return
+    
+        # 5) => Speichern
+        self._save_gpx_to_file(truncated, out_path)
+        
+        
+        ret = self._increment_counter_on_server("gpx")
+        if ret is not None:
+            vcount, gcount = ret
+            print(f"[INFO] Server-Counter nun: Video={vcount}, GPX={gcount}")
+        else:
+            print("[WARN] Konnte GPX-Zähler nicht hochsetzen.")
+    
+        QMessageBox.information(self, "Done", 
+            f"GPX-Daten wurden als '{out_path}' gespeichert.")
