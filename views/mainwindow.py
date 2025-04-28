@@ -52,6 +52,7 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtGui import QIcon
+from PySide6.QtGui import QKeySequence
 
 
 from PySide6.QtWidgets import (
@@ -108,7 +109,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         
         self._counter_url = "http://vgsync.casa-eller.de/project/counter.php"
-        
+        self._undo_stack = []
         
         self._maptiler_key = ""
         self._bing_key     = ""
@@ -169,12 +170,24 @@ class MainWindow(QMainWindow):
         load_mp4_action.triggered.connect(self.load_mp4_files)
         file_menu.addAction(load_mp4_action)
         
+        
+        save_project_action = QAction("Save Project", self)
+        save_project_action.triggered.connect(self.save_project)
+        file_menu.addAction(save_project_action)
+
+        load_project_action = QAction("Load Project", self)
+        load_project_action.triggered.connect(self.load_project)
+        file_menu.addAction(load_project_action)
+
+        
+
         dummy_action = QAction("New Project", self)
         file_menu.addAction(dummy_action)
         dummy_action.triggered.connect(self._on_new_project_triggered)
 
         edit_menu = menubar.addMenu("Edit")
-        undo_action = QAction("Undo", self)
+        undo_action = QAction("Undo - ", self)
+        undo_action.setShortcut(QKeySequence("Ctrl+Z"))  # ⌨ STRG+Z
         edit_menu.addAction(undo_action)
 
         self.playlist_menu = menubar.addMenu("Playlist")
@@ -378,19 +391,21 @@ class MainWindow(QMainWindow):
         action_size_yellow = QAction("Yellow Point", self)
         action_size_yellow.triggered.connect(lambda: self._on_set_map_point_size("yellow"))
         pts_size_menu.addAction(action_size_yellow)
-                
-        self.action_enable_soft_opengl = QAction("Use sofware OpenGL", self)
-        self.action_enable_soft_opengl.setCheckable(True)
-        self.action_enable_soft_opengl.setChecked(config.is_soft_opengl_enabled())  
-        self.action_enable_soft_opengl.triggered.connect(self._on_enable_soft_opengl_toggled)
-        setup_menu.addAction(self.action_enable_soft_opengl)
+        
+        # OpenGL Menu:
+        #self.action_enable_soft_opengl = QAction("Use sofware OpenGL", self)
+        #self.action_enable_soft_opengl.setCheckable(True)
+        #self.action_enable_soft_opengl.setChecked(config.is_soft_opengl_enabled())  
+        #self.action_enable_soft_opengl.triggered.connect(self._on_enable_soft_opengl_toggled)
+        #setup_menu.addAction(self.action_enable_soft_opengl)
+        
         
         reset_config_action = QAction("Reset Config", self)
         reset_config_action.triggered.connect(self._on_reset_config_triggered)
         setup_menu.addAction(reset_config_action)
         
 
-        info_menu = menubar.addMenu("Info")
+        info_menu = menubar.addMenu("About")
         
         copyright_action = info_menu.addAction("Copyright + License")
         copyright_action.triggered.connect(self._show_copyright_dialog)
@@ -501,8 +516,7 @@ class MainWindow(QMainWindow):
         self.gpx_control = GPXControlWidget()
         self.bottom_right_layout.addWidget(self.gpx_control, stretch=1)
         
-        undo_action.triggered.connect(self.gpx_control.on_undo_range_clicked)
-        undo_action.setShortcut("Ctrl+Z")
+        undo_action.triggered.connect(self.on_global_undo)
         
         self.gpx_widget = GPXWidget()
         
@@ -560,7 +574,7 @@ class MainWindow(QMainWindow):
         
         self.gpx_control.cutClicked.connect(self.gpx_control.on_cut_range_clicked)
         self.gpx_control.removeClicked.connect(self.gpx_control.on_remove_range_clicked)
-        self.gpx_control.undoClicked.connect(self.gpx_control.on_undo_range_clicked)
+        #self.gpx_control.undoClicked.connect(self.gpx_control.on_undo_range_clicked)
         
         
         
@@ -627,7 +641,8 @@ class MainWindow(QMainWindow):
         self.video_control.markBClicked.connect(self.cut_manager.on_markB_clicked)
         self.video_control.markEClicked.connect(self.cut_manager.on_markE_clicked)
         self.video_control.cutClicked.connect(self.on_cut_clicked_video)
-        self.video_control.undoClicked.connect(self.on_undo_clicked_video)
+        #self.video_control.undoClicked.connect(self.on_undo_clicked_video)
+        #self.video_control.undoClicked.connect(self.on_global_undo)
         
         self.video_control.markClearClicked.connect(self.cut_manager.on_markClear_clicked)
         self.cut_manager.cutsChanged.connect(self._on_cuts_changed)
@@ -1765,7 +1780,8 @@ class MainWindow(QMainWindow):
         recalc_gpx_data(gpx_data)
         self.gpx_widget.set_gpx_data(gpx_data)
         self._gpx_data = gpx_data
-    
+        self._update_gpx_overview()
+        
         # Chart, Mini-Chart usw. aktualisieren
         self.chart.set_gpx_data(gpx_data)
         if self.mini_chart_widget:
@@ -1774,6 +1790,7 @@ class MainWindow(QMainWindow):
         # Map neu laden
         route_geojson = self._build_route_geojson_from_gpx(gpx_data)
         self.map_widget.loadRoute(route_geojson, do_fit=False)
+        
 
         print(f"[INFO] Inserted new GPX point (DirectionsEnabled={self._directions_enabled}); total now {len(gpx_data)} pts.")
 
@@ -1805,13 +1822,9 @@ class MainWindow(QMainWindow):
     
         
         
-    
+    """
     def on_undo_clicked_video(self):
-        """
-        Wird aufgerufen, wenn im VideoControlWidget 'undo' geklickt wird.
-        1) Video-Cut-Undo via cut_manager
-        2) Falls autoSyncVideo=ON => GPX-Liste => undo_delete()
-        """
+       
         # 1) Video-Undo:
         self.map_widget.view.page().runJavaScript("showLoading('Undo GPX-Range...');")
         self.cut_manager.on_undo_clicked()
@@ -1832,8 +1845,14 @@ class MainWindow(QMainWindow):
             self.mini_chart_widget.set_gpx_data(self._gpx_data)
     
         self.map_widget.view.page().runJavaScript("hideLoading();")
-        
+    """    
     def on_cut_clicked_video(self):
+        self.register_video_undo_snapshot()
+        
+        if self._autoSyncVideoEnabled and self._edit_mode in ("copy", "encode"):
+            self.register_gpx_undo_snapshot()  # ❗ Vor dem Cut!
+        
+        
         """
         Wird aufgerufen, wenn der 'cut'-Button im VideoControlWidget gedrückt wird.
         1) Führt den normalen Video-Cut via cut_manager durch
@@ -1905,7 +1924,7 @@ class MainWindow(QMainWindow):
         
         if self.gpx_control:
             self.gpx_control.update_set_gpx2video_state(
-                video_edit_on=self.action_edit_video.isChecked(),
+                video_edit_on=self.action_toggle_video.isChecked(),
                 auto_sync_on=checked
             )
             
@@ -1913,9 +1932,10 @@ class MainWindow(QMainWindow):
         self._autoSyncNewPointsWithVideoTime = checked
         self.map_widget.view.page().runJavaScript(f"enableVSyncMode({str(checked).lower()});")
         
-    def _on_enable_soft_opengl_toggled(self, checked: bool):
-        config.set_soft_opengl_enabled(checked)
-        QMessageBox.information(self,"Restart needed","Please restart the application to apply the changes.")   
+   # OpenGL     
+   # def _on_enable_soft_opengl_toggled(self, checked: bool):
+   #     config.set_soft_opengl_enabled(checked)
+   #     QMessageBox.information(self,"Restart needed","Please restart the application to apply the changes.")   
 
     def _update_gpx_overview(self):
         data = self.gpx_widget.gpx_list._gpx_data
@@ -4019,74 +4039,8 @@ class MainWindow(QMainWindow):
 
         # Falls du nur sub recalc willst, ist das aufwändiger.
         
-    def _on_new_project_triggered(self):
-        """
-        Führt einen "Soft-Reset" durch, ohne das Programm neu zu starten.
-        Alle Daten (GPX, Videos, Markierungen) werden entfernt.
-        """
         
-
-        answer = QMessageBox.question(
-            self,
-            "New Project",
-            "All data (GPX, video playlist, cuts, marks) will be removed.\n"
-            "Do you really want to start a new project?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-        if answer == QMessageBox.Yes:
-            # 1) Playback stoppen
-            self.on_stop()  # oder self.video_editor.stop(), + selbst is_playing=False etc.
     
-            # 2) Video-Cuts entfernen
-            self.cut_manager._cut_intervals.clear()  # or use an API remove_all_cuts()
-            self.cut_manager.markB_time_s = -1
-            self.cut_manager.markE_time_s = -1
-
-            # 3) Timeline zurücksetzen
-            self.timeline.set_markB_time(-1)
-            self.timeline.set_markE_time(-1)
-            self.timeline._cut_intervals.clear()  # interne Liste
-            self.timeline.set_marker_position(0.0)
-            self.timeline.set_total_duration(0.0)
-
-            # 4) GPX-Widget + GPX-Daten leeren
-            self.gpx_widget.set_gpx_data([])
-            self._gpx_data = []
-            # Undo-Stack der gpx_list leeren
-            self.gpx_widget.gpx_list._history_stack.clear()
-            # Markierungen
-            self.gpx_widget.gpx_list.clear_marked_range()
-
-            # 5) Playlist und Video-Durations leeren
-            self.playlist.clear()
-            self.video_durations.clear()
-            #self.video_editor.rebuild_vlc_playlist([])  # leere Liste => kein Video
-            self.video_editor.set_playlist([])
-            
-            self.playlist_menu.clear()  # <-- Wichtig!
-            self.video_editor.set_total_length(0.0)
-            self.video_editor.set_cut_time(0.0)
-
-
-            # 6) Falls du globale Keyframes (self.global_keyframes) hast:
-            self.global_keyframes.clear()
-
-            # 7) Ggf. GUI-Anzeigen zurücksetzen (z.B. chart, map)
-            self.chart.set_gpx_data([])
-            if self.mini_chart_widget:
-                self.mini_chart_widget.set_gpx_data([])
-            self.map_widget.loadRoute(None, do_fit=False)
-            
-            self.map_widget.loadRoute({"type":"FeatureCollection","features":[]}, do_fit=False)
-    
-            # 8) Info an den User
-            QMessageBox.information(
-                self,
-                "Project Cleared",
-                "All data was cleared. You can now load new GPX/videos."
-            )
-
     def add_or_update_point_on_map(self, stable_id: str, lat: float, lon: float, 
                                 color: str="#000000", size: int=4):
         """
@@ -4107,6 +4061,79 @@ class MainWindow(QMainWindow):
 
     
     
+    def _on_new_project_triggered(self):
+        """
+        Setzt das Projekt zurück für einen neuen Start.
+        (Originalstruktur beibehalten, nur Overlay und mpv-Stop fixen)
+        """
+        reply = QMessageBox.question(
+            self,
+            "New Project",
+            "Are you sure you want to start a new project?\nAll unsaved changes will be lost.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        # mpv Player stoppen und leeren
+        if self.video_editor._player:
+            try:
+                self.video_editor._player.command("stop")  # <<< neu ergänzt
+                self.video_editor._player.command("playlist-clear")
+            except Exception as e:
+                print(f"[WARN] Could not clear playlist: {e}")
+
+        # interne Video-Infos leeren
+        self.playlist.clear()
+        self.video_durations.clear()
+        self.global_keyframes.clear()
+    
+        self.video_editor.playlist = []
+        self.video_editor.multi_durations = []
+        self.video_editor.boundaries = []
+        self.video_editor.is_playing = False
+        self.video_editor._current_index = 0
+        self.video_editor.set_total_length(0.0)
+        self.video_editor.set_cut_time(0.0)
+        self.video_editor.current_time_label.setText("")
+
+        # Timeline löschen
+        self.timeline.clear_all_cuts()
+        self.timeline.clear_overlay_intervals()  # <<< richtig ersetzt
+        self.timeline.set_total_duration(0.0)
+        self.timeline.set_boundaries([])
+
+        # GPX Daten löschen
+        self._gpx_data.clear()
+        self.gpx_widget.set_gpx_data([])
+        self.chart.set_gpx_data([])
+        if self.mini_chart_widget:
+            self.mini_chart_widget.set_gpx_data([])
+        
+        self.map_widget.loadRoute({"type": "FeatureCollection", "features": []}, do_fit=True)
+    
+        # Cuts löschen
+        self.cut_manager._cut_intervals.clear()
+        self.cut_manager.markB_time_s = -1.0
+        self.cut_manager.markE_time_s = -1.0
+
+        # Overlays löschen
+        self._overlay_manager._overlays.clear()
+
+        # Undo-Stack löschen
+        self._undo_stack.clear()
+
+        # interne Zustände
+        self.first_video_frame_shown = False
+        self.real_total_duration = 0.0
+        self.playlist_counter = 0
+
+        # Timeline und Editor neu zeichnen
+        self.timeline.update()
+        self.video_editor.update()
+
+        QMessageBox.information(self, "New Project", "New project started successfully.")
      
 
     
@@ -4352,5 +4379,187 @@ class MainWindow(QMainWindow):
             insert_pos = len(gpx_data)
         gpx_data.insert(insert_pos, new_pt)
         return insert_pos  # Index des neuen Punktes in gpx_data
+        
+    def on_global_undo(self):
+        if self._undo_stack:
+            undo_fn = self._undo_stack.pop()
+            undo_fn()  # Die gespeicherte Undo-Funktion ausführen
+        else:
+            print("Undo stack is empty.")    
     
+    def register_gpx_undo_snapshot(self):
+        gpx_snapshot = copy.deepcopy(self.gpx_widget.gpx_list._gpx_data)
 
+        def undo():
+            self.gpx_widget.set_gpx_data(gpx_snapshot)
+            self._gpx_data = gpx_snapshot
+            self._update_gpx_overview()
+            self.chart.set_gpx_data(gpx_snapshot)
+            if self.mini_chart_widget:
+                self.mini_chart_widget.set_gpx_data(gpx_snapshot)
+            route_geojson = self._build_route_geojson_from_gpx(gpx_snapshot)
+            self.map_widget.loadRoute(route_geojson, do_fit=False)
+
+        self._undo_stack.append(undo)
+
+    def register_video_undo_snapshot(self):
+        snapshot = copy.deepcopy(self.cut_manager._cut_intervals)
+
+        def undo():
+            self.cut_manager._cut_intervals = copy.deepcopy(snapshot)
+            self.timeline.clear_all_cuts()
+            for (start, end) in snapshot:
+                self.timeline.add_cut_interval(start, end)
+
+            self.cut_manager.video_editor.set_cut_intervals(snapshot)
+            self.timeline.update()
+
+            # 🆕: Letzten Cut-Endpunkt ermitteln
+            if snapshot:
+                last_end = snapshot[-1][1]
+                self.cut_manager.video_editor.set_cut_time(last_end)
+            else:
+                self.cut_manager.video_editor.set_cut_time(0.0)
+
+        self._undo_stack.append(undo)
+
+    def save_project(self):
+        """
+        Speichert das aktuelle Projekt in eine JSON-Datei.
+        """
+        filename, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "VGSync Project (*.vgsyncproj)")
+        if not filename:
+            return
+        if not filename.endswith(".vgsyncproj"):
+            filename += ".vgsyncproj"
+        project_data = {
+            "playlist": self.playlist,
+            "video_durations": self.video_durations,
+            "global_keyframes": self.global_keyframes,
+            "gpx_data": self.gpx_widget.gpx_list._gpx_data,
+            "cut_intervals": self.cut_manager._cut_intervals,
+            "gpx_markers": {
+                "markB_idx": self.gpx_widget.gpx_list._markB_idx,
+                "markE_idx": self.gpx_widget.gpx_list._markE_idx
+            },
+            "overlays": self._overlay_manager.get_all_overlays(),
+        }
+
+    
+    
+        try:
+            with open(filename, "w", encoding="utf-8") as f:
+                json.dump(project_data, f, indent=2, default=str)
+            QMessageBox.information(self, "Project Saved", f"Project saved to:\n{filename}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save project:\n{e}")
+
+        
+
+    def load_project(self):
+        """
+        Lädt ein Projekt aus einer .vgsyncproj-Datei und stellt den kompletten Zustand vollständig wieder her.
+        """
+        filename, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "VGSync Project (*.vgsyncproj)")
+        if not filename:
+            return
+
+        try:
+            with open(filename, "r", encoding="utf-8") as f:
+                project_data = json.load(f)
+
+            # 1. Playlist und Videolängen
+            self.playlist = project_data.get("playlist", [])
+            self.video_durations = project_data.get("video_durations", [])
+            self.global_keyframes = project_data.get("global_keyframes", [])
+
+            # 2. GPX-Daten laden + reparieren (datetime aus String machen)
+            gpx_data = project_data.get("gpx_data", [])
+            for pt in gpx_data:
+                if "time" in pt and isinstance(pt["time"], str):
+                    try:
+                        pt["time"] = datetime.fromisoformat(pt["time"])
+                    except Exception:
+                        pass  # Falls Zeit kaputt, bleibt String
+
+            self._gpx_data = gpx_data
+            self.gpx_widget.gpx_list._gpx_data = gpx_data
+
+            # 3. Cuts laden
+            self.cut_manager._cut_intervals = project_data.get("cut_intervals", [])
+            if self.video_durations:
+                total_duration = sum(self.video_durations)
+                self.timeline.set_total_duration(total_duration)
+
+                boundaries = []
+                accum = 0.0
+                for d in self.video_durations:
+                    accum += d
+                    boundaries.append(accum)
+                self.timeline.set_boundaries(boundaries)
+            
+
+            # 4. GPX Markierungen B/E laden
+            gpx_markers = project_data.get("gpx_markers", {})
+            self.gpx_widget.gpx_list._markB_idx = gpx_markers.get("markB_idx", None)
+            self.gpx_widget.gpx_list._markE_idx = gpx_markers.get("markE_idx", None)
+
+            # 5. Overlays laden
+            overlays = project_data.get("overlays", [])
+            self._overlay_manager.clear_overlays()
+            for ovl in overlays:
+                self._overlay_manager.add_overlay(ovl)
+
+            # 6. VideoEditor neu setzen
+            self.video_editor.set_playlist(self.playlist)
+            if self.video_durations:
+                self.video_editor.set_multi_durations(self.video_durations)
+
+            self.video_editor.set_cut_intervals(self.cut_manager._cut_intervals)
+
+            if self.video_durations:
+                total_duration = sum(self.video_durations)
+                self.video_editor.set_total_length(total_duration)
+
+            if self.cut_manager._cut_intervals:
+                cut_duration = self._calculate_cut_total_duration()
+                self.video_editor.set_cut_time(cut_duration)
+            else:
+                self.video_editor.set_cut_time(0.0)
+
+            # 7. GPX Widgets neu aufbauen
+            self.gpx_widget.set_gpx_data(gpx_data)
+            self.chart.set_gpx_data(gpx_data)
+            if self.mini_chart_widget:
+                self.mini_chart_widget.set_gpx_data(gpx_data)
+
+            route_geojson = self._build_route_geojson_from_gpx(gpx_data)
+            self.map_widget.loadRoute(route_geojson, do_fit=True)
+
+            self._update_gpx_overview()
+
+            # 8. Timeline neu aufbauen
+            self.timeline.clear_all_cuts()
+            for start_s, end_s in self.cut_manager._cut_intervals:
+                self.timeline.add_cut_interval(start_s, end_s)
+
+            self.timeline.update()
+
+            QMessageBox.information(self, "Project Loaded", f"Project loaded from:\n{filename}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load project:\n{e}")
+        
+    def _calculate_cut_total_duration(self):
+        """
+        Berechnet die Gesamtdauer nach Anwendung aller Cuts.
+        """
+        if not self.video_durations:
+            return 0.0
+        original_total = sum(self.video_durations)
+        cut_total = original_total
+        for start, end in self.cut_manager._cut_intervals:
+            cut_total -= (end - start)
+        return max(0.0, cut_total)
+
+    

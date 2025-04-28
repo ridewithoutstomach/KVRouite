@@ -175,7 +175,18 @@ def set_soft_opengl_enabled(enabled: bool):
     s = QSettings("VGSync", "VGSync")
     s.setValue("softOpenGLEnabled", enabled)
 
-def is_soft_opengl_enabled() -> bool:
+#def is_soft_opengl_enabled() -> bool:
+#    s = QSettings("VGSync", "VGSync")
+#    val = s.value("softOpenGLEnabled", False, type=bool)
+#    return val
+
+def is_soft_opengl_enabled():
     s = QSettings("VGSync", "VGSync")
-    val = s.value("softOpenGLEnabled", False, type=bool)
-    return val
+    if s.contains("use_soft_opengl"):
+        return s.value("use_soft_opengl", False, type=bool)
+    else:
+        # Standardverhalten: auf Linux True, sonst False
+        if platform.system() == "Linux":
+            return True  # Soft-OpenGL automatisch aktiv auf Linux
+        else:
+            return False  # Windows/macOS: Soft-OpenGL standardmäßig aus

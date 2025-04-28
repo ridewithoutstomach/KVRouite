@@ -438,3 +438,17 @@ def ensure_ffmpeg_mac(parent_widget) -> bool:
         s.setValue("paths/ffmpeg_mac", chosen)
         add_to_process_path(chosen)
         return True    
+    
+def ensure_mpv_linux(path=None):
+    # Prüfe systemweite Installation oder direkten Pfad
+    candidates = [
+        path,
+        "/usr/lib/x86_64-linux-gnu/libmpv.so.2",
+        "/usr/local/lib/libmpv.so.2",
+        "libmpv.so.2"
+    ]
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            return True
+    return False
+        

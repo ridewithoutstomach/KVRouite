@@ -38,6 +38,7 @@ import subprocess
 import tempfile
 import shutil
 import contextlib
+import urllib.request
 
 from PySide6.QtCore import Qt, QSettings
 from PySide6.QtGui import QTextCursor
@@ -542,12 +543,12 @@ def determine_encoder(cpu_encoder="libx265", hw_encode=None):
 
 def get_cpu_closedgop_params(enc_name="libx265"):
     if enc_name=="libx264":
-        return ["-x264-params","bframes=0:scenecut=0","-g","15","-keyint_min","15"]
+        return ["-x264-params","bframes=0:scenecut=0","-g","5","-keyint_min","5"]
     else:
-        return ["-x265-params","bframes=0:no-open-gop=1:scenecut=0","-g","15","-keyint_min","15"]
+        return ["-x265-params","bframes=0:no-open-gop=1:scenecut=0","-g","5","-keyint_min","5"]
 
 def get_gpu_closedgop_params(hw_encode):
-    return ["-bf","0","-g","15"]
+    return ["-bf","0","-g","5"]
 
 ###############################################################################
 # 5) CPU CRF vs GPU pseudo-CRF
@@ -653,6 +654,7 @@ def get_keyframes(src):
     p= subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
     lines=[]
     count=0
+    spinner = ['|', '/', '-', '\\']
     while True:
         line= p.stdout.readline()
         if not line: break
@@ -661,7 +663,10 @@ def get_keyframes(src):
             count+=1
             m = re.search(r'"best_effort_timestamp_time"\s*:\s*"([^"]+)"', line)
             t_str = m.group(1) if m else "?"
-            print(f"\rKeyframes found: {count} => Time: {t_str}", end='', flush=True)
+            
+            if count % 50 == 0:
+                print(f"\rKeyframes found: {count} => Time: {t_str}", end='', flush=True)
+            
     p.wait()
     print()
     data= json.loads("".join(lines))
@@ -960,7 +965,7 @@ def build_segments_with_skip_and_overlay(
                 copy_cut(merged_file, seg_start, seg_end, part_out)
                 segments.append(part_out)
                 debug_logs.append(
-                    f"[NORMAL] JSON-Bereich: {current_pos:.2f}..{t1:.2f} "
+                    f"[NORMAL] JSON-Range: {current_pos:.2f}..{t1:.2f} "
                     f"=> Keyframes: {seg_start:.2f}..{seg_end:.2f}"
                 )
                 out_count += 1
@@ -1059,7 +1064,7 @@ def build_segments_with_skip_and_overlay(
             segments.append(out_cut)
 
             debug_logs.append(
-                f"[OVERLAY] JSON-Bereich: {t1:.2f}..{t2:.2f} => "
+                f"[OVERLAY] JSON-Range: {t1:.2f}..{t2:.2f} => "
                 f"Keyframes: {ov_start:.2f}..{ov_end:.2f}"
             )
             out_count += 1
@@ -1078,12 +1083,12 @@ def build_segments_with_skip_and_overlay(
             copy_cut(merged_file, seg_start, seg_end, final_out)
             segments.append(final_out)
             debug_logs.append(
-                f"[END] JSON-Bereich: {current_pos:.2f}..{total_duration:.2f} => "
+                f"[END] JSON-Range: {current_pos:.2f}..{total_duration:.2f} => "
                 f"{seg_start:.2f}..{seg_end:.2f}"
             )
 
     # ============= Debug-Ausgabe =============
-    print("\n============== DEBUG SCHNITT-LISTE ==============")
+    print("\n============== DEBUG CUT-LIST ==============")
     for line in debug_logs:
         print(line)
     print("=================================================\n")
@@ -1201,6 +1206,7 @@ if __name__ == "__main__":
 #-----------------------------------------------------------------
 
 class EncoderDialog(QDialog):
+    _counter_url = "http://vgsync.casa-eller.de/project/counter.php"
     """
     Dieses QFenster zeigt den gesamten ffmpeg-Output,
     den dein xfade6_2.py generiert (also Keyframe-Indexing, etc.),
@@ -1221,6 +1227,25 @@ class EncoderDialog(QDialog):
 
         self.setLayout(layout)
         self.resize(800, 600)
+        
+    def _increment_counter_on_server(self, mode: str):
+        """
+        Erhöht den Zähler auf dem Server (mode='video' oder 'gpx')
+        """
+        if mode not in ("video", "gpx"):
+            print("[WARN] Ungültiger mode für Counter:", mode)
+            return None
+
+        action = "increment_video" if mode == "video" else "increment_gpx"
+        url = f"{self._counter_url}?action={action}"
+        
+        try:
+            with urllib.request.urlopen(url, timeout=5) as resp:
+                data = resp.read().decode("utf-8")
+                return json.loads(data)
+        except Exception as e:
+            print(f"[ERROR] Counter-Update fehlgeschlagen: {str(e)}")
+            return None    
 
 
     def run_encoding(self, json_path: str):
@@ -1244,7 +1269,7 @@ class EncoderDialog(QDialog):
             "Video Files (*.mp4 *.mov *.mkv *.avi)"
         )
         if not chosen_out:
-            self._on_new_text("[ABBRUCH] Keine Ausgabedatei gewählt.\n")
+            self._on_new_text("[CANCELED] No output file selected.\n")
             return
         # => final_out überschreiben
         c["final_output"] = chosen_out
@@ -1262,6 +1287,9 @@ class EncoderDialog(QDialog):
                 # 5) xfade_main(temp_cfg) => ruft dein "main()" auf, 
                 #    nur ohne sys.argv.
                 xfade_main(temp_cfg)
+                result = self._increment_counter_on_server("video")
+                
+                    
                 QMessageBox.information(
                      self,
                     "Done",
@@ -1270,10 +1298,10 @@ class EncoderDialog(QDialog):
                 
                 try:
                     shutil.rmtree(MY_GLOBAL_TMP_DIR)
-                    print("[INFO] TEMP-Ordner gelöscht:", MY_GLOBAL_TMP_DIR)
+                    #print("[INFO] TEMP-Ordner gelöscht:", MY_GLOBAL_TMP_DIR)
                     os.makedirs(MY_GLOBAL_TMP_DIR, exist_ok=True)
                 except Exception as e:
-                    print("[WARN] TEMP konnte nicht gelöscht werden:", e)
+                    #print("[WARN] TEMP konnte nicht gelöscht werden:", e)
                     os.makedirs(MY_GLOBAL_TMP_DIR, exist_ok=True)
 
             except Exception as e:
