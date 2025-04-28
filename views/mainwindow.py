@@ -40,7 +40,6 @@ import uuid
 import hashlib
 
 
-
             
 
 
@@ -60,7 +59,7 @@ from PySide6.QtWidgets import (
     QFileDialog, QMessageBox, QVBoxLayout,
     QLabel, QProgressBar, QHBoxLayout, QPushButton, QDialog,
     QApplication, QInputDialog, QSplitter, QSystemTrayIcon,
-    QFormLayout, QComboBox, QSpinBox
+    QFormLayout, QComboBox, QSpinBox, QMenu
 )
 from PySide6.QtWidgets import QDoubleSpinBox
 from PySide6.QtWidgets import QLineEdit, QDialogButtonBox
@@ -161,6 +160,14 @@ class MainWindow(QMainWindow):
         # Menüs
         menubar = self.menuBar()
         file_menu = menubar.addMenu("File")
+
+        dummy_action = QAction("New Project", self)
+        file_menu.addAction(dummy_action)
+        dummy_action.triggered.connect(self._on_new_project_triggered)
+
+        load_project_action = QAction("Load Project", self)
+        load_project_action.triggered.connect(self.load_project)
+        file_menu.addAction(load_project_action)
         
         load_gpx_action = QAction("Open GPX", self)
         load_gpx_action.triggered.connect(self.load_gpx_file)
@@ -169,21 +176,16 @@ class MainWindow(QMainWindow):
         load_mp4_action = QAction("Open MP4", self)
         load_mp4_action.triggered.connect(self.load_mp4_files)
         file_menu.addAction(load_mp4_action)
-        
+
+        self.recent_menu = QMenu("Open Recent", self)
+        file_menu.addMenu(self.recent_menu)
+    
+        self.update_recent_files_menu()
         
         save_project_action = QAction("Save Project", self)
         save_project_action.triggered.connect(self.save_project)
         file_menu.addAction(save_project_action)
 
-        load_project_action = QAction("Load Project", self)
-        load_project_action.triggered.connect(self.load_project)
-        file_menu.addAction(load_project_action)
-
-        
-
-        dummy_action = QAction("New Project", self)
-        file_menu.addAction(dummy_action)
-        dummy_action.triggered.connect(self._on_new_project_triggered)
 
         edit_menu = menubar.addMenu("Edit")
         undo_action = QAction("Undo - ", self)
@@ -2621,8 +2623,12 @@ class MainWindow(QMainWindow):
         )
         if not files:
             return
+        
+        self.process_open_mp4(files)
+        self.save_recent_file(files[0])
 
-        # 1) Alle ausgewählten Dateien in die Playlist hängen,
+    def process_open_mp4(self, files):
+     # 1) Alle ausgewählten Dateien in die Playlist hängen,
         #    ohne zwischendurch den Player zu starten:
         for file_path in files:
             self.add_to_playlist(file_path)
@@ -2748,7 +2754,10 @@ class MainWindow(QMainWindow):
         if not file_path:
             return  # Abbruch
     
-        
+        self.process_open_gpx(file_path, mode)
+        self.save_recent_file(file_path)
+    
+    def process_open_gpx(self, file_path, mode="new"):
         self.map_widget.view.page().runJavaScript("showLoading('Loading GPX...');")
         QApplication.processEvents()
     
@@ -2761,7 +2770,7 @@ class MainWindow(QMainWindow):
     
         if mode == "new":
             self._set_gpx_data(new_data)
-            QMessageBox.information(self, "Load GPX", "New GPX loaded successfully.")
+            #QMessageBox.information(self, "Load GPX", "New GPX loaded successfully.")
         elif mode == "append":
             if not self._gpx_data:
                 # Falls doch leer => wie new
@@ -2790,8 +2799,6 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, "Load GPX", "GPX appended successfully.")
     
         self.map_widget.view.page().runJavaScript("hideLoading();")
-        
-    
     
     def update_timeline_marker(self):
         
@@ -4451,6 +4458,7 @@ class MainWindow(QMainWindow):
             with open(filename, "w", encoding="utf-8") as f:
                 json.dump(project_data, f, indent=2, default=str)
             QMessageBox.information(self, "Project Saved", f"Project saved to:\n{filename}")
+            self.save_recent_file(filename)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save project:\n{e}")
 
@@ -4463,7 +4471,11 @@ class MainWindow(QMainWindow):
         filename, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "VGSync Project (*.vgsyncproj)")
         if not filename:
             return
+        
+        self.process_open_project(filename)
+        self.save_recent_file(filename)
 
+    def process_open_project(self, filename: str):
         try:
             with open(filename, "r", encoding="utf-8") as f:
                 project_data = json.load(f)
@@ -4545,7 +4557,7 @@ class MainWindow(QMainWindow):
 
             self.timeline.update()
 
-            QMessageBox.information(self, "Project Loaded", f"Project loaded from:\n{filename}")
+            #QMessageBox.information(self, "Project Loaded", f"Project loaded from:\n{filename}")
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load project:\n{e}")
@@ -4562,4 +4574,47 @@ class MainWindow(QMainWindow):
             cut_total -= (end - start)
         return max(0.0, cut_total)
 
-    
+    def save_recent_file(self, path: str):
+        s = QSettings("VGSync", "VGSync")
+        file_history = s.value("file_history", [], type=list)
+
+        if path in file_history:
+            file_history.remove(path)  # Move it to the top
+        file_history.insert(0, path)
+
+        file_history = file_history[:5]  # Keep only the last 5
+
+        s.setValue("file_history", file_history)
+
+    def load_last_gpx_paths(self) -> list[str]:
+        s = QSettings("VGSync", "VGSync")
+        return s.value("file_history", [], type=list)
+
+    def update_recent_files_menu(self):
+        self.recent_menu.clear()
+
+        recent_files = self.load_last_gpx_paths()
+        if not recent_files:
+            no_recents_action = QAction("No Recent Files", self)
+            no_recents_action.setEnabled(False)
+            self.recent_menu.addAction(no_recents_action)
+            return
+
+        for path in recent_files:
+            action = QAction(path, self)
+            action.triggered.connect(lambda checked, p=path: self.open_recent(p))
+            self.recent_menu.addAction(action)
+
+    def open_recent(self, path: str):
+        if not os.path.exists(path):
+            QMessageBox.critical(self, "Error", f"File does not exist:\n{path}")
+            return
+        if(path.endswith(".gpx")):
+            self.process_open_gpx(path)
+        elif(path.endswith(".mp4")):
+            self.process_open_mp4([path])
+        elif(path.endswith(".vgsyncproj")):
+            self.process_open_project(path)
+        else:
+            QMessageBox.critical(self, "Error", f"Unsupported file type:\n{path}")
+            return
