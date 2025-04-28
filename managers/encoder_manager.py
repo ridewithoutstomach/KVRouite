@@ -718,8 +718,9 @@ def copy_cut(src,start,end,outfile):
         outfile
     ]
     print("COPY_CUT:", " ".join(cmd))
-    subprocess.run(cmd,check=True)
-
+    #subprocess.run(cmd,check=True)
+    run_command_gui(cmd, log_func=print)
+    
 def crossfade_2(
     inA,inB,outname,
     encoder="libx265",
@@ -773,8 +774,8 @@ def crossfade_2(
         cmd+=["-r",str(fps)]
     cmd+=["-pix_fmt","yuv420p","-an", outname]
     print("CROSSFADE_2:", " ".join(cmd))
-    subprocess.run(cmd,check=True)
-
+    #subprocess.run(cmd,check=True)
+    run_command_gui(cmd, log_func=print)
 ###############################################################################
 # 10) FINAL CONCAT
 ###############################################################################
@@ -795,7 +796,8 @@ def final_concat_copy(parts,outfile):
         outfile
     ]
     print("FINAL CONCAT COPY:", " ".join(cmd))
-    subprocess.run(cmd,check=True)
+    #subprocess.run(cmd,check=True)
+    run_command_gui(cmd, log_func=print)
     os.remove(tmp_list)
 
 ###############################################################################
@@ -1161,6 +1163,13 @@ def xfade_main(cfg_path):
         width=width,
         preset=preset
     )
+    print("[INFO] Cleaning up TRIM files to free space...")
+    for path in trimmed_parts:
+        try:
+            os.remove(path)
+        except Exception as e:
+            print(f"[WARN] Could not delete {path}: {e}")
+    
 
     cmd_dur = ["ffprobe", "-v", "error", "-show_entries", "format=duration",
                "-of", "default=noprint_wrappers=1:nokey=1", merged_path]
@@ -1295,6 +1304,16 @@ class EncoderDialog(QDialog):
                     "Done",
                     "Video exported successfully!"
                 )
+                
+                for file in os.listdir(MY_GLOBAL_TMP_DIR):
+                    full_path = os.path.join(MY_GLOBAL_TMP_DIR, file)
+                    if file.endswith(".mp4"):
+                        try:
+                            os.remove(full_path)
+                            print(f"[INFO] Deleted temp file: {full_path}")
+                        except Exception as e:
+                            print(f"[WARN] Could not delete temp file {full_path}: {e}")
+
                 
                 try:
                     shutil.rmtree(MY_GLOBAL_TMP_DIR)
