@@ -102,16 +102,24 @@ class EncoderSetupDialog(QDialog):
         for p in cpu_presets:
             self.preset_combo.addItem(p)
         form_layout.addRow("Preset:", self.preset_combo)
+        # (H) Bitrate (Mbit/s)
+        self.bitrate_spin = QSpinBox()
+        self.bitrate_spin.setRange(1, 200)
+        form_layout.addRow("Bitrate (Mbit/s):", self.bitrate_spin)
 
         # (F) FPS
         self.fps_spin = QSpinBox()
         self.fps_spin.setRange(1, 120)
         form_layout.addRow("FPS:", self.fps_spin)
+        
+        
 
         # (G) Xfade
         self.xfade_spin = QSpinBox()
         self.xfade_spin.setRange(0, 30)
         form_layout.addRow("X-Fade (s):", self.xfade_spin)
+        
+        
 
         # Buttons (OK/Cancel + "Detect HW")
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
@@ -170,6 +178,18 @@ class EncoderSetupDialog(QDialog):
         # 6) Xfade
         xfade_val = self.settings.value("encoder/xfade", 2, type=int)
         self.xfade_spin.setValue(xfade_val)
+        
+        # 7) Bitrate (Standardwerte nach Auflösung)
+        bitrate_val = self.settings.value("encoder/bitrate_mbps", None)
+        if bitrate_val is None:
+            if stored_res == (1920, 1080):
+                bitrate_val = 20
+            elif stored_res == (2560, 1440):
+                bitrate_val = 35
+            else:
+                bitrate_val = 20
+        self.bitrate_spin.setValue(int(bitrate_val))
+        
 
         # 7) Detected HW laden (wenn vorhanden)
         hw_json = self.settings.value("encoder/detected_hw_list", "")
@@ -312,5 +332,6 @@ class EncoderSetupDialog(QDialog):
             QMessageBox.warning(self, "Invalid X-Fade", "The X-Fade must be >= 1 second.")
             return
         self.settings.setValue("encoder/xfade", xfade_val)
+        self.settings.setValue("encoder/bitrate_mbps", self.bitrate_spin.value())
 
         self.accept()
