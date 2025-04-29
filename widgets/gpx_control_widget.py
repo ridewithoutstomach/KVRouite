@@ -77,7 +77,7 @@ class GPXControlWidget(QWidget):
     chPercentClicked = Signal()
     #undoClicked = Signal()
     smoothClicked = Signal()
-    saveClicked = Signal()
+    #saveClicked = Signal()
     showMaxSlopeClicked = Signal()
     showMinSlopeClicked = Signal()
     averageSpeedClicked = Signal()
@@ -247,13 +247,13 @@ class GPXControlWidget(QWidget):
         self._buttons_layout.addWidget(self.smooth_button)
 
         # 10) Save
-        self.save_button = QPushButton("", self)
-        self.save_button.setIcon(self.style().standardIcon(QStyle.SP_DriveHDIcon))
-        self.save_button.setMinimumWidth(60)
-        self.save_button.setMaximumWidth(80)
+        # self.save_button = QPushButton("", self)
+        # self.save_button.setIcon(self.style().standardIcon(QStyle.SP_DriveHDIcon))
+        # self.save_button.setMinimumWidth(60)
+        # self.save_button.setMaximumWidth(80)
         
-        self.save_button.clicked.connect(self.saveClicked.emit)
-        self._buttons_layout.addWidget(self.save_button)
+        # self.save_button.clicked.connect(self.saveClicked.emit)
+        # self._buttons_layout.addWidget(self.save_button)
 
         self._buttons_layout.addStretch()  # optional: damit die Buttons nach links rücken
 
@@ -831,77 +831,7 @@ class GPXControlWidget(QWidget):
         auf ._gpx_data, .gpx_widget, .map_widget usw. zugreifen können.
         """
         self._mainwindow = mw   
-        
-    def on_save_gpx_clicked(self):
-        
-        """
-        Wird aufgerufen, wenn man im GPXControlWidget den Safe-Button drückt.
-        => Speichert die GPX-Daten, ggf. gekürzt auf finale Videolänge,
-        falls Videos geladen wurden.
-        """
-        #from PySide6.QtWidgets import QFileDialog, QMessageBox
-
-        # 1) Dateidialog
-        out_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save GPX File",
-            "export.gpx",
-            "GPX Files (*.gpx)"
-        )
-        if not out_path:
-            return
-
-        # 2) Falls kein Video => final_duration_s = "unendlich"
-        mw = self._mainwindow
-        if not mw:
-            # Falls aus irgendeinem Grund kein MainWindow-Objekt gesetzt ist, abbrechen
-            return
             
-        if not mw.playlist or not mw.video_durations:
-            # => gar kein Video => wir beschneiden NICHT
-            final_duration_s = float('inf')
-        else:
-            # => Video vorhanden => berechne final_length
-            final_duration_s = mw.real_total_duration
-            sum_cuts_s = mw.cut_manager.get_total_cuts()
-            final_duration_s -= sum_cuts_s
-            if final_duration_s < 0:
-                final_duration_s = 0
-
-        # 3) GPX-Daten => z. B. gpx_list._gpx_data
-        gpx_data = mw.gpx_widget.gpx_list._gpx_data
-        if not gpx_data:
-            QMessageBox.warning(self, "No GPX", "Keine GPX-Daten vorhanden!")
-            return
-
-        # 4) Kürzen => alle Punkte, deren rel_s <= final_duration_s
-        truncated = []
-        for pt in gpx_data:
-            rel_s = pt.get("rel_s", 0.0)
-            if rel_s <= final_duration_s:
-                truncated.append(pt)
-            else:
-                break  # Annahme: Zeit ist aufsteigend
-
-        if len(truncated) < 2:
-            QMessageBox.warning(self, "Truncation", 
-                "Nach Kürzen an die Videolänge bleibt kein sinnvolles GPX übrig!")
-            return
-    
-        # 5) => Speichern
-        mw._save_gpx_to_file(truncated, out_path)
-        
-        
-        ret = mw._increment_counter_on_server("gpx")
-        if ret is not None:
-            vcount, gcount = ret
-            print(f"[INFO] Server-Counter nun: Video={vcount}, GPX={gcount}")
-        else:
-            print("[WARN] Konnte GPX-Zähler nicht hochsetzen.")
-    
-        QMessageBox.information(self, "Done", 
-            f"GPX-Daten wurden als '{out_path}' gespeichert.")
-
 
 
     # ----------------------------------------------------------

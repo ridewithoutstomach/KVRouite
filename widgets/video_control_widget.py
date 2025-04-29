@@ -43,7 +43,7 @@ class VideoControlWidget(QWidget):
     cutClicked               = Signal()
     #undoClicked              = Signal()
     markClearClicked         = Signal()
-    safeClicked              = Signal()
+#safeClicked              = Signal()
     syncClicked              = Signal()
     set_beginClicked         = Signal()  
     overlayClicked        = Signal()
@@ -220,13 +220,13 @@ class VideoControlWidget(QWidget):
         layout.addWidget(self.ovl_button)
         self.ovl_button.hide()   # Standard: ausgeblendet
 
-        self.safe_button = QPushButton()
-        self.safe_button.setFixedWidth(45)
-        self.safe_button.setIcon(
-            self.style().standardIcon(QStyle.SP_DriveHDIcon)
-        )
-        self.safe_button.clicked.connect(self.safeClicked.emit)
-        layout.addWidget(self.safe_button)
+        # self.safe_button = QPushButton()
+        # self.safe_button.setFixedWidth(45)
+        # self.safe_button.setIcon(
+        #     self.style().standardIcon(QStyle.SP_DriveHDIcon)
+        # )
+        # self.safe_button.clicked.connect(self.safeClicked.emit)
+        # layout.addWidget(self.safe_button)
 
         layout.addStretch()
         
