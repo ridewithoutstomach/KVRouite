@@ -580,7 +580,8 @@ def encode_closedgop(
     fps=None,
     crf=None,       # read from config; no default 12
     width=None,
-    preset=None
+    preset=None,
+    bitrate_mbps=None
 ):
     enc_name, mode = determine_encoder(encoder, hw_encode)
     real_preset = preset
@@ -607,7 +608,12 @@ def encode_closedgop(
         if real_preset:
             cmd+= ["-preset", real_preset]
         cmd+= p_extra
+        if bitrate_mbps:
+            br = f"{bitrate_mbps}M"
+            cmd += ["-b:v", br, "-maxrate", br, "-bufsize", f"{bitrate_mbps * 2}M"]
         print(f"[DEBUG] CPU => CRF={crf}")
+        
+        
 
     else:
         # => GPU => pseudo CRF => vbr_hq + -cq
@@ -620,7 +626,11 @@ def encode_closedgop(
         if real_preset:
             cmd+= ["-preset", real_preset]
         cmd+= p_extra
+        if bitrate_mbps:
+            br = f"{bitrate_mbps}M"
+            cmd += ["-b:v", br, "-maxrate", br, "-bufsize", f"{bitrate_mbps * 2}M"]
         print(f"[DEBUG] GPU => vbr_hq + -cq={qv}")
+        
 
     if fps:
         cmd+= ["-r", str(fps)]
@@ -718,15 +728,17 @@ def copy_cut(src,start,end,outfile):
         outfile
     ]
     print("COPY_CUT:", " ".join(cmd))
-    subprocess.run(cmd,check=True)
-
+    #subprocess.run(cmd,check=True)
+    run_command_gui(cmd, log_func=print)
+    
 def crossfade_2(
     inA,inB,outname,
     encoder="libx265",
     hw_encode=None,
     crf=23,
     fps=None,width=None,preset=None,
-    overlap=2
+    overlap=2,
+    bitrate_mbps=None
 ):
     enc_name, mode= determine_encoder(encoder,hw_encode)
     real_preset= preset
@@ -758,6 +770,9 @@ def crossfade_2(
         if real_preset:
             cmd+= ["-preset", real_preset]
         cmd+= p_extra
+        if bitrate_mbps:
+            br = f"{bitrate_mbps}M"
+            cmd += ["-b:v", br, "-maxrate", br, "-bufsize", f"{bitrate_mbps * 2}M"]
         print(f"[DEBUG] CROSSFADE => CPU => CRF={crf}")
     else:
         # GPU => pseudo CRF => vbr_hq -cq crf
@@ -767,14 +782,17 @@ def crossfade_2(
         if real_preset:
             cmd+= ["-preset", real_preset]
         cmd+= p_extra
+        if bitrate_mbps:
+            br = f"{bitrate_mbps}M"
+            cmd += ["-b:v", br, "-maxrate", br, "-bufsize", f"{bitrate_mbps * 2}M"]
         print(f"[DEBUG] CROSSFADE => GPU => -cq={qv}")
 
     if fps:
         cmd+=["-r",str(fps)]
     cmd+=["-pix_fmt","yuv420p","-an", outname]
     print("CROSSFADE_2:", " ".join(cmd))
-    subprocess.run(cmd,check=True)
-
+    #subprocess.run(cmd,check=True)
+    run_command_gui(cmd, log_func=print)
 ###############################################################################
 # 10) FINAL CONCAT
 ###############################################################################
@@ -795,7 +813,8 @@ def final_concat_copy(parts,outfile):
         outfile
     ]
     print("FINAL CONCAT COPY:", " ".join(cmd))
-    subprocess.run(cmd,check=True)
+    #subprocess.run(cmd,check=True)
+    run_command_gui(cmd, log_func=print)
     os.remove(tmp_list)
 
 ###############################################################################
@@ -817,7 +836,8 @@ def overlay_segment_encode(
     fade_in=1.0,fade_out=1.0,
     seg_duration=None,scale=1.0,x=0,y=0,
     encoder="libx265",hw_encode=None,crf=23,
-    fps=None,preset=None,width=None
+    fps=None,preset=None,width=None,
+    bitrate_mbps=None
 ):
     # => real alpha fade => RGBA => fade in/out => scale => overlay
     # => same idea as we had:
@@ -882,6 +902,9 @@ def overlay_segment_encode(
         if real_preset:
             cmd+= ["-preset", real_preset]
         cmd+= p_extra
+        if bitrate_mbps:
+            br = f"{bitrate_mbps}M"
+            cmd += ["-b:v", br, "-maxrate", br, "-bufsize", f"{bitrate_mbps * 2}M"]
         print(f"[DEBUG] overlay => CPU => CRF={crf}")
     else:
         # GPU => pseudo CRF => vbr_hq -cq
@@ -891,6 +914,9 @@ def overlay_segment_encode(
         if real_preset:
             cmd+= ["-preset", real_preset]
         cmd+= p_extra
+        if bitrate_mbps:
+            br = f"{bitrate_mbps}M"
+            cmd += ["-b:v", br, "-maxrate", br, "-bufsize", f"{bitrate_mbps * 2}M"]
         print(f"[DEBUG] overlay => GPU => -cq={qv}")
 
     if fps:
@@ -907,7 +933,7 @@ def build_segments_with_skip_and_overlay(
     merged_file, kf_list, total_duration,
     skip_instructions, overlay_instructions,
     encoder="libx265", hw_encode=None, crf=23, fps=None, width=None, preset=None,
-    temp_dir=None
+    temp_dir=None, bitrate_mbps=None
 ):
     """
     Erzeugt Segmente (normal/skip/overlay) streng aufsteigend entlang der Timeline,
@@ -1022,7 +1048,8 @@ def build_segments_with_skip_and_overlay(
                 inA=skipA, inB=skipB, outname=xf_out,
                 encoder=encoder, hw_encode=hw_encode, crf=crf,
                 fps=fps, width=width, preset=preset,
-                overlap=overlap
+                overlap=overlap,
+                bitrate_mbps=bitrate_mbps
             )
             segments.append(xf_out)
 
@@ -1059,7 +1086,8 @@ def build_segments_with_skip_and_overlay(
                 overlay_image=ov_img, fade_in=fade_in, fade_out=fade_out,
                 seg_duration=seg_dur, scale=sc, x=xx, y=yy,
                 encoder=encoder, hw_encode=hw_encode, crf=crf,
-                fps=fps, preset=preset, width=None
+                fps=fps, preset=preset, width=None,
+                bitrate_mbps=bitrate_mbps
             )
             segments.append(out_cut)
 
@@ -1120,6 +1148,8 @@ def xfade_main(cfg_path):
     hw_encode = cfg.get("hardware_encode", "none")
     encoder = cfg.get("encoder", "libx265")
     crf = cfg.get("crf", 23)
+    settings = QSettings("VGSync", "VGSync")
+    bitrate_mbps = settings.value("encoder/bitrate_mbps", 20, type=int)
     fps = cfg.get("fps", 30)
     width = cfg.get("width", None)
     preset = cfg.get("preset", None)
@@ -1159,8 +1189,16 @@ def xfade_main(cfg_path):
         fps=fps,
         crf=crf,
         width=width,
-        preset=preset
+        preset=preset,
+        bitrate_mbps=bitrate_mbps
     )
+    print("[INFO] Cleaning up TRIM files to free space...")
+    for path in trimmed_parts:
+        try:
+            os.remove(path)
+        except Exception as e:
+            print(f"[WARN] Could not delete {path}: {e}")
+    
 
     cmd_dur = ["ffprobe", "-v", "error", "-show_entries", "format=duration",
                "-of", "default=noprint_wrappers=1:nokey=1", merged_path]
@@ -1183,7 +1221,8 @@ def xfade_main(cfg_path):
         fps=fps,
         width=width,
         preset=preset,
-        temp_dir=temp_dir 
+        temp_dir=temp_dir,
+        bitrate_mbps=bitrate_mbps     
     )
 
     final_concat_copy(parts, final_out)
@@ -1295,6 +1334,16 @@ class EncoderDialog(QDialog):
                     "Done",
                     "Video exported successfully!"
                 )
+                
+                for file in os.listdir(MY_GLOBAL_TMP_DIR):
+                    full_path = os.path.join(MY_GLOBAL_TMP_DIR, file)
+                    if file.endswith(".mp4"):
+                        try:
+                            os.remove(full_path)
+                            print(f"[INFO] Deleted temp file: {full_path}")
+                        except Exception as e:
+                            print(f"[WARN] Could not delete temp file {full_path}: {e}")
+
                 
                 try:
                     shutil.rmtree(MY_GLOBAL_TMP_DIR)
