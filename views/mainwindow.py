@@ -167,15 +167,15 @@ class MainWindow(QMainWindow):
 
         file_menu.addSeparator()
 
-        load_project_action = QAction("Load Project", self)
+        load_project_action = QAction("Load Project...", self)
         load_project_action.triggered.connect(self.load_project)
         file_menu.addAction(load_project_action)
         
-        load_gpx_action = QAction("Import GPX", self)
+        load_gpx_action = QAction("Import GPX...", self)
         load_gpx_action.triggered.connect(self.load_gpx_file)
         file_menu.addAction(load_gpx_action)
 
-        load_mp4_action = QAction("Import Video", self)
+        load_mp4_action = QAction("Import Video...", self)
         load_mp4_action.triggered.connect(self.load_mp4_files)
         file_menu.addAction(load_mp4_action)
 
@@ -185,15 +185,15 @@ class MainWindow(QMainWindow):
 
         file_menu.addSeparator()
         
-        save_project_action = QAction("Save Project", self)
+        save_project_action = QAction("Save Project...", self)
         save_project_action.triggered.connect(self.save_project)
         file_menu.addAction(save_project_action)
 
-        save_gpx_action = QAction("Export GPX", self)
+        save_gpx_action = QAction("Export GPX...", self)
         save_gpx_action.triggered.connect(self.on_save_gpx_clicked)
         file_menu.addAction(save_gpx_action)
 
-        render_action = QAction("Export Video", self)
+        render_action = QAction("Export Video...", self)
         render_action.triggered.connect(self.on_render_clicked)
         file_menu.addAction(render_action)
 
