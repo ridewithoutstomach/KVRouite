@@ -468,75 +468,14 @@ class GPXControlWidget(QWidget):
         btn_cancel.clicked.connect(on_cancel_dialog)
         dlg.exec()
 
-    
-            
-    def _on_get_ele_open_elevation(self):
-        """
-        Ruft Open-Elevation API auf, um für B..E die Höhen neu zu setzen.
-        Vorher Warndialog in Englisch. Verwendet urllib.request anstelle von requests.
-        """
-        
-
+    def update_from_open_elevation(self,latlon_list):
         mw = self._mainwindow
-        if not mw:
-            return
-    
         gpx_data = mw.gpx_widget.gpx_list._gpx_data
-        if not gpx_data:
-            QMessageBox.warning(self, "No GPX Data", "No GPX data available.")
-            return
-    
-        b_idx = mw.gpx_widget.gpx_list._markB_idx
-        e_idx = mw.gpx_widget.gpx_list._markE_idx
 
-        if b_idx is None or e_idx is None or b_idx < 0 or e_idx < 0:
-            QMessageBox.warning(self, "No Range", 
-                "Please mark a GPX range (B..E) first.")
-            return
-        if b_idx > e_idx:
-            b_idx, e_idx = e_idx, b_idx
-        if (e_idx - b_idx) < 1:
-            QMessageBox.information(self, "Invalid Range", 
-                "At least 2 points needed in B..E range.")
-            return
-    
-        # 1) Warnhinweis (englisch)
-        warn_text = (
-            "Open-Elevation is a free service with limited requests.\n"
-            "If you have many points, the service might reject or fail.\n"
-            "It is recommended to do it in smaller chunks if an error occurs.\n\n"
-            "Do you want to proceed?"
-        )
-        reply = QMessageBox.question(
-            self,
-            "Open-Elevation Warning",
-            warn_text,
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-        if reply != QMessageBox.Yes:
-            return
-    
-        # 2) Undo-Snapshot
-        #old_data = copy.deepcopy(gpx_data)
-        #mw.gpx_widget.gpx_list._history_stack.append(old_data)
-        self.register_gpx_undo_snapshot()
-        
-        # 3) Alle lat/lon im Bereich B..E sammeln
-        latlon_list = []
-        for i in range(b_idx, e_idx+1):
-            pt = gpx_data[i]
-            lat = pt.get("lat", 0.0)
-            lon = pt.get("lon", 0.0)
-            latlon_list.append((i, lat, lon))  # index, lat, lon
-    
         # => Rate Limits => Aufteilung in Blöcke
         CHUNK_SIZE = 200
         total_points = len(latlon_list)
         idx_start = 0
-
-        # 4) Schleife über Blöcke
-        
 
         while idx_start < total_points:
             idx_end = min(idx_start+CHUNK_SIZE, total_points)
@@ -547,6 +486,7 @@ class GPXControlWidget(QWidget):
             for (gpx_i, la, lo) in subset:
                 locations_payload.append({"latitude": la, "longitude": lo})
             payload = {"locations": locations_payload}
+            
 
             # => In JSON-Bytes wandeln
             data_bytes = json.dumps(payload).encode("utf-8")
@@ -602,6 +542,71 @@ class GPXControlWidget(QWidget):
                 return
 
             idx_start = idx_end
+
+      
+
+            
+    def _on_get_ele_open_elevation(self):
+        """
+        Ruft Open-Elevation API auf, um für B..E die Höhen neu zu setzen.
+        Vorher Warndialog in Englisch. Verwendet urllib.request anstelle von requests.
+        """
+        
+
+        mw = self._mainwindow
+        if not mw:
+            return
+    
+        gpx_data = mw.gpx_widget.gpx_list._gpx_data
+        if not gpx_data:
+            QMessageBox.warning(self, "No GPX Data", "No GPX data available.")
+            return
+    
+        b_idx = mw.gpx_widget.gpx_list._markB_idx
+        e_idx = mw.gpx_widget.gpx_list._markE_idx
+
+        if b_idx is None or e_idx is None or b_idx < 0 or e_idx < 0:
+            QMessageBox.warning(self, "No Range", 
+                "Please mark a GPX range (B..E) first.")
+            return
+        if b_idx > e_idx:
+            b_idx, e_idx = e_idx, b_idx
+        if (e_idx - b_idx) < 1:
+            QMessageBox.information(self, "Invalid Range", 
+                "At least 2 points needed in B..E range.")
+            return
+    
+        # 1) Warnhinweis (englisch)
+        warn_text = (
+            "Open-Elevation is a free service with limited requests.\n"
+            "If you have many points, the service might reject or fail.\n"
+            "It is recommended to do it in smaller chunks if an error occurs.\n\n"
+            "Do you want to proceed?"
+        )
+        reply = QMessageBox.question(
+            self,
+            "Open-Elevation Warning",
+            warn_text,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+    
+        # 2) Undo-Snapshot
+        self.register_gpx_undo_snapshot()
+        
+        # 3) Alle lat/lon im Bereich B..E sammeln
+        latlon_list = []
+        for i in range(b_idx, e_idx+1):
+            pt = gpx_data[i]
+            lat = pt.get("lat", 0.0)
+            lon = pt.get("lon", 0.0)
+            latlon_list.append((i, lat, lon))  # index, lat, lon
+    
+
+        # 4) Schleife über Blöcke
+        self.update_from_open_elevation(latlon_list)
 
         # 5) recalc + set
         recalc_gpx_data(gpx_data)

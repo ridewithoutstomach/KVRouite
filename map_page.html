@@ -83,10 +83,8 @@
       font-size: 0.9rem;
     }
     #btnNewPoint {
-      position: absolute;
       top: 10px;
       right: 160px;
-      z-index: 9999;
       background-color: rgba(200,200,200,0.5);
       border: 1px solid #777;
       padding: 4px 8px;
@@ -192,6 +190,7 @@
       opacity: 0;
       transition: opacity 0.5s ease;
       z-index: 9999;
+      pointer-events: none; /* Prevents interaction */
     }
     #nostreetview-alert.show {
       opacity: 1;

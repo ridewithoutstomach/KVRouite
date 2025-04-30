@@ -1621,19 +1621,20 @@ class MainWindow(QMainWindow):
         gpx_data = self._gpx_data
         row_selected = self.gpx_widget.gpx_list.table.currentRow()
 
+        insert_pos = -1
         if self._autoSyncNewPointsWithVideoTime and self.video_editor.is_video_loaded(): #if video loaded, insert a new point at current video time without shift
             self.append_gpx_history(gpx_data) #for undo
             video_time = self.video_editor.get_current_position_s()
-            insert_idx = self.ordered_insert_new_point(lat,lon,video_time)
+            insert_pos = self.ordered_insert_new_point(lat,lon,video_time)
 
-            if(insert_idx > 0 and self._directions_enabled):
-                t1 = gpx_data[insert_idx-1]["time"]
-                t2 = gpx_data[insert_idx]["time"]
+            if(insert_pos > 0 and self._directions_enabled):
+                t1 = gpx_data[insert_pos-1]["time"]
+                t2 = gpx_data[insert_pos]["time"]
                 dt = (t2 - t1).total_seconds()
                 if dt > 2 :
                     prof = self.gpx_control._ask_profile_mode()
                     if prof:
-                        self.gpx_control._close_gaps_mapbox(insert_idx-1, insert_idx, dt, prof)
+                        self.gpx_control._close_gaps_mapbox(insert_pos-1, insert_pos, dt, prof)
 
         else: #insert with shift
             if idx == -3:
@@ -1701,6 +1702,7 @@ class MainWindow(QMainWindow):
                         "rel_s": 0.0
                     }
                     gpx_data.insert(0, new_pt)
+                    insert_pos=0
         
                     # jetzt alle nachfolgenden +1s verschieben
                     for i in range(1, len(gpx_data)):
@@ -1723,6 +1725,7 @@ class MainWindow(QMainWindow):
                         "rel_s": 0.0
                     }
                     gpx_data.append(new_pt)
+                    insert_pos=len(gpx_data)-1
                 else:
                     last_pt = gpx_data[-1]
                     t_last = last_pt.get("time")
@@ -1740,7 +1743,7 @@ class MainWindow(QMainWindow):
                         "rel_s": 0.0
                     }
                     gpx_data.append(new_pt)
-        
+                    insert_pos=len(gpx_data)-1
             else:
                 # =============== Punkt "zwischen" idx..idx+1 einfügen ===============
                 if idx < 0:
@@ -1761,6 +1764,7 @@ class MainWindow(QMainWindow):
                         "rel_s": 0.0
                     }
                     gpx_data.append(new_pt)
+                    insert_pos=len(gpx_data)-1
                 else:
                     base_pt = gpx_data[idx]
                     t_base = base_pt.get("time")
@@ -1788,6 +1792,8 @@ class MainWindow(QMainWindow):
                             t_old = gpx_data[j].get("time")
                             if t_old:
                                 gpx_data[j]["time"] = t_old + timedelta(seconds=1)      
+                                
+        self.gpx_control.update_from_open_elevation([(insert_pos, lat, lon)])
 
         #  => recalc
         recalc_gpx_data(gpx_data)

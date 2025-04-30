@@ -186,20 +186,6 @@ def main():
     # Temp-Verzeichnisse leeren
     config.clear_temp_directories()
 
-    # Konfig/Version checken
-    new_version_started = config.check_app_version_and_reset_if_necessary()
-    if new_version_started:
-        QMessageBox.warning(
-            None,
-            "New Version Detected",
-            f"A new version ({config.APP_VERSION}) was launched. "
-            "All your previous settings have been reset."
-        )
-
-
-    
-    
-   
 
     # Zusätzlicher Check
     parent_widget = QWidget()
