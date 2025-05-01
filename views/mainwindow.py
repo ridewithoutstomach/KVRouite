@@ -321,6 +321,21 @@ class MainWindow(QMainWindow):
         action_clear_mpv_path.triggered.connect(self._on_clear_mpv_path)
         mpv_menu.addAction(action_clear_mpv_path)
 
+        temp_dir_menu = setup_menu.addMenu("Temp Directory")
+
+        action_show_temp_dir = QAction("Show current Temp Dir", self)
+        action_show_temp_dir.triggered.connect(self._on_show_temp_dir)
+        temp_dir_menu.addAction(action_show_temp_dir)
+
+        action_set_temp_dir = QAction("Set Temp Dir...", self)
+        action_set_temp_dir.triggered.connect(self._on_set_temp_dir)
+        temp_dir_menu.addAction(action_set_temp_dir)
+
+        action_clear_temp_dir = QAction("Reset Temp Dir", self)
+        action_clear_temp_dir.triggered.connect(self._on_clear_temp_dir)
+        temp_dir_menu.addAction(action_clear_temp_dir)
+
+
         
         
         chart_menu = setup_menu.addMenu("Chart-Settings")
@@ -4700,3 +4715,60 @@ class MainWindow(QMainWindow):
     
         QMessageBox.information(self, "Done", 
             f"GPX-Daten wurden als '{out_path}' gespeichert.")
+        
+    def _on_show_temp_dir(self):
+        """
+        Zeigt das aktuelle Temp-Verzeichnis an.
+        """
+        from PySide6.QtCore import QSettings
+        import config
+
+        s = QSettings("VGSync", "VGSync")
+        path_stored = s.value("tempSegmentsDir", "", str)
+        if path_stored and os.path.isdir(path_stored):
+            msg = f"Currently stored Temp Directory:\n{path_stored}"
+        else:
+            msg = f"No temp dir stored. Default:\n{config.get_temp_segments_dir()}"
+        QMessageBox.information(self, "Temp Directory", msg)
+
+
+    def _on_set_temp_dir(self):
+        """
+        Temp-Verzeichnis neu wählen.
+        """
+        from PySide6.QtCore import QSettings
+    
+        folder = QFileDialog.getExistingDirectory(self, "Select Temp Directory")
+        if not folder:
+            return
+    
+        s = QSettings("VGSync", "VGSync")
+        s.setValue("tempSegmentsDir", folder)
+        s.sync()
+    
+        QMessageBox.information(
+            self,
+            "Temp Directory Set",
+            f"Temp Directory set to:\n{folder}\n\n"
+            "Please restart the application for the changes to take effect."
+        )
+
+
+    def _on_clear_temp_dir(self):
+        """
+        Entfernt das Temp-Verzeichnis aus QSettings.
+        """
+        from PySide6.QtCore import QSettings
+    
+        s = QSettings("VGSync", "VGSync")
+        s.remove("tempSegmentsDir")
+        s.sync()
+
+        QMessageBox.information(
+            self,
+            "Temp Directory Reset",
+            "The Temp Directory setting has been cleared.\n"
+            "Default will be used on next start.\n\n"
+            "Please restart the application for the changes to take effect."
+        )
+        
