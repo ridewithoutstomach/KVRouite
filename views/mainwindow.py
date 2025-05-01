@@ -1314,18 +1314,37 @@ class MainWindow(QMainWindow):
 
         self._edit_mode = new_mode
         if new_mode == "off":
+            self.video_editor.edit_status_label.setText("")
             self.video_control.set_editing_mode(False)
             print("[DEBUG] => OFF")
             self.encoder_setup_action.setEnabled(False)
             self.video_control.show_ovl_button(False)
             self.overlay_setup_action.setEnabled(False)
         elif new_mode == "copy":
+            self.video_editor.edit_status_label.setText("Edit:Cop")
+            self.video_editor.edit_status_label.setStyleSheet(
+                "background-color: rgba(0,0,0,120); "
+                "color: orange; "
+                "font-size: 14px; "
+                "font-weight: bold;"
+                "padding: 2px;"
+            )
             self.video_control.set_editing_mode(True)
             print("[DEBUG] => COPY")
             self.encoder_setup_action.setEnabled(False)
             self.video_control.show_ovl_button(False)
             self.overlay_setup_action.setEnabled(False)
         elif new_mode == "encode":
+            self.video_editor.edit_status_label.setText("Edit:ENC")
+            self.video_editor.edit_status_label.setStyleSheet(
+                "background-color: rgba(0,0,0,120); "
+                "color: lime; "
+                "font-size: 14px; "
+                "font-weight: bold;"
+                "padding: 2px;"
+            )
+
+
             self.video_control.set_editing_mode(True)
             print("[DEBUG] => ENCODE")
             self.encoder_setup_action.setEnabled(True)
