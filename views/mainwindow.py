@@ -1313,6 +1313,11 @@ class MainWindow(QMainWindow):
             return  # Nichts geändert
 
         self._edit_mode = new_mode
+        if new_mode == "off" and self._autoSyncVideoEnabled:
+            print("[DEBUG] EditMode=off => deaktiviere AutoCutVideo+GPX")
+            self._autoSyncVideoEnabled = False
+            self.action_auto_sync_video.setChecked(False)
+            self._on_auto_sync_video_toggled(False)
         if new_mode == "off":
             self.video_editor.edit_status_label.setText("")
             self.video_control.set_editing_mode(False)
