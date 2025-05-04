@@ -432,6 +432,9 @@ class MainWindow(QMainWindow):
         reset_config_action.triggered.connect(self._on_reset_config_triggered)
         setup_menu.addAction(reset_config_action)
         
+        
+        gpx_info_menu = menubar.addMenu("GPX-Info")
+        
 
         info_menu = menubar.addMenu("About")
         
@@ -547,6 +550,40 @@ class MainWindow(QMainWindow):
         undo_action.triggered.connect(self.on_global_undo)
         
         self.gpx_widget = GPXWidget()
+        
+        self.statusBar().showMessage("Ready")
+        
+        #menueinträge aktivieren:
+        action_maxslope = QAction("Show Max Slope", self)
+        action_maxslope.setToolTip("Displays the GPX Point with the max Slope")
+        gpx_info_menu.addAction(action_maxslope)
+        action_maxslope.triggered.connect(self.gpx_control.showMaxSlopeClicked.emit)
+        action_maxslope.setStatusTip("Show the GPX-Point with the maximum Slope")
+        
+        
+        action_minslope = QAction("Show Min Slope", self)
+        gpx_info_menu.addAction(action_minslope)
+        action_minslope.triggered.connect(self.gpx_control.showMinSlopeClicked.emit)
+        action_minslope.setStatusTip("Show the GPX-Point with the minimum Slope")
+        
+        action_maxspeed = QAction("Show Max Speed", self)
+        gpx_info_menu.addAction(action_maxspeed)
+        action_maxspeed.triggered.connect(self.gpx_control.maxSpeedClicked.emit)
+        action_maxspeed.setStatusTip("Show the GPX-Point with the highest Speed")
+        
+        action_minspeed = QAction("Show Min Speed", self)
+        gpx_info_menu.addAction(action_minspeed)
+        action_minspeed.triggered.connect(self.gpx_control.minSpeedClicked.emit)
+        action_minspeed.setStatusTip("Show the GPX-Point withe the lowest Speed")
+        
+                
+        action_avgspeed = QAction("Show Average Speed", self)
+        gpx_info_menu.addAction(action_avgspeed)
+        action_avgspeed.triggered.connect(self.gpx_control.on_show_average_speed_info)
+        action_avgspeed.setStatusTip("Show average speed for current GPX selection.")
+        
+        
+        
         
         
         

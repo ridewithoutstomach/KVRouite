@@ -186,19 +186,19 @@ class GPXControlWidget(QWidget):
         # (Menü anlegen)
         self.more_menu = QMenu(self.more_button)
         
-        action_maxslope = self.more_menu.addAction("show max%")
-        action_maxslope.triggered.connect(self.showMaxSlopeClicked.emit)
+        #action_maxslope = self.more_menu.addAction("show max%")
+        #action_maxslope.triggered.connect(self.showMaxSlopeClicked.emit)
         
-        action_minslope = self.more_menu.addAction("show min%")
-        action_minslope.triggered.connect(self.showMinSlopeClicked.emit)
+        #action_minslope = self.more_menu.addAction("show min%")
+        #action_minslope.triggered.connect(self.showMinSlopeClicked.emit)
         
-        action_maxspeed = self.more_menu.addAction("show MaxSpeed")
-        action_minispeed = self.more_menu.addAction("show MinSpeed")
+        #action_maxspeed = self.more_menu.addAction("show MaxSpeed")
+        #action_minispeed = self.more_menu.addAction("show MinSpeed")
 
-        action_maxspeed.triggered.connect(self.maxSpeedClicked.emit)
-        action_minispeed.triggered.connect(self.minSpeedClicked.emit)
+        #action_maxspeed.triggered.connect(self.maxSpeedClicked.emit)
+        #action_minispeed.triggered.connect(self.minSpeedClicked.emit)
         
-        action_avgspeed = self.more_menu.addAction("Show AverageSpeed")
+        action_avgspeed = self.more_menu.addAction("Set AverageSpeed")
         action_avgspeed.triggered.connect(self.averageSpeedClicked.emit)
         
         self._action_closegaps = self.more_menu.addAction("Close Gaps")
@@ -1081,6 +1081,55 @@ class GPXControlWidget(QWidget):
         mw.gpx_widget.gpx_list.clear_marked_range()
         mw.map_widget.clear_marked_range()
 
+    def on_show_average_speed_info(self):
+        mw = self._mainwindow
+        if not mw:
+            return
+
+        gpx_data = mw.gpx_widget.gpx_list._gpx_data
+        b_idx = mw.gpx_widget.gpx_list._markB_idx
+        e_idx = mw.gpx_widget.gpx_list._markE_idx
+
+        if not gpx_data or b_idx is None or e_idx is None:
+            QMessageBox.warning(self, "No Range", "Please mark a GPX range (B..E) first.")
+            return
+
+        if b_idx > e_idx:
+            b_idx, e_idx = e_idx, b_idx
+
+        t_start = gpx_data[b_idx]["time"]
+        t_end = gpx_data[e_idx]["time"]
+        total_s = (t_end - t_start).total_seconds()
+        if total_s <= 0:
+            QMessageBox.warning(self, "Invalid Time",
+                f"Time in the range {b_idx}..{e_idx} is zero or reversed.")
+            return
+
+        total_dist_m = 0.0
+        for i in range(b_idx, e_idx):
+            lat1 = gpx_data[i]["lat"]
+            lon1 = gpx_data[i]["lon"]
+            lat2 = gpx_data[i+1]["lat"]
+            lon2 = gpx_data[i+1]["lon"]
+            total_dist_m += self._haversine_m(lat1, lon1, lat2, lon2)
+
+        if total_dist_m < 0.001:
+            QMessageBox.information(self, "Zero Distance", "This range has almost no distance.")
+            return
+
+        dist_km = total_dist_m / 1000.0
+        time_h = total_s / 3600.0
+        avg_speed_kmh = dist_km / time_h
+
+        QMessageBox.information(
+            self, "Average Speed Info",
+            f"Range {b_idx}..{e_idx}\n"
+            f"Distance: {dist_km:.3f} km\n"
+            f"Time: {total_s:.1f} s\n\n"
+            f"Average Speed: {avg_speed_kmh:.2f} km/h"
+        )
+
+    
     
     def _haversine_m(self, lat1, lon1, lat2, lon2):
         """
