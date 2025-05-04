@@ -2846,3 +2846,71 @@ class GPXControlWidget(QWidget):
                 mw.mini_chart_widget.set_gpx_data(snapshot)
 
         mw._undo_stack.append(undo)
+        
+        
+    def on_show_gpx_summary(self):
+        mw = self._mainwindow
+        if not mw:
+            return
+
+        gpx_data = mw.gpx_widget.gpx_list._gpx_data
+        if not gpx_data:
+            QMessageBox.warning(self, "No GPX Data", "No GPX data loaded.")
+            return
+
+        n_points = len(gpx_data)
+        t_start = gpx_data[0]["time"]
+        t_end = gpx_data[-1]["time"]
+        duration_s = (t_end - t_start).total_seconds()
+        duration_str = str(t_end - t_start)
+
+        dist_m = sum(
+            self._haversine_m(
+                gpx_data[i]["lat"], gpx_data[i]["lon"],
+                gpx_data[i+1]["lat"], gpx_data[i+1]["lon"]
+            )
+            for i in range(n_points - 1)
+        )
+        dist_km = dist_m / 1000.0
+
+        ele_start = gpx_data[0].get("ele", 0.0)
+        ele_end   = gpx_data[-1].get("ele", 0.0)
+        elev_text = self.label_elev.text()
+        try:
+            elev_gain = float(elev_text.split(":")[1].replace("m", "").strip())
+        except Exception:
+            elev_gain = 0.0
+
+        speeds = [pt.get("speed_kmh", 0.0) for pt in gpx_data if "speed_kmh" in pt]
+        max_speed = max(speeds) if speeds else 0.0
+        min_speed = min(speeds) if speeds else 0.0
+
+        # -- Neuen Dialog bauen
+        dlg = QDialog(self)
+        dlg.setWindowTitle("GPX Summary")
+        dlg.setMinimumWidth(350)
+
+        layout = QVBoxLayout(dlg)
+        label = QLabel(dlg)
+        label.setTextFormat(Qt.RichText)
+        label.setText(
+            f"<div style='margin-left:50px;'>"
+            f"<b>GPX Summary</b><br><br>"
+            f"<table>"
+            f"<tr><td><b>Total Points:</b></td><td>{n_points}</td></tr>"
+            f"<tr><td><b>Duration:</b></td><td>{duration_str} ({int(duration_s)} sec)</td></tr>"
+            f"<tr><td><b>Distance:</b></td><td>{dist_km:.2f} km</td></tr>"
+            f"<tr><td><b>Start Elevation:</b></td><td>{ele_start:.1f} m</td></tr>"
+            f"<tr><td><b>End Elevation:</b></td><td>{ele_end:.1f} m</td></tr>"
+            f"<tr><td><b>Elevation Gain:</b></td><td>{elev_gain:.1f} m</td></tr>"
+            f"<tr><td><b>Max Speed:</b></td><td>{max_speed:.1f} km/h</td></tr>"
+            f"<tr><td><b>Min Speed:</b></td><td>{min_speed:.1f} km/h</td></tr>"
+            f"</table>"
+        )
+        layout.addWidget(label)
+
+        btn = QPushButton("OK", dlg)
+        btn.clicked.connect(dlg.accept)
+        layout.addWidget(btn, alignment=Qt.AlignRight)
+
+        dlg.exec()

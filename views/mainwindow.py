@@ -554,6 +554,13 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Ready")
         
         #menueinträge aktivieren:
+        
+        action_gpx_summary = QAction("GPX Summary", self)
+        action_gpx_summary.setStatusTip("Show full GPX summary with stats and elevation info.")
+        gpx_info_menu.addAction(action_gpx_summary)
+        action_gpx_summary.triggered.connect(self.gpx_control.on_show_gpx_summary)
+        
+        
         action_maxslope = QAction("Show Max Slope", self)
         action_maxslope.setToolTip("Displays the GPX Point with the max Slope")
         gpx_info_menu.addAction(action_maxslope)
