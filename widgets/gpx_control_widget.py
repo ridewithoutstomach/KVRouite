@@ -2871,8 +2871,14 @@ class GPXControlWidget(QWidget):
             )
             for i in range(n_points - 1)
         )
-        dist_km = dist_m / 1000.0
+        #dist_km = dist_m / 1000.0
+        label_text = self.label_length.text()  # z.B. "Length(GPX): 66.12 km"
+        try:
+            dist_km = float(label_text.split(":")[1].replace("km", "").strip())
+        except Exception:
+            dist_km = 0.0
 
+            
         ele_start = gpx_data[0].get("ele", 0.0)
         ele_end   = gpx_data[-1].get("ele", 0.0)
         elev_text = self.label_elev.text()
