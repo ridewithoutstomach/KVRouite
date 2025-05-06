@@ -186,19 +186,19 @@ class GPXControlWidget(QWidget):
         # (Menü anlegen)
         self.more_menu = QMenu(self.more_button)
         
-        action_maxslope = self.more_menu.addAction("show max%")
-        action_maxslope.triggered.connect(self.showMaxSlopeClicked.emit)
+        #action_maxslope = self.more_menu.addAction("show max%")
+        #action_maxslope.triggered.connect(self.showMaxSlopeClicked.emit)
         
-        action_minslope = self.more_menu.addAction("show min%")
-        action_minslope.triggered.connect(self.showMinSlopeClicked.emit)
+        #action_minslope = self.more_menu.addAction("show min%")
+        #action_minslope.triggered.connect(self.showMinSlopeClicked.emit)
         
-        action_maxspeed = self.more_menu.addAction("show MaxSpeed")
-        action_minispeed = self.more_menu.addAction("show MinSpeed")
+        #action_maxspeed = self.more_menu.addAction("show MaxSpeed")
+        #action_minispeed = self.more_menu.addAction("show MinSpeed")
 
-        action_maxspeed.triggered.connect(self.maxSpeedClicked.emit)
-        action_minispeed.triggered.connect(self.minSpeedClicked.emit)
+        #action_maxspeed.triggered.connect(self.maxSpeedClicked.emit)
+        #action_minispeed.triggered.connect(self.minSpeedClicked.emit)
         
-        action_avgspeed = self.more_menu.addAction("Show AverageSpeed")
+        action_avgspeed = self.more_menu.addAction("Set AverageSpeed")
         action_avgspeed.triggered.connect(self.averageSpeedClicked.emit)
         
         self._action_closegaps = self.more_menu.addAction("Close Gaps")
@@ -1086,6 +1086,55 @@ class GPXControlWidget(QWidget):
         mw.gpx_widget.gpx_list.clear_marked_range()
         mw.map_widget.clear_marked_range()
 
+    def on_show_average_speed_info(self):
+        mw = self._mainwindow
+        if not mw:
+            return
+
+        gpx_data = mw.gpx_widget.gpx_list._gpx_data
+        b_idx = mw.gpx_widget.gpx_list._markB_idx
+        e_idx = mw.gpx_widget.gpx_list._markE_idx
+
+        if not gpx_data or b_idx is None or e_idx is None:
+            QMessageBox.warning(self, "No Range", "Please mark a GPX range (B..E) first.")
+            return
+
+        if b_idx > e_idx:
+            b_idx, e_idx = e_idx, b_idx
+
+        t_start = gpx_data[b_idx]["time"]
+        t_end = gpx_data[e_idx]["time"]
+        total_s = (t_end - t_start).total_seconds()
+        if total_s <= 0:
+            QMessageBox.warning(self, "Invalid Time",
+                f"Time in the range {b_idx}..{e_idx} is zero or reversed.")
+            return
+
+        total_dist_m = 0.0
+        for i in range(b_idx, e_idx):
+            lat1 = gpx_data[i]["lat"]
+            lon1 = gpx_data[i]["lon"]
+            lat2 = gpx_data[i+1]["lat"]
+            lon2 = gpx_data[i+1]["lon"]
+            total_dist_m += self._haversine_m(lat1, lon1, lat2, lon2)
+
+        if total_dist_m < 0.001:
+            QMessageBox.information(self, "Zero Distance", "This range has almost no distance.")
+            return
+
+        dist_km = total_dist_m / 1000.0
+        time_h = total_s / 3600.0
+        avg_speed_kmh = dist_km / time_h
+
+        QMessageBox.information(
+            self, "Average Speed Info",
+            f"Range {b_idx}..{e_idx}\n"
+            f"Distance: {dist_km:.3f} km\n"
+            f"Time: {total_s:.1f} s\n\n"
+            f"Average Speed: {avg_speed_kmh:.2f} km/h"
+        )
+
+    
     
     def _haversine_m(self, lat1, lon1, lat2, lon2):
         """
@@ -2802,3 +2851,77 @@ class GPXControlWidget(QWidget):
                 mw.mini_chart_widget.set_gpx_data(snapshot)
 
         mw._undo_stack.append(undo)
+        
+        
+    def on_show_gpx_summary(self):
+        mw = self._mainwindow
+        if not mw:
+            return
+
+        gpx_data = mw.gpx_widget.gpx_list._gpx_data
+        if not gpx_data:
+            QMessageBox.warning(self, "No GPX Data", "No GPX data loaded.")
+            return
+
+        n_points = len(gpx_data)
+        t_start = gpx_data[0]["time"]
+        t_end = gpx_data[-1]["time"]
+        duration_s = (t_end - t_start).total_seconds()
+        duration_str = str(t_end - t_start)
+
+        dist_m = sum(
+            self._haversine_m(
+                gpx_data[i]["lat"], gpx_data[i]["lon"],
+                gpx_data[i+1]["lat"], gpx_data[i+1]["lon"]
+            )
+            for i in range(n_points - 1)
+        )
+        #dist_km = dist_m / 1000.0
+        label_text = self.label_length.text()  # z.B. "Length(GPX): 66.12 km"
+        try:
+            dist_km = float(label_text.split(":")[1].replace("km", "").strip())
+        except Exception:
+            dist_km = 0.0
+
+            
+        ele_start = gpx_data[0].get("ele", 0.0)
+        ele_end   = gpx_data[-1].get("ele", 0.0)
+        elev_text = self.label_elev.text()
+        try:
+            elev_gain = float(elev_text.split(":")[1].replace("m", "").strip())
+        except Exception:
+            elev_gain = 0.0
+
+        speeds = [pt.get("speed_kmh", 0.0) for pt in gpx_data if "speed_kmh" in pt]
+        max_speed = max(speeds) if speeds else 0.0
+        min_speed = min(speeds) if speeds else 0.0
+
+        # -- Neuen Dialog bauen
+        dlg = QDialog(self)
+        dlg.setWindowTitle("GPX Summary")
+        dlg.setMinimumWidth(350)
+
+        layout = QVBoxLayout(dlg)
+        label = QLabel(dlg)
+        label.setTextFormat(Qt.RichText)
+        label.setText(
+            f"<div style='margin-left:50px;'>"
+            f"<b>GPX Summary</b><br><br>"
+            f"<table>"
+            f"<tr><td><b>Total Points:</b></td><td>{n_points}</td></tr>"
+            f"<tr><td><b>Duration:</b></td><td>{duration_str} ({int(duration_s)} sec)</td></tr>"
+            f"<tr><td><b>Distance:</b></td><td>{dist_km:.2f} km</td></tr>"
+            f"<tr><td><b>Start Elevation:</b></td><td>{ele_start:.1f} m</td></tr>"
+            f"<tr><td><b>End Elevation:</b></td><td>{ele_end:.1f} m</td></tr>"
+            f"<tr><td><b>Elevation Gain:</b></td><td>{elev_gain:.1f} m</td></tr>"
+            f"<tr><td><b>Max Speed:</b></td><td>{max_speed:.1f} km/h</td></tr>"
+            f"<tr><td><b>Min Speed:</b></td><td>{min_speed:.1f} km/h</td></tr>"
+            f"</table>"
+        )
+        layout.addWidget(label)
+
+        btn = QPushButton("OK", dlg)
+        btn.clicked.connect(dlg.accept)
+        layout.addWidget(btn, alignment=Qt.AlignRight)
+
+        dlg.exec()

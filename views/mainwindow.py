@@ -321,6 +321,21 @@ class MainWindow(QMainWindow):
         action_clear_mpv_path.triggered.connect(self._on_clear_mpv_path)
         mpv_menu.addAction(action_clear_mpv_path)
 
+        temp_dir_menu = setup_menu.addMenu("Temp Directory")
+
+        action_show_temp_dir = QAction("Show current Temp Dir", self)
+        action_show_temp_dir.triggered.connect(self._on_show_temp_dir)
+        temp_dir_menu.addAction(action_show_temp_dir)
+
+        action_set_temp_dir = QAction("Set Temp Dir...", self)
+        action_set_temp_dir.triggered.connect(self._on_set_temp_dir)
+        temp_dir_menu.addAction(action_set_temp_dir)
+
+        action_clear_temp_dir = QAction("Reset Temp Dir", self)
+        action_clear_temp_dir.triggered.connect(self._on_clear_temp_dir)
+        temp_dir_menu.addAction(action_clear_temp_dir)
+
+
         
         
         chart_menu = setup_menu.addMenu("Chart-Settings")
@@ -416,6 +431,9 @@ class MainWindow(QMainWindow):
         reset_config_action = QAction("Reset Config", self)
         reset_config_action.triggered.connect(self._on_reset_config_triggered)
         setup_menu.addAction(reset_config_action)
+        
+        
+        gpx_info_menu = menubar.addMenu("GPX-Info")
         
 
         info_menu = menubar.addMenu("About")
@@ -532,6 +550,47 @@ class MainWindow(QMainWindow):
         undo_action.triggered.connect(self.on_global_undo)
         
         self.gpx_widget = GPXWidget()
+        
+        self.statusBar().showMessage("Ready")
+        
+        #menueinträge aktivieren:
+        
+        action_gpx_summary = QAction("GPX Summary", self)
+        action_gpx_summary.setStatusTip("Show full GPX summary with stats and elevation info.")
+        gpx_info_menu.addAction(action_gpx_summary)
+        action_gpx_summary.triggered.connect(self.gpx_control.on_show_gpx_summary)
+        
+        
+        action_maxslope = QAction("Show Max Slope", self)
+        action_maxslope.setToolTip("Displays the GPX Point with the max Slope")
+        gpx_info_menu.addAction(action_maxslope)
+        action_maxslope.triggered.connect(self.gpx_control.showMaxSlopeClicked.emit)
+        action_maxslope.setStatusTip("Show the GPX-Point with the maximum Slope")
+        
+        
+        action_minslope = QAction("Show Min Slope", self)
+        gpx_info_menu.addAction(action_minslope)
+        action_minslope.triggered.connect(self.gpx_control.showMinSlopeClicked.emit)
+        action_minslope.setStatusTip("Show the GPX-Point with the minimum Slope")
+        
+        action_maxspeed = QAction("Show Max Speed", self)
+        gpx_info_menu.addAction(action_maxspeed)
+        action_maxspeed.triggered.connect(self.gpx_control.maxSpeedClicked.emit)
+        action_maxspeed.setStatusTip("Show the GPX-Point with the highest Speed")
+        
+        action_minspeed = QAction("Show Min Speed", self)
+        gpx_info_menu.addAction(action_minspeed)
+        action_minspeed.triggered.connect(self.gpx_control.minSpeedClicked.emit)
+        action_minspeed.setStatusTip("Show the GPX-Point withe the lowest Speed")
+        
+                
+        action_avgspeed = QAction("Show Average Speed", self)
+        gpx_info_menu.addAction(action_avgspeed)
+        action_avgspeed.triggered.connect(self.gpx_control.on_show_average_speed_info)
+        action_avgspeed.setStatusTip("Show average speed for current GPX selection.")
+        
+        
+        
         
         
         
@@ -1298,19 +1357,43 @@ class MainWindow(QMainWindow):
             return  # Nichts geändert
 
         self._edit_mode = new_mode
+        if new_mode == "off" and self._autoSyncVideoEnabled:
+            print("[DEBUG] EditMode=off => deaktiviere AutoCutVideo+GPX")
+            self._autoSyncVideoEnabled = False
+            self.action_auto_sync_video.setChecked(False)
+            self._on_auto_sync_video_toggled(False)
         if new_mode == "off":
+            self.video_editor.edit_status_label.setText("")
             self.video_control.set_editing_mode(False)
             print("[DEBUG] => OFF")
             self.encoder_setup_action.setEnabled(False)
             self.video_control.show_ovl_button(False)
             self.overlay_setup_action.setEnabled(False)
         elif new_mode == "copy":
+            self.video_editor.edit_status_label.setText("Edit:Cop")
+            self.video_editor.edit_status_label.setStyleSheet(
+                "background-color: rgba(0,0,0,120); "
+                "color: orange; "
+                "font-size: 14px; "
+                "font-weight: bold;"
+                "padding: 2px;"
+            )
             self.video_control.set_editing_mode(True)
             print("[DEBUG] => COPY")
             self.encoder_setup_action.setEnabled(False)
             self.video_control.show_ovl_button(False)
             self.overlay_setup_action.setEnabled(False)
         elif new_mode == "encode":
+            self.video_editor.edit_status_label.setText("Edit:ENC")
+            self.video_editor.edit_status_label.setStyleSheet(
+                "background-color: rgba(0,0,0,120); "
+                "color: lime; "
+                "font-size: 14px; "
+                "font-weight: bold;"
+                "padding: 2px;"
+            )
+
+
             self.video_control.set_editing_mode(True)
             print("[DEBUG] => ENCODE")
             self.encoder_setup_action.setEnabled(True)
@@ -4717,3 +4800,60 @@ class MainWindow(QMainWindow):
     
         QMessageBox.information(self, "Done", 
             f"GPX-Daten wurden als '{out_path}' gespeichert.")
+        
+    def _on_show_temp_dir(self):
+        """
+        Zeigt das aktuelle Temp-Verzeichnis an.
+        """
+        from PySide6.QtCore import QSettings
+        import config
+
+        s = QSettings("VGSync", "VGSync")
+        path_stored = s.value("tempSegmentsDir", "", str)
+        if path_stored and os.path.isdir(path_stored):
+            msg = f"Currently stored Temp Directory:\n{path_stored}"
+        else:
+            msg = f"No temp dir stored. Default:\n{config.get_temp_segments_dir()}"
+        QMessageBox.information(self, "Temp Directory", msg)
+
+
+    def _on_set_temp_dir(self):
+        """
+        Temp-Verzeichnis neu wählen.
+        """
+        from PySide6.QtCore import QSettings
+    
+        folder = QFileDialog.getExistingDirectory(self, "Select Temp Directory")
+        if not folder:
+            return
+    
+        s = QSettings("VGSync", "VGSync")
+        s.setValue("tempSegmentsDir", folder)
+        s.sync()
+    
+        QMessageBox.information(
+            self,
+            "Temp Directory Set",
+            f"Temp Directory set to:\n{folder}\n\n"
+            "Please restart the application for the changes to take effect."
+        )
+
+
+    def _on_clear_temp_dir(self):
+        """
+        Entfernt das Temp-Verzeichnis aus QSettings.
+        """
+        from PySide6.QtCore import QSettings
+    
+        s = QSettings("VGSync", "VGSync")
+        s.remove("tempSegmentsDir")
+        s.sync()
+
+        QMessageBox.information(
+            self,
+            "Temp Directory Reset",
+            "The Temp Directory setting has been cleared.\n"
+            "Default will be used on next start.\n\n"
+            "Please restart the application for the changes to take effect."
+        )
+        

@@ -84,9 +84,23 @@ def _get_license_path() -> str:
 base_temp = tempfile.gettempdir()
 TMP_KEYFRAME_DIR = os.path.join(base_temp, "my_vgsync_keyframes")
 
-MY_GLOBAL_TMP_DIR = os.path.join(base_temp, "my_vgsync_cut_segments")
+def get_temp_segments_dir() -> str:
+    """
+    Gibt den konfigurierten Temp-Ordner zurück, falls gesetzt,
+    sonst ein systemweites Standard-Temp-Verzeichnis mit Unterordner.
+    """
+    s = QSettings("VGSync", "VGSync")
+    custom_path = s.value("tempSegmentsDir", "", str)
 
+    if custom_path and os.path.isdir(custom_path):
+        return custom_path
 
+    # OS-standard Temp-Verzeichnis + Unterordner
+    return os.path.join(tempfile.gettempdir(), "my_vgsync_cut_segments")
+
+#MY_GLOBAL_TMP_DIR = os.path.join(base_temp, "my_vgsync_cut_segments")
+
+MY_GLOBAL_TMP_DIR = get_temp_segments_dir()
 
 
 
