@@ -3772,8 +3772,20 @@ class MainWindow(QMainWindow):
         # 4) => Video-Position
         print(f"[DEBUG] on_map_sync_any => idx={idx_map}, final_s={final_s:.2f}, global_s={global_s:.2f}")
         self.on_time_hms_set_clicked(hh, mm, ss, ms)
-        
-    
+
+        if self.cut_manager.markB_time_s >= 0 and self._autoSyncVideoEnabled and self.real_total_duration - global_s < 1:
+            reply = QMessageBox.question(
+                self,
+                "Last Frame?",
+                "You are near the end of the video. Do you want to select the last frame?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+
+            if reply == QMessageBox.Yes:
+                # User confirmed selecting the last frame
+                self.end_manager.go_to_end()
+
 
     def _save_gpx_to_file(self, gpx_points, out_file: str):
         """
