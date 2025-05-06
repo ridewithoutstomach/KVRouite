@@ -1440,8 +1440,7 @@ class MainWindow(QMainWindow):
                     cut_start = 0.0
     
                 # => Erstellen wir Undo-Snapshot => JETZT, weil wir sicher was ändern
-                old_data = copy.deepcopy(gpx_data)
-                self.gpx_widget.gpx_list._history_stack.append(old_data)
+                self.register_gpx_undo_snapshot()
     
                 i0 = 0
                 while i0 < len(gpx_data):
@@ -1528,8 +1527,8 @@ class MainWindow(QMainWindow):
                 cut_start = 0.0
     
             # => Undo-Snapshot => wir ändern definitiv was
-            old_data = copy.deepcopy(gpx_data)
-            self.gpx_widget.gpx_list._history_stack.append(old_data)
+            self.register_gpx_undo_snapshot()
+            self.register_video_undo_snapshot(True)
     
             i0 = 0
             while i0 < len(gpx_data):
@@ -1865,12 +1864,14 @@ class MainWindow(QMainWindow):
     
         self.map_widget.view.page().runJavaScript("hideLoading();")
     """    
+
     def on_cut_clicked_video(self):
-        self.register_video_undo_snapshot()
-        
         if self._autoSyncVideoEnabled and self._edit_mode in ("copy", "encode"):
             self.register_gpx_undo_snapshot()  # ❗ Vor dem Cut!
-        
+            self.register_video_undo_snapshot(True)
+        else:
+            self.register_video_undo_snapshot(False)
+
         
         """
         Wird aufgerufen, wenn der 'cut'-Button im VideoControlWidget gedrückt wird.
@@ -4409,7 +4410,7 @@ class MainWindow(QMainWindow):
             undo_fn = self._undo_stack.pop()
             undo_fn()  # Die gespeicherte Undo-Funktion ausführen
         else:
-            print("Undo stack is empty.")    
+            QMessageBox.warning(self,"Undo ignored","Undo stack is empty.")    
     
     def register_gpx_undo_snapshot(self):
         gpx_snapshot = copy.deepcopy(self.gpx_widget.gpx_list._gpx_data)
@@ -4426,7 +4427,7 @@ class MainWindow(QMainWindow):
 
         self._undo_stack.append(undo)
 
-    def register_video_undo_snapshot(self):
+    def register_video_undo_snapshot(self,appendToLast: bool = False):
         snapshot = copy.deepcopy(self.cut_manager._cut_intervals)
 
         def undo():
@@ -4445,7 +4446,17 @@ class MainWindow(QMainWindow):
             else:
                 self.cut_manager.video_editor.set_cut_time(0.0)
 
-        self._undo_stack.append(undo)
+        if appendToLast and self._undo_stack:
+            # Combine with the last undo
+            last_undo = self._undo_stack.pop()
+
+            def combined_undo():
+                last_undo()
+                undo()
+
+            self._undo_stack.append(combined_undo)
+        else:
+            self._undo_stack.append(undo)
 
     def save_project(self):
         """
