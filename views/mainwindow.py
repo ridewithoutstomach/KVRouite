@@ -4252,6 +4252,11 @@ class MainWindow(QMainWindow):
         # Timeline und Editor neu zeichnen
         self.timeline.update()
         self.video_editor.update()
+        # Playlist
+        
+        self.playlist.clear()
+        self.video_durations.clear()
+        self.playlist_menu.clear()
 
         QMessageBox.information(self, "New Project", "New project started successfully.")
      
@@ -4686,11 +4691,21 @@ class MainWindow(QMainWindow):
                 self.timeline.add_cut_interval(start_s, end_s)
 
             self.timeline.update()
+            self._rebuild_playlist_menu()
 
             #QMessageBox.information(self, "Project Loaded", f"Project loaded from:\n{filename}")
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load project:\n{e}")
+            
+    def _rebuild_playlist_menu(self):
+        self.playlist_menu.clear()
+        self.playlist_counter = 1
+        for filepath in self.playlist:
+            label_text = f"{self.playlist_counter}: {os.path.basename(filepath)}"
+            action = self.playlist_menu.addAction(label_text)
+            action.triggered.connect(lambda checked, f=filepath, a=action: self.confirm_remove(f, a))
+            self.playlist_counter += 1        
         
     def _calculate_cut_total_duration(self):
         """
