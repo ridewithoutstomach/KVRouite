@@ -205,6 +205,8 @@ def main():
         sys.exit(0)
 
     # Disclaimer-Dialog (nur wenn nicht akzeptiert)
+    
+    config.check_app_version_and_reset_if_necessary()
     if not is_disclaimer_accepted():
         dlg_disclaimer = DisclaimerDialog()
         dlg_disclaimer.show()

@@ -155,20 +155,33 @@ def set_edit_video_enabled(enabled: bool):
     s = QSettings("VGSync", "VGSync")
     s.setValue("video/editEnabled", enabled)
 
-
+"""
 def check_app_version_and_reset_if_necessary():
-    """
-    Überprüft, ob die gespeicherte Version in QSettings der aktuellen APP_VERSION
-    entspricht. Falls nicht, werden sämtliche QSettings gelöscht und anschließend
-    die neue APP_VERSION eingetragen.
-
-    Gibt True zurück, wenn ein Reset durchgeführt wurde, sonst False.
-    """
+   
+   
     s = QSettings("VGSync", "VGSync")
     stored_version = s.value("appVersion", "", type=str)
     if stored_version != APP_VERSION:
         s.clear()
         s.setValue("appVersion", APP_VERSION)
+        return True
+    else:
+        return False
+"""    
+    
+def check_app_version_and_reset_if_necessary():
+    """
+    Überprüft, ob die gespeicherte Version in QSettings der aktuellen APP_VERSION
+    entspricht. Falls nicht, wird nur der 'disclaimerAccepted'-Wert gelöscht
+    und die neue APP_VERSION eingetragen.
+
+    Gibt True zurück, wenn der Disclaimer neu gezeigt werden muss, sonst False.
+    """
+    s = QSettings("VGSync", "VGSync")
+    stored_version = s.value("appVersion", "", type=str)
+    if stored_version != APP_VERSION:
+        s.setValue("appVersion", APP_VERSION)
+        s.remove("disclaimerAccepted")  # Nur diesen Wert zurücksetzen
         return True
     else:
         return False
