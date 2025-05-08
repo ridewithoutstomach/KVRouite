@@ -27,6 +27,9 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Signal, Qt, QRegularExpression
 from PySide6.QtGui import QRegularExpressionValidator, QCursor
 
+from PySide6.QtGui import QIcon
+from PySide6.QtCore import QSize
+
 
 
 class VideoControlWidget(QWidget):
@@ -60,13 +63,26 @@ class VideoControlWidget(QWidget):
         )
         self.play_pause_button.clicked.connect(self.play_pause_clicked.emit)
         layout.addWidget(self.play_pause_button)
-
+        """
         self.stop_button = QPushButton()
         self.stop_button.setIcon(
             self.style().standardIcon(QStyle.SP_MediaStop)
         )
         self.stop_button.clicked.connect(self.stop_clicked.emit)
         layout.addWidget(self.stop_button)
+        """
+        icon_size = self.style().pixelMetric(QStyle.PM_ToolBarIconSize)
+        self.stop_button = QPushButton()
+        self.stop_button.setIcon(QIcon("icon/go_to_start_icon_padded.svg"))
+        self.stop_button.setIconSize(QSize(icon_size, icon_size))
+        play_size = self.play_pause_button.sizeHint()
+        self.stop_button.setMinimumSize(play_size)
+        self.stop_button.setMaximumSize(play_size)    
+        
+        self.stop_button.setToolTip("Goto Start (Second 0)")
+        self.stop_button.clicked.connect(self.stop_clicked.emit)
+        layout.addWidget(self.stop_button)
+
         
         
         self._step_values = ["s", "m", "k", "f"]  # <-- "f" ergänzt
