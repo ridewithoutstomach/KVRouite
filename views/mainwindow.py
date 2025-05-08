@@ -1560,6 +1560,7 @@ class MainWindow(QMainWindow):
                     QMessageBox.warning(
                         self,
                         "Not enough GPX data",
+                        f"In gpx edit mode only not possible to cut gpx data shorter than the video.\n"
                         f"You want to keep {global_video_s:.2f}s before {rel_s_marked:.2f}s,\n"
                         f"that starts at {cut_start:.2f}s < 0 => impossible.\n"
                         "Operation canceled."
