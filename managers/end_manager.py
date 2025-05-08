@@ -87,14 +87,19 @@ class EndManager(QObject):
 
         # 5) Optional: Du kannst hier noch eine Info-Box anzeigen,
         #    damit der User weiß, er braucht jetzt nur noch "cut" zu drücken.
-        QMessageBox.information(
+        reply = QMessageBox.question(
             None,
-            "Marked the End",
-            "The End of the video is now automatically marked (B..E).\n"
-            "Please press 'cut' if you want to remove it!"
+            "Cut Now?",
+            "The End of the video is now marked (B..E).\n"
+            "Do you want to cut this section now?",
+            QMessageBox.Yes | QMessageBox.No
         )
-
         
+        if reply == QMessageBox.Yes:
+            print("[DEBUG] User confirmed => führe Schnitt aus.")
+            self.mainwindow.on_cut_clicked_video()
+        else:
+            print("[DEBUG] User hat abgelehnt => kein Schnitt.")
         
     def _set_global_time_s(self, new_global_s: float):
         """
