@@ -24,8 +24,8 @@ from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QPushButton, QLineEdit, QLabel,
     QStyle, QDialog, QVBoxLayout, QFrame
 )
-from PySide6.QtCore import Signal, Qt, QRegularExpression
-from PySide6.QtGui import QRegularExpressionValidator, QCursor
+from PySide6.QtCore import Signal, Qt, QRegularExpression, QSize
+from PySide6.QtGui import QRegularExpressionValidator, QCursor, QIcon
 
 
 
@@ -153,29 +153,16 @@ class VideoControlWidget(QWidget):
         
         
                 
-        self.set_begin_button = QPushButton("<B")
+        self.set_begin_button = QPushButton()
+        self.set_begin_button.setIcon(QIcon("icon/cut_begin.png")) 
+        self.set_begin_button.setIconSize(QSize(20, 20))
         self.set_begin_button.setToolTip("Cut the Begin of the Video and/or the GPX")
-        self.set_begin_button.setFixedWidth(40)
         self.set_begin_button.clicked.connect(self.set_beginClicked.emit)
         layout.addWidget(self.set_begin_button)
         
         
-        self.set_begin_button.setStyleSheet(
-        """
-        QPushButton {
-            background-color: #C0392B;
-            color: white;
-            
-        }
-        QPushButton:hover {
-            background-color: #E74C3C;
-            color: black;
-        }
-        """
-        )
-        
         self.go_to_end_button = QPushButton(">E")
-        self.go_to_end_button.setToolTip("Cut the End of the Video and the GPX\nSet first a markB")
+        self.go_to_end_button.setToolTip("Cut the End of the Video and the GPX\nSelect begin first")
         self.go_to_end_button.setFixedWidth(40)
         
         self.go_to_end_button.clicked.connect(self.goToEndClicked.emit)
