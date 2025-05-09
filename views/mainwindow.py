@@ -1557,13 +1557,26 @@ class MainWindow(QMainWindow):
                 cut_start = rel_s_marked - global_video_s
                 if cut_start < 0:
                     # => Fehlermeldung => ABBRUCH => KEIN Undo
+                    #QMessageBox.warning(
+                    #    self,
+                    #    "Not enough GPX data",
+                    #    f"You want to keep {global_video_s:.2f}s before {rel_s_marked:.2f}s,\n"
+                    #    f"that starts at {cut_start:.2f}s < 0 => impossible.\n"
+                    #    "Operation canceled."
+                    #)
                     QMessageBox.warning(
                         self,
-                        "Not enough GPX data",
-                        f"You want to keep {global_video_s:.2f}s before {rel_s_marked:.2f}s,\n"
-                        f"that starts at {cut_start:.2f}s < 0 => impossible.\n"
-                        "Operation canceled."
+                        "GPX Cut Not Possible",
+                        (
+                        f"You tried to keep {global_video_s:.1f}s of video before the selected point at {rel_s_marked:.1f}s.\n"
+                        f"→ But this would start the cut at {cut_start:.1f}s (before the GPX track starts at 0s).\n\n"
+                        "No GPX data exists before time 0.\n\n"
+                        "Solutions:\n"
+                        "• Choose an earlier Video/GPX point to match your video point\n"
+                        "• Or extend the GPX start (e.g. use 'chT' to shift it)"
+                        )
                     )
+    
                     return
     
                 # => JETZT erst Undo-Snapshot => weil wir sicher etwas löschen
