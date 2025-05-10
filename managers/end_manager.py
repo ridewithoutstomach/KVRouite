@@ -51,14 +51,7 @@ class EndManager(QObject):
             print("[DEBUG] keine Videos geladen (multi_durations ist leer)")
             return
 
-        # 1) Haben wir überhaupt MarkB?
-        if self.cut_manager.markB_time_s < 0:
-            QMessageBox.warning(
-                None,
-                "MarkB not set",
-                "Please set MarkB first, before cutting the End of the video."
-            )
-            return
+        self.cut_manager.markB_time_s = self.video_editor.get_current_position_s()
 
         # 2) Komplettes Ende des Videos errechnen
         total_duration = sum(self.video_editor.multi_durations)
@@ -76,14 +69,12 @@ class EndManager(QObject):
         if self.mainwindow._autoSyncVideoEnabled:
             print("[DEBUG] AutoSyncVideo ist an => auch in GPX den Bereich bis zum Schluss markieren.")
             gpx_list = self.mainwindow.gpx_widget.gpx_list
-            if gpx_list._markB_idx is None or gpx_list._markB_idx < 0:
-                print("[DEBUG] Im GPX ist allerdings kein MarkB gesetzt => wir lassen es so.")
-            else:
-                row_count = gpx_list.table.rowCount()
-                if row_count > 0:
-                    e_idx = row_count - 1
-                    gpx_list.set_markE_row(e_idx)
-                    print(f"[DEBUG] GPX => E = letzte Zeile (Index={e_idx})")
+            gpx_list.set_markB_row(gpx_list.table.currentRow())
+            row_count = gpx_list.table.rowCount()
+            if row_count > 0:
+                e_idx = row_count - 1
+                gpx_list.set_markE_row(e_idx)
+                print(f"[DEBUG] GPX => E = letzte Zeile (Index={e_idx})")
 
         # 5) Optional: Du kannst hier noch eine Info-Box anzeigen,
         #    damit der User weiß, er braucht jetzt nur noch "cut" zu drücken.

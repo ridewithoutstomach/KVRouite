@@ -177,37 +177,13 @@ class VideoControlWidget(QWidget):
         layout.addWidget(self.set_begin_button)
         
         
-        self.go_to_end_button = QPushButton(">E")
-        self.go_to_end_button.setToolTip("Cut the End of the Video and the GPX\nSelect begin first")
-        self.go_to_end_button.setFixedWidth(40)
+        self.go_to_end_button = QPushButton()
+        self.go_to_end_button.setIcon(QIcon("icon/cut_end.png")) 
+        self.go_to_end_button.setIconSize(QSize(20, 20))
+        self.go_to_end_button.setToolTip("Cut the End of the Video and the GPX")
         
         self.go_to_end_button.clicked.connect(self.goToEndClicked.emit)
         layout.addWidget(self.go_to_end_button)
-        
-        
-        
-        self.go_to_end_button.setStyleSheet(
-        """
-        QPushButton {
-            background-color: #C0392B;
-            color: white;
-            
-        }
-        QPushButton:hover {
-            background-color: #E74C3C;
-            color: black;
-        }
-        """
-        )
-
-            
-        
-        
-        
-        #self.undo_button = QPushButton("Undo")
-        #self.undo_button.setFixedWidth(45)
-        #self.undo_button.clicked.connect(self.undoClicked.emit)
-        #layout.addWidget(self.undo_button)
 
         self.sync_button = QPushButton("GSync")
         self.sync_button.setToolTip("Show the corresponding GPX-Point")
@@ -223,13 +199,6 @@ class VideoControlWidget(QWidget):
         layout.addWidget(self.ovl_button)
         self.ovl_button.hide()   # Standard: ausgeblendet
 
-        # self.safe_button = QPushButton()
-        # self.safe_button.setFixedWidth(45)
-        # self.safe_button.setIcon(
-        #     self.style().standardIcon(QStyle.SP_DriveHDIcon)
-        # )
-        # self.safe_button.clicked.connect(self.safeClicked.emit)
-        # layout.addWidget(self.safe_button)
 
         layout.addStretch()
         
