@@ -38,6 +38,7 @@ import subprocess
 import re
 import uuid
 import hashlib
+import statistics
 
 
             
@@ -158,24 +159,30 @@ class MainWindow(QMainWindow):
         self.global_keyframes = []
 
         # Menüs
+        self.statusBar().showMessage("Ready")
         menubar = self.menuBar()
         file_menu = menubar.addMenu("File")
 
         dummy_action = QAction("New Project", self)
+        dummy_action.setStatusTip("Closed all loaded files/cuts/edits and open a new Project.")
+
         file_menu.addAction(dummy_action)
         dummy_action.triggered.connect(self._on_new_project_triggered)
 
         file_menu.addSeparator()
 
         load_project_action = QAction("Load Project...", self)
+        load_project_action.setStatusTip("Open a already saved Project.")
         load_project_action.triggered.connect(self.load_project)
         file_menu.addAction(load_project_action)
         
         load_gpx_action = QAction("Import GPX...", self)
+        load_gpx_action.setStatusTip("Load a GPX File or append a GPX File to a already loaded GPX.")
         load_gpx_action.triggered.connect(self.load_gpx_file)
         file_menu.addAction(load_gpx_action)
 
         load_mp4_action = QAction("Import Video...", self)
+        load_mp4_action.setStatusTip("Load one or more Videos.")
         load_mp4_action.triggered.connect(self.load_mp4_files)
         file_menu.addAction(load_mp4_action)
 
@@ -186,20 +193,24 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         
         save_project_action = QAction("Save Project...", self)
+        save_project_action.setStatusTip("Safe the loaded files and edits as project.")
         save_project_action.triggered.connect(self.save_project)
         file_menu.addAction(save_project_action)
 
         save_gpx_action = QAction("Export GPX...", self)
+        save_gpx_action.setStatusTip("Safe/Export the edited GPX File.")
         save_gpx_action.triggered.connect(self.on_save_gpx_clicked)
         file_menu.addAction(save_gpx_action)
 
         render_action = QAction("Export Video...", self)
+        render_action.setStatusTip("Export in Copy-Mode or Encode-Mode the edited Video.")
         render_action.triggered.connect(self.on_render_clicked)
         file_menu.addAction(render_action)
 
 
         edit_menu = menubar.addMenu("Edit")
         undo_action = QAction("Undo - ", self)
+        undo_action.setStatusTip("Revert the last action.")
         undo_action.setShortcut(QKeySequence("Ctrl+Z"))  # ⌨ STRG+Z
         edit_menu.addAction(undo_action)
 
@@ -208,16 +219,22 @@ class MainWindow(QMainWindow):
         view_menu = menubar.addMenu("View")
 
         classic_view_action = view_menu.addAction("Edit mode")
+        classic_view_action.setStatusTip("Activate the standard Edit-Mode.")
         classic_view_action.triggered.connect(self._set_classic_view)
 
         gpx_create_mode_action = view_menu.addAction("Create mode")
+        gpx_create_mode_action.setStatusTip("Activate the Create-Mode to build GPX from scratch.")
         gpx_create_mode_action.triggered.connect(self._set_map_video_view)
-
+        
         self.action_toggle_video = QAction("Video (detach)", self)
+        self.action_toggle_video.setStatusTip("Detach/Attach the Video-Editor.")
         self.action_toggle_video.triggered.connect(self._toggle_video)
+        
         view_menu.addAction(self.action_toggle_video)
+        
 
         self.action_toggle_map = QAction("Map (detach)", self)
+        self.action_toggle_map.setStatusTip("Detach/Attach the Map.")
         self.action_toggle_map.triggered.connect(self._toggle_map)
         view_menu.addAction(self.action_toggle_map)
         
@@ -229,8 +246,11 @@ class MainWindow(QMainWindow):
         edit_video_menu = setup_menu.addMenu("Edit Video")
 
         self.off_action = QAction("Off", self, checkable=True)
+        self.off_action.setStatusTip("Video Editing OFF / Only GPX Editing.")
         self.copy_action = QAction("Copy-Mode", self, checkable=True)
+        self.copy_action.setStatusTip("Copy-Mode: Video will be produce in Copy-Mode: Fast, but with hard Cuts.")
         self.encode_action = QAction("Encode-Mode", self, checkable=True)
+        self.encode_action.setStatusTip("Encode-Mode: Video will be encoded with the settings of Encoder-Setup: Slow, but with Xfades/Ovrlays")
 
         self.edit_mode_group = QActionGroup(self)
         self.edit_mode_group.setExclusive(True)
@@ -257,11 +277,13 @@ class MainWindow(QMainWindow):
         
         
         self.encoder_setup_action = QAction("Encoder-Setup", self)
+        self.encoder_setup_action.setStatusTip("Setup for Encoder: like Resulution/Quality/Hardware ...")
         self.encoder_setup_action.setEnabled(False)  # am Anfang ausgegraut
         setup_menu.addAction(self.encoder_setup_action)
         self.encoder_setup_action.triggered.connect(self._on_encoder_setup_clicked)
         
         self.overlay_setup_action = QAction("Overlay-Setup", self)
+        self.overlay_setup_action.setStatusTip("Setup Menu for your standard Overlays")
         self.overlay_setup_action.setEnabled(False)  # Standard: ausgegraut
         setup_menu.addAction(self.overlay_setup_action)
         self.overlay_setup_action.triggered.connect(self._on_overlay_setup_clicked)
@@ -270,20 +292,23 @@ class MainWindow(QMainWindow):
         
         
         self.action_auto_sync_video = QAction("AutoCutVideo+GPX", self)
+        self.action_auto_sync_video.setStatusTip("Cuts the Video and the GPX in one step.")
         self.action_auto_sync_video.setCheckable(True)
         self.action_auto_sync_video.setChecked(False)  # Standard = OFF
         self.action_auto_sync_video.triggered.connect(self._on_auto_sync_video_toggled)
         setup_menu.addAction(self.action_auto_sync_video)
         
         timer_menu = setup_menu.addMenu("Time: Final/Glogal")
-
+        
         self.timer_action_group = QActionGroup(self)
         self.timer_action_group.setExclusive(True)
 
         self.action_global_time = QAction("Global Time", self)
+        self.action_global_time.setStatusTip("Shows the global time in the Video Editor  (cuts are NOT calculated).")
         self.action_global_time.setCheckable(True)
 
         self.action_final_time = QAction("Final Time", self)
+        self.action_final_time.setStatusTip("Shows the final time in the Video Editor  (cuts are calculated).")
         self.action_final_time.setCheckable(True)
 
         self.timer_action_group.addAction(self.action_global_time)
@@ -297,41 +322,53 @@ class MainWindow(QMainWindow):
         ffmpeg_menu = setup_menu.addMenu("FFmpeg")
 
         action_show_ffmpeg_path = QAction("Show current path", self)
+        action_show_ffmpeg_path.setStatusTip("shows the current path of ffmpeg")
         action_show_ffmpeg_path.triggered.connect(self._on_show_ffmpeg_path)
         ffmpeg_menu.addAction(action_show_ffmpeg_path)
         
         action_set_ffmpeg_path = QAction("Set ffmpeg Path...", self)
+        action_set_ffmpeg_path.setStatusTip("In case you want use your own ffmpeg, change the Path here")
         action_set_ffmpeg_path.triggered.connect(self._on_set_ffmpeg_path)
         ffmpeg_menu.addAction(action_set_ffmpeg_path)
     
         action_clear_ffmpeg_path = QAction("Clear ffmpeg Path", self)
+        action_clear_ffmpeg_path.setStatusTip("reset the ffmpeg to our own delivered ffmpeg")
         action_clear_ffmpeg_path.triggered.connect(self._on_clear_ffmpeg_path)
         ffmpeg_menu.addAction(action_clear_ffmpeg_path)
         
         mpv_menu = setup_menu.addMenu("libmpv")
         action_show_mpv_path = QAction("Show current libmpv path", self)
+        action_show_mpv_path.setStatusTip("shows the current path of libmpv")
         action_show_mpv_path.triggered.connect(self._on_show_mpv_path)
         mpv_menu.addAction(action_show_mpv_path)
 
         action_set_mpv_path = QAction("Set libmpv path...", self)
+        action_set_mpv_path.setStatusTip("In case you want use your own libmpv, change the Path here")
         action_set_mpv_path.triggered.connect(self._on_set_mpv_path)
         mpv_menu.addAction(action_set_mpv_path)
 
         action_clear_mpv_path = QAction("Clear libmpv path", self)
+        action_clear_mpv_path.setStatusTip("reset the libmpv to our own delivered libmpv")
         action_clear_mpv_path.triggered.connect(self._on_clear_mpv_path)
         mpv_menu.addAction(action_clear_mpv_path)
 
         temp_dir_menu = setup_menu.addMenu("Temp Directory")
 
         action_show_temp_dir = QAction("Show current Temp Dir", self)
+        
         action_show_temp_dir.triggered.connect(self._on_show_temp_dir)
+        action_show_temp_dir = QAction("Show current Temp-Directory", self)
+        action_show_temp_dir.setStatusTip("Shows the current Temp-Directory ")
         temp_dir_menu.addAction(action_show_temp_dir)
-
+        
+        
         action_set_temp_dir = QAction("Set Temp Dir...", self)
+        action_set_temp_dir.setStatusTip("in case you need your own Temp-Directory (space), change it here ")
         action_set_temp_dir.triggered.connect(self._on_set_temp_dir)
         temp_dir_menu.addAction(action_set_temp_dir)
 
         action_clear_temp_dir = QAction("Reset Temp Dir", self)
+        action_clear_temp_dir.setStatusTip("reset the temp-direrctory to VGSync-standard")
         action_clear_temp_dir.triggered.connect(self._on_clear_temp_dir)
         temp_dir_menu.addAction(action_clear_temp_dir)
 
@@ -340,15 +377,18 @@ class MainWindow(QMainWindow):
         
         chart_menu = setup_menu.addMenu("Chart-Settings")
         limit_speed_action = QAction("Limit Speed...", self)
+        limit_speed_action.setStatusTip("Set the limit speed that we intersect in the graph above. The higher the speed, the flatter the graph")
         chart_menu.addAction(limit_speed_action)
         limit_speed_action.triggered.connect(self._on_set_limit_speed)
         
         zero_speed_action = QAction("ZeroSpeed...", self)
+        zero_speed_action.setStatusTip("Set the ZeroSpeed we mark in the chart, all speeds lower are marked")
         zero_speed_action.triggered.connect(self._on_zero_speed_action)
         chart_menu.addAction(zero_speed_action)
         
         
         action_mark_stops = QAction("Mark Stops...", self)
+        action_mark_stops.setStatusTip("Set the MarkStops Value, all GPX-Points with a higher value will be marked in the chart")
         action_mark_stops.triggered.connect(self._on_set_stop_threshold)
         chart_menu.addAction(action_mark_stops)
         
@@ -358,6 +398,7 @@ class MainWindow(QMainWindow):
 
         # 2) Eine neue Check-Action anlegen
         self.action_map_directions = QAction("Directions", self)
+        self.action_map_directions.setStatusTip("Activate the Directions-Feature to build routes wit mapbox Directions ( Autobuold on known tracks)")
         self.action_map_directions.setCheckable(True)
         self.action_map_directions.setChecked(False)  # standard: aus
         
@@ -394,6 +435,7 @@ class MainWindow(QMainWindow):
         mapviews_menu.addAction(action_set_mapillary_key)
         
         self.action_new_pts_video_time = QAction("Sync all with video", self)
+        self.action_new_pts_video_time.setStatusTip("If activates we automatically sync the video to a select gpx point without using V-Sync-Button")
         self.action_new_pts_video_time.setCheckable(True)
         self.action_new_pts_video_time.setChecked(False)  # Standard = OFF
         self.action_new_pts_video_time.triggered.connect(self._on_sync_point_video_time_toggled)
@@ -402,21 +444,25 @@ class MainWindow(QMainWindow):
         pts_size_menu = map_setup_menu.addMenu("Points Size")
 
         action_size_black = QAction("Black Point", self)
+        action_size_black.setStatusTip("Change the Size of the GPX-Dot in the map")
         action_size_black.triggered.connect(lambda: self._on_set_map_point_size("black"))
         pts_size_menu.addAction(action_size_black)
         
         action_size_red = QAction("Red Point", self)
+        action_size_red.setStatusTip("Change the Size of the GPX-Dot in the map")
         action_size_red.triggered.connect(lambda: self._on_set_map_point_size("red"))
         pts_size_menu.addAction(action_size_red)
         
         # Action 2: Size blue Point
         action_size_blue = QAction("Blue Point", self)
+        action_size_blue.setStatusTip("Change the Size of the GPX-Dot in the map")
         action_size_blue.triggered.connect(lambda: self._on_set_map_point_size("blue"))
         pts_size_menu.addAction(action_size_blue)
         
         map_setup_menu.addMenu(pts_size_menu)
         
         action_size_yellow = QAction("Yellow Point", self)
+        action_size_yellow.setStatusTip("Change the Size of the GPX-Dot in the map")
         action_size_yellow.triggered.connect(lambda: self._on_set_map_point_size("yellow"))
         pts_size_menu.addAction(action_size_yellow)
         
@@ -429,6 +475,7 @@ class MainWindow(QMainWindow):
         
         
         reset_config_action = QAction("Reset Config", self)
+        reset_config_action.setStatusTip("Reset your configuration like map-keys etc.")
         reset_config_action.triggered.connect(self._on_reset_config_triggered)
         setup_menu.addAction(reset_config_action)
         
@@ -551,7 +598,7 @@ class MainWindow(QMainWindow):
         
         self.gpx_widget = GPXWidget()
         
-        self.statusBar().showMessage("Ready")
+        #self.statusBar().showMessage("Ready")
         
         #menueinträge aktivieren:
         
@@ -1557,14 +1604,27 @@ class MainWindow(QMainWindow):
                 cut_start = rel_s_marked - global_video_s
                 if cut_start < 0:
                     # => Fehlermeldung => ABBRUCH => KEIN Undo
+                    #QMessageBox.warning(
+                    #    self,
+                    #    "Not enough GPX data",
+                    #    f"You want to keep {global_video_s:.2f}s before {rel_s_marked:.2f}s,\n"
+                    #    f"that starts at {cut_start:.2f}s < 0 => impossible.\n"
+                    #    "Operation canceled."
+                    #)
                     QMessageBox.warning(
                         self,
-                        "Not enough GPX data",
-                        f"In gpx edit mode only not possible to cut gpx data shorter than the video.\n"
-                        f"You want to keep {global_video_s:.2f}s before {rel_s_marked:.2f}s,\n"
-                        f"that starts at {cut_start:.2f}s < 0 => impossible.\n"
-                        "Operation canceled."
+                        "GPX Cut Not Possible",
+                        (
+                        "In gpx edit mode only not possible to cut gpx data shorter than the video.\n"
+                        f"You tried to keep {global_video_s:.1f}s of video before the selected point at {rel_s_marked:.1f}s.\n"
+                        f"→ But this would start the cut at {cut_start:.1f}s (before the GPX track starts at 0s).\n\n"
+                        "No GPX data exists before time 0.\n\n"
+                        "Solutions:\n"
+                        "• Choose an earlier Video/GPX point to match your video point\n"
+                        "• Or extend the GPX start (e.g. use 'chT' to shift it)"
+                        )
                     )
+    
                     return
     
                 # => JETZT erst Undo-Snapshot => weil wir sicher etwas löschen
@@ -2796,7 +2856,7 @@ class MainWindow(QMainWindow):
                 old_data = self._gpx_data
 
                 # Optional: Undo-Snapshot
-                old_snapshot = self.copy.deepcopy(old_data)
+                old_snapshot = copy.deepcopy(old_data)
                 self.gpx_widget.gpx_list._history_stack.append(old_snapshot)
 
                 old_end_time = old_data[-1]["time"]  # datetime
@@ -2865,6 +2925,18 @@ class MainWindow(QMainWindow):
     
         # parse, ensureIDs, etc.
         new_data = parse_gpx(file_path)
+        
+        for pt in new_data:
+            if isinstance(pt.get("time"), str):
+                try:
+                    pt["time"] = datetime.fromisoformat(pt["time"].replace("Z", "+00:00"))
+                except Exception:
+                    pass
+
+        # Prüfen ob Resample nötig ist
+        if self._check_gpx_step_intervals(new_data):
+            new_data = self._resample_to_1s(new_data)
+        
         if not new_data:
             QMessageBox.warning(self, "Load GPX", "File is empty or invalid.")
             self.map_widget.view.page().runJavaScript("hideLoading();")
@@ -2882,7 +2954,7 @@ class MainWindow(QMainWindow):
                 old_data = self._gpx_data
     
                 # optional Undo
-                old_snapshot = self.copy.deepcopy(old_data)
+                old_snapshot = copy.deepcopy(old_data)
                 self.gpx_widget.gpx_list._history_stack.append(old_snapshot)
     
                 from datetime import timedelta
@@ -4885,3 +4957,138 @@ class MainWindow(QMainWindow):
             "Please restart the application for the changes to take effect."
         )
         
+    def _check_gpx_step_intervals(self, gpx_data: list[dict]) -> bool:
+        
+
+        if len(gpx_data) < 3:
+            return False
+
+        deltas = [
+            (gpx_data[i]["time"] - gpx_data[i - 1]["time"]).total_seconds()
+            for i in range(1, len(gpx_data))
+            if isinstance(gpx_data[i]["time"], datetime) and isinstance(gpx_data[i - 1]["time"], datetime)
+        ]
+
+        if len(deltas) < 3:
+            return False
+
+        mean = statistics.mean(deltas)
+        stdev = statistics.stdev(deltas)
+
+        # Nur wenn der Mittelwert signifikant von 1.0 abweicht (> ±0.05)
+        if abs(mean - 1.0) > 0.05:
+            ret = QMessageBox.question(
+                self,
+                "Resample to 1s?",
+                f"The GPX data does not use 1s steps (mean: {mean:.2f}s).\n"
+                "Would you like to resample it to 1s intervals?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            return ret == QMessageBox.Yes
+
+        return False
+    
+        
+    """    
+    def _resample_to_1s(self, gpx_data: list[dict]) -> list[dict]:
+        from datetime import timedelta
+
+        if not gpx_data or len(gpx_data) < 2:
+            return gpx_data
+
+        new_data = []
+        start_time = gpx_data[0]["time"]
+        end_time = gpx_data[-1]["time"]
+        current_time = start_time
+
+        i = 0
+        while current_time <= end_time and i < len(gpx_data) - 1:
+            # Finde das Intervall [i]..[i+1], das current_time einschließt
+            while i < len(gpx_data) - 2 and gpx_data[i + 1]["time"] < current_time:
+                i += 1
+
+            pt1 = gpx_data[i]
+            pt2 = gpx_data[i + 1]
+
+            t1 = pt1["time"]
+            t2 = pt2["time"]
+
+            if t1 == t2:
+                ratio = 0
+            else:
+                ratio = (current_time - t1).total_seconds() / (t2 - t1).total_seconds()
+
+            # Interpolation aller Werte
+            lat = pt1["lat"] + ratio * (pt2["lat"] - pt1["lat"])
+            lon = pt1["lon"] + ratio * (pt2["lon"] - pt1["lon"])
+            ele = pt1.get("ele", 0.0) + ratio * (pt2.get("ele", 0.0) - pt1.get("ele", 0.0))
+
+            new_pt = {
+                "lat": lat,
+                "lon": lon,
+                "ele": ele,
+                "time": current_time,
+                "rel_s": (current_time - start_time).total_seconds(),
+                "delta_m": 0.0,        # wird durch recalc gesetzt
+                "speed_kmh": 0.0,      # wird durch recalc gesetzt
+                "gradient": 0.0        # wird durch recalc gesetzt
+            }
+            new_data.append(new_pt)
+            current_time += timedelta(seconds=1)
+
+        # Rechne Distanz, Höhenmeter, Geschwindigkeit usw. neu
+        recalc_gpx_data(new_data)
+        return new_data
+    """
+    
+    def _resample_to_1s(self, gpx_data: list[dict]) -> list[dict]:
+        
+
+        if not gpx_data or len(gpx_data) < 2:
+            return gpx_data
+
+        # Schritt 1: Alle Punkte in Sekunden ab Start
+        base_time = gpx_data[0]["time"]
+        for pt in gpx_data:
+            pt["abs_s"] = (pt["time"] - base_time).total_seconds()
+
+        new_data = []
+        target_s = 0
+        total_s = int((gpx_data[-1]["time"] - gpx_data[0]["time"]).total_seconds())
+
+        i = 0
+        while target_s <= total_s and i < len(gpx_data) - 1:
+            while i < len(gpx_data) - 2 and gpx_data[i + 1]["abs_s"] < target_s:
+                i += 1
+
+            pt1 = gpx_data[i]
+            pt2 = gpx_data[i + 1]
+            s1 = pt1["abs_s"]
+            s2 = pt2["abs_s"]
+
+            if s2 == s1:
+                ratio = 0
+            else:
+                ratio = (target_s - s1) / (s2 - s1)
+
+            # Interpolation entlang der Strecke
+            lat = pt1["lat"] + ratio * (pt2["lat"] - pt1["lat"])
+            lon = pt1["lon"] + ratio * (pt2["lon"] - pt1["lon"])
+            ele = pt1.get("ele", 0.0) + ratio * (pt2.get("ele", 0.0) - pt1.get("ele", 0.0))
+
+            new_pt = {
+                "lat": lat,
+                "lon": lon,
+                "ele": ele,
+                "time": base_time + timedelta(seconds=target_s),
+                "rel_s": target_s,
+                "delta_m": 0.0,
+                "speed_kmh": 0.0,
+                "gradient": 0.0
+            }
+            new_data.append(new_pt)
+            target_s += 1
+
+        recalc_gpx_data(new_data)
+        return new_data
