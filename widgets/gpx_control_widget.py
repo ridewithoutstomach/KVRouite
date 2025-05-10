@@ -642,6 +642,7 @@ class GPXControlWidget(QWidget):
         """
         Holt Elevation für latlon_list via Mapbox Terrain-RGB Tiles.
         latlon_list: [(gpx_idx, lat, lon), ...]
+        Gibt zurück: (successful_points, tile_count)
         """
         import math
         from PIL import Image
@@ -649,13 +650,13 @@ class GPXControlWidget(QWidget):
 
         mw = self._mainwindow
         if not mw:
-            return
+            return (0, 0)
 
         token = mw._mapbox_key.strip()
         if not token:
             QMessageBox.warning(self, "No Mapbox Key", "No Mapbox API key found. Please set it in Config > Map Keys.")
-            return
-    
+            return (0, 0)
+
         gpx_data = mw.gpx_widget.gpx_list._gpx_data
         ZOOM = 14
 
@@ -677,10 +678,11 @@ class GPXControlWidget(QWidget):
         for _, lat, lon in latlon_list:
             xt, yt = latlon_to_tile(lat, lon, ZOOM)
             needed_tiles.add((xt, yt))
-    
-        # Schritt 2: Tiles herunterladen und als PIL-Bild speichern
+
+        # Schritt 2: Tiles herunterladen
         tile_images = {}
-        tile_size = 256  # Default-Wert
+        tile_size = 256  # Standard
+        tile_count = 0
 
         for (xtile, ytile) in needed_tiles:
             url = f"https://api.mapbox.com/v4/mapbox.terrain-rgb/{ZOOM}/{xtile}/{ytile}.pngraw?access_token={token}"
@@ -689,15 +691,19 @@ class GPXControlWidget(QWidget):
                     img_bytes = response.read()
                     img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
                     tile_images[(xtile, ytile)] = img
-                    tile_size = img.size[0]  # z. B. 256 (von Mapbox), falls es abweicht
+                    tile_size = img.size[0]  # z. B. 256
+                    tile_count += 1
             except Exception as e:
                 QMessageBox.warning(self, "Tile Load Error",
                     f"Could not load tile {xtile},{ytile}:\n{e}")
-                return
+                return (0, 0)
     
-        # Schritt 3: Höhenwerte berechnen
-        successful_points = 0
+        if tile_count == 0:
+            return (0, 0)
 
+        # Schritt 3: Höhenwerte extrahieren
+        successful_points = 0
+    
         for gpx_i, lat, lon in latlon_list:
             x_pix, y_pix = latlon_to_pixel(lat, lon, ZOOM, tile_size)
             xtile, ytile = x_pix // tile_size, y_pix // tile_size
@@ -712,12 +718,11 @@ class GPXControlWidget(QWidget):
                 elevation = -10000 + ((r * 256 * 256 + g * 256 + b) * 0.1)
                 gpx_data[gpx_i]["ele"] = elevation
                 successful_points += 1
+            else:
+                print(f"[WARN] Out-of-bounds pixel: {x_in_tile},{y_in_tile} in tile {xtile},{ytile}")
 
-        # Nur wenn mindestens 1 Punkt erfolgreich war
-        return successful_points
+        return (successful_points, tile_count)
 
-    
-    
     
 
     def _on_get_ele_mapbox(self):
@@ -752,11 +757,15 @@ class GPXControlWidget(QWidget):
         # ⬅️ Jetzt zuerst Liste erstellen
         latlon_list = [(i, gpx_data[i]["lat"], gpx_data[i]["lon"]) for i in range(b_idx, e_idx + 1)]
 
-        # Dann Elevation abfragen
-        successful_points = self.update_elevation_from_mapbox(latlon_list)
-        if not successful_points or successful_points == 0:
-            QMessageBox.warning(self, "No Elevation Updated", "No elevation data could be retrieved.\nCheck your Mapbox key and internet connection.")
+        successful_points, tile_count = self.update_elevation_from_mapbox(latlon_list)
+
+        if tile_count == 0:
+            QMessageBox.warning(self, "Mapbox Error", "No elevation tiles could be loaded.\nCheck your Mapbox API key.")
             return
+        if successful_points == 0:
+            QMessageBox.warning(self, "No Elevation Found", "Tiles were loaded, but no elevation values could be decoded.")
+            return
+
 
         # Jetzt fortsetzen
         self.register_gpx_undo_snapshot()
