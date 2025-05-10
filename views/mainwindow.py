@@ -2854,7 +2854,7 @@ class MainWindow(QMainWindow):
                 old_data = self._gpx_data
 
                 # Optional: Undo-Snapshot
-                old_snapshot = self.copy.deepcopy(old_data)
+                old_snapshot = copy.deepcopy(old_data)
                 self.gpx_widget.gpx_list._history_stack.append(old_snapshot)
 
                 old_end_time = old_data[-1]["time"]  # datetime
@@ -2940,7 +2940,7 @@ class MainWindow(QMainWindow):
                 old_data = self._gpx_data
     
                 # optional Undo
-                old_snapshot = self.copy.deepcopy(old_data)
+                old_snapshot = copy.deepcopy(old_data)
                 self.gpx_widget.gpx_list._history_stack.append(old_snapshot)
     
                 from datetime import timedelta
