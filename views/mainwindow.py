@@ -1936,7 +1936,7 @@ class MainWindow(QMainWindow):
                             if t_old:
                                 gpx_data[j]["time"] = t_old + timedelta(seconds=1)      
                                 
-        self.gpx_control.update_from_open_elevation([(insert_pos, lat, lon)])
+        self.gpx_control.update_from_mapbox([(insert_pos, lat, lon)])
 
         #  => recalc
         recalc_gpx_data(gpx_data)
