@@ -222,8 +222,12 @@ class GPXControlWidget(QWidget):
         self._action_set_gpx2video.setEnabled(False)  # standard aus
         self._action_set_gpx2video.triggered.connect(self._on_set_gpx2video_triggered)
         
-        action_get_ele = self.more_menu.addAction("GetElevation from Open-Elevation")
-        action_get_ele.triggered.connect(self._on_get_ele_open_elevation)
+        #action_get_ele = self.more_menu.addAction("GetElevation from Open-Elevation")
+        #action_get_ele.triggered.connect(self._on_get_ele_open_elevation)
+        
+        action_get_ele_mapbox = self.more_menu.addAction("GetElevation from Mapbox")
+        action_get_ele_mapbox.triggered.connect(self._on_get_ele_mapbox)
+
         
         action_set_height_b2e = self.more_menu.addAction("setHeight(B2E)")
         action_set_height_b2e.triggered.connect(self.on_setHeight_B2E_clicked)
@@ -470,7 +474,8 @@ class GPXControlWidget(QWidget):
         btn_ok.clicked.connect(on_ok_dialog)
         btn_cancel.clicked.connect(on_cancel_dialog)
         dlg.exec()
-
+    """
+    
     def update_from_open_elevation(self,latlon_list):
         mw = self._mainwindow
         gpx_data = mw.gpx_widget.gpx_list._gpx_data
@@ -547,13 +552,10 @@ class GPXControlWidget(QWidget):
             idx_start = idx_end
 
       
-
-            
+    """
+    """        
     def _on_get_ele_open_elevation(self):
-        """
-        Ruft Open-Elevation API auf, um für B..E die Höhen neu zu setzen.
-        Vorher Warndialog in Englisch. Verwendet urllib.request anstelle von requests.
-        """
+       
         
 
         mw = self._mainwindow
@@ -635,7 +637,150 @@ class GPXControlWidget(QWidget):
             f"Elevation updated for {e_idx-b_idx+1} points via Open-Elevation!"
         )
     
-        
+    """    
+    def update_elevation_from_mapbox(self, latlon_list):
+        """
+        Holt Elevation für latlon_list via Mapbox Terrain-RGB Tiles.
+        latlon_list: [(gpx_idx, lat, lon), ...]
+        Gibt zurück: (successful_points, tile_count)
+        """
+        import math
+        from PIL import Image
+        import io
+
+        mw = self._mainwindow
+        if not mw:
+            return (0, 0)
+
+        token = mw._mapbox_key.strip()
+        if not token:
+            QMessageBox.warning(self, "No Mapbox Key", "No Mapbox API key found. Please set it in Config > Map Keys.")
+            return (0, 0)
+
+        gpx_data = mw.gpx_widget.gpx_list._gpx_data
+        ZOOM = 14
+
+        # Hilfsfunktionen
+        def latlon_to_tile(lat, lon, zoom):
+            n = 2 ** zoom
+            x_tile = int((lon + 180.0) / 360.0 * n)
+            y_tile = int((1.0 - math.log(math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))) / math.pi) / 2.0 * n)
+            return x_tile, y_tile
+
+        def latlon_to_pixel(lat, lon, zoom, tile_size):
+            n = 2 ** zoom * tile_size
+            x = (lon + 180.0) / 360.0 * n
+            y = (1.0 - math.log(math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))) / math.pi) / 2.0 * n
+            return int(x), int(y)
+
+        # Schritt 1: alle benötigten Tiles ermitteln
+        needed_tiles = set()
+        for _, lat, lon in latlon_list:
+            xt, yt = latlon_to_tile(lat, lon, ZOOM)
+            needed_tiles.add((xt, yt))
+
+        # Schritt 2: Tiles herunterladen
+        tile_images = {}
+        tile_size = 256  # Standard
+        tile_count = 0
+
+        for (xtile, ytile) in needed_tiles:
+            url = f"https://api.mapbox.com/v4/mapbox.terrain-rgb/{ZOOM}/{xtile}/{ytile}.pngraw?access_token={token}"
+            try:
+                with urllib.request.urlopen(url) as response:
+                    img_bytes = response.read()
+                    img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+                    tile_images[(xtile, ytile)] = img
+                    tile_size = img.size[0]  # z. B. 256
+                    tile_count += 1
+            except Exception as e:
+                QMessageBox.warning(self, "Tile Load Error",
+                    f"Could not load tile {xtile},{ytile}:\n{e}")
+                return (0, 0)
+    
+        if tile_count == 0:
+            return (0, 0)
+
+        # Schritt 3: Höhenwerte extrahieren
+        successful_points = 0
+    
+        for gpx_i, lat, lon in latlon_list:
+            x_pix, y_pix = latlon_to_pixel(lat, lon, ZOOM, tile_size)
+            xtile, ytile = x_pix // tile_size, y_pix // tile_size
+            x_in_tile, y_in_tile = x_pix % tile_size, y_pix % tile_size
+
+            img = tile_images.get((xtile, ytile))
+            if img is None:
+                continue
+
+            if 0 <= x_in_tile < img.width and 0 <= y_in_tile < img.height:
+                r, g, b = img.getpixel((x_in_tile, y_in_tile))
+                elevation = -10000 + ((r * 256 * 256 + g * 256 + b) * 0.1)
+                gpx_data[gpx_i]["ele"] = elevation
+                successful_points += 1
+            else:
+                print(f"[WARN] Out-of-bounds pixel: {x_in_tile},{y_in_tile} in tile {xtile},{ytile}")
+
+        return (successful_points, tile_count)
+
+    
+
+    def _on_get_ele_mapbox(self):
+        mw = self._mainwindow
+        if not mw:
+            return
+        gpx_data = mw.gpx_widget.gpx_list._gpx_data
+        if not gpx_data:
+            QMessageBox.warning(self, "No GPX Data", "No GPX data available.")
+            return
+
+        b_idx = mw.gpx_widget.gpx_list._markB_idx
+        e_idx = mw.gpx_widget.gpx_list._markE_idx
+        if b_idx is None or e_idx is None:
+            QMessageBox.warning(self, "No Range", "Please mark a GPX range (B..E) first.")
+            return
+        if b_idx > e_idx:
+            b_idx, e_idx = e_idx, b_idx
+        if e_idx - b_idx < 1:
+            QMessageBox.information(self, "Invalid Range", "At least 2 points needed in B..E range.")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Get Elevation from Mapbox",
+            "This will fetch precise elevation data from Mapbox for the selected GPX range.\nDo you want to proceed?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        # ⬅️ Jetzt zuerst Liste erstellen
+        latlon_list = [(i, gpx_data[i]["lat"], gpx_data[i]["lon"]) for i in range(b_idx, e_idx + 1)]
+
+        successful_points, tile_count = self.update_elevation_from_mapbox(latlon_list)
+
+        if tile_count == 0:
+            QMessageBox.warning(self, "Mapbox Error", "No elevation tiles could be loaded.\nCheck your Mapbox API key.")
+            return
+        if successful_points == 0:
+            QMessageBox.warning(self, "No Elevation Found", "Tiles were loaded, but no elevation values could be decoded.")
+            return
+
+
+        # Jetzt fortsetzen
+        self.register_gpx_undo_snapshot()
+        recalc_gpx_data(gpx_data)
+        mw.gpx_widget.set_gpx_data(gpx_data)
+        mw._gpx_data = gpx_data
+        mw._update_gpx_overview()
+        mw.chart.set_gpx_data(gpx_data)
+        if mw.mini_chart_widget:
+            mw.mini_chart_widget.set_gpx_data(gpx_data)
+        mw.map_widget.clear_marked_range()
+        mw.gpx_widget.gpx_list.clear_marked_range()
+
+        QMessageBox.information(self, "Done", f"Elevation updated for {successful_points} points via Mapbox Terrain-RGB.")
+
     def _on_set_gpx2video_triggered(self):
         """
         Zeigt eine MessageBox mit den Zeitbereichen (Video + GPX).
