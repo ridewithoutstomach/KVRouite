@@ -228,6 +228,9 @@ class GPXControlWidget(QWidget):
         action_set_height_b2e = self.more_menu.addAction("setHeight(B2E)")
         action_set_height_b2e.triggered.connect(self.on_setHeight_B2E_clicked)
         
+        action_resample = self.more_menu.addAction("Resample to 1s")
+        action_resample.triggered.connect(self._on_resample_to_1s_clicked)
+        
         
         # Menü dem Button zuweisen
         self.more_button.clicked.connect(self._on_more_button_clicked)
@@ -2925,3 +2928,44 @@ class GPXControlWidget(QWidget):
         layout.addWidget(btn, alignment=Qt.AlignRight)
 
         dlg.exec()
+        
+        
+    def _on_resample_to_1s_clicked(self):
+        mw = self._mainwindow
+        if not mw:
+            return
+
+        gpx_data = mw.gpx_widget.gpx_list._gpx_data
+        if not gpx_data or len(gpx_data) < 2:
+            QMessageBox.warning(self, "No GPX Data", "No or insufficient GPX data loaded.")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Resample to 1s",
+            "Do you really want to resample the entire track to 1-second intervals?\n\n"
+            "This may slightly change the total distance and elevation.\n"
+            "If this GPX was already synchronized with the video, "
+            "you should re-check the alignment afterwards.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        # Undo-Snapshot
+        self.register_gpx_undo_snapshot()
+
+        # Resample
+        new_data = mw._resample_to_1s(gpx_data)
+
+        # Setzen
+        mw._gpx_data = new_data
+        mw.gpx_widget.set_gpx_data(new_data)
+        mw._update_gpx_overview()
+        mw.chart.set_gpx_data(new_data)
+        if mw.mini_chart_widget:
+            mw.mini_chart_widget.set_gpx_data(new_data)
+
+        QMessageBox.information(self, "Done", "GPX track has been resampled to 1s intervals.")
+    

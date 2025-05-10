@@ -38,6 +38,7 @@ import subprocess
 import re
 import uuid
 import hashlib
+import statistics
 
 
             
@@ -2923,6 +2924,18 @@ class MainWindow(QMainWindow):
     
         # parse, ensureIDs, etc.
         new_data = parse_gpx(file_path)
+        
+        for pt in new_data:
+            if isinstance(pt.get("time"), str):
+                try:
+                    pt["time"] = datetime.fromisoformat(pt["time"].replace("Z", "+00:00"))
+                except Exception:
+                    pass
+
+        # Prüfen ob Resample nötig ist
+        if self._check_gpx_step_intervals(new_data):
+            new_data = self._resample_to_1s(new_data)
+        
         if not new_data:
             QMessageBox.warning(self, "Load GPX", "File is empty or invalid.")
             self.map_widget.view.page().runJavaScript("hideLoading();")
@@ -4943,3 +4956,138 @@ class MainWindow(QMainWindow):
             "Please restart the application for the changes to take effect."
         )
         
+    def _check_gpx_step_intervals(self, gpx_data: list[dict]) -> bool:
+        
+
+        if len(gpx_data) < 3:
+            return False
+
+        deltas = [
+            (gpx_data[i]["time"] - gpx_data[i - 1]["time"]).total_seconds()
+            for i in range(1, len(gpx_data))
+            if isinstance(gpx_data[i]["time"], datetime) and isinstance(gpx_data[i - 1]["time"], datetime)
+        ]
+
+        if len(deltas) < 3:
+            return False
+
+        mean = statistics.mean(deltas)
+        stdev = statistics.stdev(deltas)
+
+        # Nur wenn der Mittelwert signifikant von 1.0 abweicht (> ±0.05)
+        if abs(mean - 1.0) > 0.05:
+            ret = QMessageBox.question(
+                self,
+                "Resample to 1s?",
+                f"The GPX data does not use 1s steps (mean: {mean:.2f}s).\n"
+                "Would you like to resample it to 1s intervals?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            return ret == QMessageBox.Yes
+
+        return False
+    
+        
+    """    
+    def _resample_to_1s(self, gpx_data: list[dict]) -> list[dict]:
+        from datetime import timedelta
+
+        if not gpx_data or len(gpx_data) < 2:
+            return gpx_data
+
+        new_data = []
+        start_time = gpx_data[0]["time"]
+        end_time = gpx_data[-1]["time"]
+        current_time = start_time
+
+        i = 0
+        while current_time <= end_time and i < len(gpx_data) - 1:
+            # Finde das Intervall [i]..[i+1], das current_time einschließt
+            while i < len(gpx_data) - 2 and gpx_data[i + 1]["time"] < current_time:
+                i += 1
+
+            pt1 = gpx_data[i]
+            pt2 = gpx_data[i + 1]
+
+            t1 = pt1["time"]
+            t2 = pt2["time"]
+
+            if t1 == t2:
+                ratio = 0
+            else:
+                ratio = (current_time - t1).total_seconds() / (t2 - t1).total_seconds()
+
+            # Interpolation aller Werte
+            lat = pt1["lat"] + ratio * (pt2["lat"] - pt1["lat"])
+            lon = pt1["lon"] + ratio * (pt2["lon"] - pt1["lon"])
+            ele = pt1.get("ele", 0.0) + ratio * (pt2.get("ele", 0.0) - pt1.get("ele", 0.0))
+
+            new_pt = {
+                "lat": lat,
+                "lon": lon,
+                "ele": ele,
+                "time": current_time,
+                "rel_s": (current_time - start_time).total_seconds(),
+                "delta_m": 0.0,        # wird durch recalc gesetzt
+                "speed_kmh": 0.0,      # wird durch recalc gesetzt
+                "gradient": 0.0        # wird durch recalc gesetzt
+            }
+            new_data.append(new_pt)
+            current_time += timedelta(seconds=1)
+
+        # Rechne Distanz, Höhenmeter, Geschwindigkeit usw. neu
+        recalc_gpx_data(new_data)
+        return new_data
+    """
+    
+    def _resample_to_1s(self, gpx_data: list[dict]) -> list[dict]:
+        
+
+        if not gpx_data or len(gpx_data) < 2:
+            return gpx_data
+
+        # Schritt 1: Alle Punkte in Sekunden ab Start
+        base_time = gpx_data[0]["time"]
+        for pt in gpx_data:
+            pt["abs_s"] = (pt["time"] - base_time).total_seconds()
+
+        new_data = []
+        target_s = 0
+        total_s = int((gpx_data[-1]["time"] - gpx_data[0]["time"]).total_seconds())
+
+        i = 0
+        while target_s <= total_s and i < len(gpx_data) - 1:
+            while i < len(gpx_data) - 2 and gpx_data[i + 1]["abs_s"] < target_s:
+                i += 1
+
+            pt1 = gpx_data[i]
+            pt2 = gpx_data[i + 1]
+            s1 = pt1["abs_s"]
+            s2 = pt2["abs_s"]
+
+            if s2 == s1:
+                ratio = 0
+            else:
+                ratio = (target_s - s1) / (s2 - s1)
+
+            # Interpolation entlang der Strecke
+            lat = pt1["lat"] + ratio * (pt2["lat"] - pt1["lat"])
+            lon = pt1["lon"] + ratio * (pt2["lon"] - pt1["lon"])
+            ele = pt1.get("ele", 0.0) + ratio * (pt2.get("ele", 0.0) - pt1.get("ele", 0.0))
+
+            new_pt = {
+                "lat": lat,
+                "lon": lon,
+                "ele": ele,
+                "time": base_time + timedelta(seconds=target_s),
+                "rel_s": target_s,
+                "delta_m": 0.0,
+                "speed_kmh": 0.0,
+                "gradient": 0.0
+            }
+            new_data.append(new_pt)
+            target_s += 1
+
+        recalc_gpx_data(new_data)
+        return new_data
