@@ -198,10 +198,47 @@ class VideoControlWidget(QWidget):
         self.ovl_button.clicked.connect(self._on_ovl_clicked)
         layout.addWidget(self.ovl_button)
         self.ovl_button.hide()   # Standard: ausgeblendet
+        
+        separator = QFrame(self)
+        separator.setFrameShape(QFrame.VLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(separator)
 
+        # | AutoCut Video+GPX Button
+        self.autocut_button = QPushButton()
+        self.autocut_button.setToolTip("Toggle AutoCut for Video and GPX")
+        self.autocut_button.setFixedSize(36, 36)
+        self.autocut_button.clicked.connect(self._on_autocut_toggle_clicked)
+        layout.addWidget(self.autocut_button)
+
+        # Icons laden
+        
+        self.icon_autocut_on = QIcon("icon/vg_icon_on2.png")
+        self.icon_autocut_off = QIcon("icon/vg_icon_off.png")
+        # Default setzen
+        self._update_autocut_icon()
+        self.autocut_button.setVisible(False)  # nur bei Copy- oder Encode-Mode
 
         layout.addStretch()
         
+        
+    def _on_autocut_toggle_clicked(self):
+        mw = self._find_mainwindow()
+        if not mw:
+            return
+        action = getattr(mw, "action_auto_sync_video", None)
+        if action:
+            action.setChecked(not action.isChecked())
+            self._update_autocut_icon()
+
+    def _update_autocut_icon(self):
+        mw = self._find_mainwindow()
+        if not mw or not hasattr(mw, "action_auto_sync_video"):
+            return
+        is_on = mw.action_auto_sync_video.isChecked()
+        if hasattr(self, "autocut_button"):
+            self.autocut_button.setIcon(self.icon_autocut_on if is_on else self.icon_autocut_off)
+    
     
     def set_editing_mode(self, enabled: bool):
         """
@@ -214,7 +251,8 @@ class VideoControlWidget(QWidget):
         
         self.go_to_end_button.setVisible(enabled)
         #self.undo_button.setVisible(enabled)
-        
+        self.autocut_button.setVisible(enabled)
+        self._update_autocut_icon()
         
     def show_ovl_button(self, show: bool):
         """
@@ -400,5 +438,12 @@ class VideoControlWidget(QWidget):
 
         self.overlayClicked.emit()
         
-        
+    def _find_mainwindow(self):
+        p = self.parent()
+        while p:
+            if p.__class__.__name__ == "MainWindow":
+                return p
+            p = p.parent()
+        return None        
+    
     

@@ -1465,7 +1465,9 @@ class MainWindow(QMainWindow):
                     self.start_indexing_process(video_path)
             else:
                 self._userDeclinedIndexing = True    
-    
+        
+        if hasattr(self, "autocut_button"):
+            self.autocut_button.setVisible(enabled)
 
     def _on_encoder_setup_clicked(self):
         # Hier öffnen wir den Dialog
