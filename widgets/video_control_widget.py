@@ -230,6 +230,7 @@ class VideoControlWidget(QWidget):
         if action:
             action.setChecked(not action.isChecked())
             self._update_autocut_icon()
+            mw._on_auto_sync_video_toggled(action.isChecked())
 
     def _update_autocut_icon(self):
         mw = self._find_mainwindow()
