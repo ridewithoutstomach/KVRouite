@@ -148,11 +148,20 @@ def build_windows():
 
     # --- Icon nach _internal/icon ---
     if os.path.isfile(icon_file):
-        icon_target_dir = os.path.join(internal_dir, "icon")
-        os.makedirs(icon_target_dir, exist_ok=True)
-        icon_target_path = os.path.join(icon_target_dir, os.path.basename(icon_file))
-        print("[COPY ICON]", icon_file, "->", icon_target_path)
+        icon_internal_dir = os.path.join(internal_dir, "icon")
+        os.makedirs(icon_internal_dir, exist_ok=True)
+        icon_target_path = os.path.join(icon_internal_dir, os.path.basename(icon_file))
+        print("[COPY TASKBAR ICON]", icon_file, "->", icon_target_path)
         shutil.copy2(icon_file, icon_target_path)
+
+    # --- GUI-Icons nach icon/ neben EXE kopieren ---
+    gui_icon_dir_src = os.path.join(BASE_DIR, "icon")
+    gui_icon_dir_dst = os.path.join(target_dir, "icon")
+    if os.path.isdir(gui_icon_dir_src):
+        print("[COPY GUI ICONS]", gui_icon_dir_src, "->", gui_icon_dir_dst)
+        copy_tree_all(gui_icon_dir_src, gui_icon_dir_dst)
+    else:
+        print("[WARN] GUI-Icon-Ordner fehlt:", gui_icon_dir_src)
 
     # --- doc-Ordner nach _internal/doc ---
     """

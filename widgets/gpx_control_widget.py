@@ -2997,7 +2997,8 @@ class GPXControlWidget(QWidget):
             mw.chart.set_gpx_data(snapshot)
             if mw.mini_chart_widget:
                 mw.mini_chart_widget.set_gpx_data(snapshot)
-
+            route_geojson = mw._build_route_geojson_from_gpx(snapshot)
+            mw.map_widget.loadRoute(route_geojson, do_fit=False) 
         mw._undo_stack.append(undo)
         
         
