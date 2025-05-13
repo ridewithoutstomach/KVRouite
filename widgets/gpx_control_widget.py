@@ -723,12 +723,12 @@ class GPXControlWidget(QWidget):
 
         return (successful_points, tile_count)
 
-    
-
+    ###
     def _on_get_ele_mapbox(self):
         mw = self._mainwindow
         if not mw:
             return
+
         gpx_data = mw.gpx_widget.gpx_list._gpx_data
         if not gpx_data:
             QMessageBox.warning(self, "No GPX Data", "No GPX data available.")
@@ -736,27 +736,53 @@ class GPXControlWidget(QWidget):
 
         b_idx = mw.gpx_widget.gpx_list._markB_idx
         e_idx = mw.gpx_widget.gpx_list._markE_idx
-        if b_idx is None or e_idx is None:
-            QMessageBox.warning(self, "No Range", "Please mark a GPX range (B..E) first.")
-            return
-        if b_idx > e_idx:
-            b_idx, e_idx = e_idx, b_idx
-        if e_idx - b_idx < 1:
-            QMessageBox.information(self, "Invalid Range", "At least 2 points needed in B..E range.")
+
+        if b_idx is None and e_idx is None:
+            QMessageBox.warning(self, "No Selection", "Please mark a GPX range or a single point with markB.")
             return
 
-        reply = QMessageBox.question(
-            self,
-            "Get Elevation from Mapbox",
-            "This will fetch precise elevation data from Mapbox for the selected GPX range.\nDo you want to proceed?",
-            QMessageBox.Yes | QMessageBox.No
-        )
-        if reply != QMessageBox.Yes:
-            return
+        if b_idx is not None and e_idx is None:
+            # Nur ein Punkt (markB) ausgewählt
+            if not (0 <= b_idx < len(gpx_data)):
+                QMessageBox.warning(self, "Invalid Point", "Marked point index is invalid.")
+                return
 
-        # ⬅️ Jetzt zuerst Liste erstellen
-        latlon_list = [(i, gpx_data[i]["lat"], gpx_data[i]["lon"]) for i in range(b_idx, e_idx + 1)]
+            reply = QMessageBox.question(
+                self,
+                "Get Elevation from Mapbox",
+                f"This will fetch elevation data for point {b_idx}.\nDo you want to proceed?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                return
 
+            latlon_list = [(b_idx, gpx_data[b_idx]["lat"], gpx_data[b_idx]["lon"])]
+
+        else:
+            # Bereich (B..E) ausgewählt
+            if b_idx is None or e_idx is None:
+                QMessageBox.warning(self, "Invalid Selection", "Both markB and markE must be set for a range.")
+                return
+
+            if b_idx > e_idx:
+                b_idx, e_idx = e_idx, b_idx
+
+            if e_idx - b_idx < 1:
+                QMessageBox.information(self, "Invalid Range", "At least 2 points needed in B..E range.")
+                return
+
+            reply = QMessageBox.question(
+                self,
+                "Get Elevation from Mapbox",
+                f"This will fetch precise elevation data from Mapbox for the selected GPX range {b_idx} to {e_idx}.\nDo you want to proceed?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                return
+
+            latlon_list = [(i, gpx_data[i]["lat"], gpx_data[i]["lon"]) for i in range(b_idx, e_idx + 1)]
+    
+        # Elevation abrufen
         successful_points, tile_count = self.update_elevation_from_mapbox(latlon_list)
 
         if tile_count == 0:
@@ -766,8 +792,7 @@ class GPXControlWidget(QWidget):
             QMessageBox.warning(self, "No Elevation Found", "Tiles were loaded, but no elevation values could be decoded.")
             return
 
-
-        # Jetzt fortsetzen
+        # GPX aktualisieren
         self.register_gpx_undo_snapshot()
         recalc_gpx_data(gpx_data)
         mw.gpx_widget.set_gpx_data(gpx_data)
@@ -778,9 +803,16 @@ class GPXControlWidget(QWidget):
             mw.mini_chart_widget.set_gpx_data(gpx_data)
         mw.map_widget.clear_marked_range()
         mw.gpx_widget.gpx_list.clear_marked_range()
+    
+        QMessageBox.information(
+            self, "Done",
+            f"Elevation updated for {successful_points} point(s) via Mapbox Terrain-RGB."
+        )
 
-        QMessageBox.information(self, "Done", f"Elevation updated for {successful_points} points via Mapbox Terrain-RGB.")
-
+    
+    
+    ###
+    
     def _on_set_gpx2video_triggered(self):
         """
         Zeigt eine MessageBox mit den Zeitbereichen (Video + GPX).
