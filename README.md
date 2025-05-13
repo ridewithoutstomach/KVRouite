@@ -23,25 +23,69 @@ Binaries are NOT included in the Git repository due to size limitations.
 You must manually download and extract them from the GitHub Releases page.
 
 -------------------------------------------------------------------------------
+## 🔧 Installation & Usage (Linux & Windows)
 
-Installation
-------------
+---
 
-We strongly recommend using a Python virtual environment.
+### 🐧 Linux
 
-Linux:
+#### Requirements
 
-    sudo apt update
-    sudo apt install ffmpeg libmpv-dev
-    python3 -m venv venv
-    source venv/bin/activate
-    pip install -r requirements.txt
+Install the required system packages (one-time setup):
 
-Windows:
+```bash
+sudo apt update
+sudo apt install ffmpeg libmpv-dev python3-venv
+```
 
-    python -m venv venv
-    venv\Scripts\activate
-    pip install -r requirements.txt
+#### Download the Project
+
+You can **either**:
+
+- Download the latest ZIP from [GitHub Releases](https://github.com/ridewithoutstomach/VGSync/releases) and extract it  
+**or**
+- Clone the repository:
+
+```bash
+git clone https://github.com/ridewithoutstomach/VGSync.git
+```
+
+#### Setup and Run
+
+```bash
+cd VGSync
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python VGSync.py
+```
+
+---
+
+### 🪟 Windows
+
+
+#### Setup and Run
+
+Open **Command Prompt**, then:
+
+```cmd
+cd VGSync
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+python VGSync.py
+```
+
+---
+
+### ❗ Important Notes
+
+- Always create and activate the virtual environment **inside** the `VGSync` folder.
+- Do **not** run `python VGSync.py` outside the project folder.
+- On **Linux**, make sure required packages like `ffmpeg` and `libmpv-dev` are installed.
+
+
 
 -------------------------------------------------------------------------------
 
