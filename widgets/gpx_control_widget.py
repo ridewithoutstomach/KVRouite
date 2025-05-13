@@ -1511,6 +1511,8 @@ class GPXControlWidget(QWidget):
         
     # ===========  NEU am Ende von mainwindow.py ============    
     
+    
+    
     def on_chEle_clicked(self):
         mw = self._mainwindow
         """
@@ -1702,58 +1704,109 @@ class GPXControlWidget(QWidget):
                 f"Elevation of Point {row} changed to {new_ele:.2f} m."
             )
             
-            
+    #################################################################    
+    
     def on_chTime_clicked_gpx(self):
-        
         mw = self._mainwindow
-        """
-        Changes the time (the 'step') either for:
-        - a single GPX point (old behavior), if no valid range is selected
-        - OR for all segments in the marked range (markB..markE),
-        and subsequently shifts the following points.
-        """
-        #from PySide6.QtWidgets import (
-        #    QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-        #    QDoubleSpinBox, QPushButton, QMessageBox
-        #)
-       
 
         gpx_data = mw.gpx_widget.gpx_list._gpx_data
         if not gpx_data:
             QMessageBox.warning(self, "No GPX Data", "No GPX data available.")
             return
-    
+
         n = len(gpx_data)
         if n < 2:
-            QMessageBox.warning(self, "Too few points",
-                "At least 2 GPX points are required.")
+            QMessageBox.warning(self, "Too few points", "At least 2 GPX points are required.")
             return
-    
-        # --- Check if we have a valid range markB..markE ---
+
         b_idx = mw.gpx_widget.gpx_list._markB_idx
         e_idx = mw.gpx_widget.gpx_list._markE_idx
-    
+
         valid_range = False
         if b_idx is not None and e_idx is not None:
             if b_idx > e_idx:
                 b_idx, e_idx = e_idx, b_idx
             if 0 <= b_idx < n and 0 <= e_idx < n and (e_idx - b_idx) >= 1:
                 valid_range = True
-    
-        # ----------------------------------------------------------------
-        # CASE A) No valid range => single-point mode
-        # ----------------------------------------------------------------
+
+        # --- CASE A: Einzelpunkt ---
         if not valid_range:
             row = mw.gpx_widget.gpx_list.table.currentRow()
-            if row < 1 or row >= n:
+    
+            if row < 0 or row >= n:
+                QMessageBox.warning(self, "Invalid Selection", "Please select a valid GPX point.")
+                return
+            ######
+            if row == 0:
+                # --- Neuer Sonderfall: GPX[0] erlaubt negativen Delta ---
+                self.register_gpx_undo_snapshot()
+
+                t0 = gpx_data[0].get("time", None)
+                t1 = gpx_data[1].get("time", None)
+                if not t0 or not t1:
+                    QMessageBox.warning(self, "Missing Time", "First or second point has no time.")
+                    return
+
+                old_diff = (t1 - t0).total_seconds()
+                dlg = QDialog(self)
+                dlg.setWindowTitle("Shift Time: GPX[0]")
+                vbox = QVBoxLayout(dlg)
+
+                lbl = QLabel(
+                    f"You are changing the time distance between GPX[0] and GPX[1].\n"
+                    f"Current difference: {old_diff:.3f} s\n\n"
+                    "Enter a **negative** shift (e.g. -10.0) to delay all points after GPX[0]:"
+                )
+                vbox.addWidget(lbl)
+    
+                spin = QDoubleSpinBox()
+                spin.setRange(-99999.0, -0.001)
+                spin.setDecimals(3)
+                spin.setSingleStep(0.001)
+                spin.setValue(-1.0)
+                vbox.addWidget(spin)
+
+                btns = QHBoxLayout()
+                ok = QPushButton("OK")
+                cancel = QPushButton("Cancel")
+                btns.addWidget(ok)
+                btns.addWidget(cancel)
+                vbox.addLayout(btns)
+
+                ok.clicked.connect(dlg.accept)
+                cancel.clicked.connect(dlg.reject)
+
+                if not dlg.exec():
+                    return
+
+                shift_val = spin.value()  # z. B. -10.0
+
+                # Alle Punkte ab Index 1 verschieben um +abs(shift_val)
+                for j in range(1, n):
+                    gpx_data[j]["time"] += timedelta(seconds=abs(shift_val))
+
+                recalc_gpx_data(gpx_data)
+                mw.gpx_widget.set_gpx_data(gpx_data)
+                mw._gpx_data = gpx_data
+                mw._update_gpx_overview()
+                mw.chart.set_gpx_data(gpx_data)
+                if mw.mini_chart_widget:
+                    mw.mini_chart_widget.set_gpx_data(gpx_data)
+    
+                QMessageBox.information(
+                    self, "Done",
+                    f"All GPX points after index 0 have been shifted by {abs(shift_val):.3f} seconds."
+                )   
+                return
+
+            ###
+            
+            # --- Normalfall (row >= 1) ---
+            if row < 1:
                 QMessageBox.warning(self, "Invalid Selection",
                     "Please select a GPX point (row >= 1). The first point (row=0) has no predecessor.")
                 return
-    
-            # 1) Undo snapshot
-            
-            #old_data = copy.deepcopy(gpx_data)
-            #mw.gpx_widget.gpx_list._history_stack.append(old_data)
+
             self.register_gpx_undo_snapshot()
     
             t_prev = gpx_data[row - 1].get("time", None)
@@ -1765,11 +1818,9 @@ class GPXControlWidget(QWidget):
     
             old_diff_s = (t_curr - t_prev).total_seconds()
             if old_diff_s < 0:
-                QMessageBox.warning(self, "Unsorted Track",
-                    "time[row] < time[row-1]? The track seems unsorted.")
+                QMessageBox.warning(self, "Unsorted Track", "time[row] < time[row-1]? The track seems unsorted.")
                 return
     
-            # 2) Dialog: new step
             dlg = QDialog(self)
             dlg.setWindowTitle("Change Step - Single Point")
             vbox = QVBoxLayout(dlg)
@@ -1781,7 +1832,7 @@ class GPXControlWidget(QWidget):
             vbox.addWidget(info_lbl)
     
             spin_new_step = QDoubleSpinBox()
-            spin_new_step.setRange(0.001, 999999.0)   # removed the 10s limit
+            spin_new_step.setRange(0.001, 999999.0)
             spin_new_step.setValue(old_diff_s)
             spin_new_step.setDecimals(3)
             spin_new_step.setSingleStep(0.001)
@@ -1797,8 +1848,7 @@ class GPXControlWidget(QWidget):
             def on_ok():
                 new_val = spin_new_step.value()
                 if new_val < 0.001:
-                    QMessageBox.warning(dlg, "Invalid Value",
-                        "New step cannot be < 0.001!")
+                    QMessageBox.warning(dlg, "Invalid Value", "New step cannot be < 0.001!")
                     return
                 dlg.accept()
     
@@ -1809,18 +1859,15 @@ class GPXControlWidget(QWidget):
             btn_cancel.clicked.connect(on_cancel)
     
             if not dlg.exec():
-                return  # user cancelled
+                return
     
             new_step_s = spin_new_step.value()
             delta_s = new_step_s - old_diff_s
     
-            # 3) Shift all times from row onwards
             for j in range(row, n):
                 t_old = gpx_data[j]["time"]
-                t_new = t_old + timedelta(seconds=delta_s)
-                gpx_data[j]["time"] = t_new
+                gpx_data[j]["time"] = t_old + timedelta(seconds=delta_s)
     
-            # 4) recalc + update
             recalc_gpx_data(gpx_data)
             mw.gpx_widget.set_gpx_data(gpx_data)
             mw._gpx_data = gpx_data
@@ -1829,38 +1876,26 @@ class GPXControlWidget(QWidget):
             if mw.mini_chart_widget:
                 mw.mini_chart_widget.set_gpx_data(gpx_data)
     
-            #route_geojson = mw._build_route_geojson_from_gpx(gpx_data)
-            #mw.map_widget.loadRoute(route_geojson, do_fit=False)
-
             QMessageBox.information(
                 self, "Done",
                 f"Row {row} step changed by {delta_s:+.3f} s.\n"
                 "All subsequent points shifted accordingly."
             )
-            
             return
     
-        # ----------------------------------------------------------------
-        # CASE B) Valid range => B..E
-        # ----------------------------------------------------------------
+        # --- CASE B: Range B..E ---
         else:
-            # 1) Undo snapshot
-            #old_data = copy.deepcopy(gpx_data)
-            #mw.gpx_widget.gpx_list._history_stack.append(old_data)
             self.register_gpx_undo_snapshot()
-            
-            # 2) Calculate old total duration in [B..E]
+    
             t_start = gpx_data[b_idx]["time"]
             t_end   = gpx_data[e_idx]["time"]
             old_total_s = (t_end - t_start).total_seconds()
             if old_total_s < 0:
-                QMessageBox.warning(self, "Unsorted Track",
-                    "Time in the selected range is reversed? (unsorted data)")
+                QMessageBox.warning(self, "Unsorted Track", "Time in the selected range is reversed? (unsorted data)")
                 return
     
-            seg_count = e_idx - b_idx  # number of segments in [B..E]
+            seg_count = e_idx - b_idx
     
-            # 3) Dialog: new step for each of these seg_count segments
             dlg = QDialog(self)
             dlg.setWindowTitle(f"Change Step - Range {b_idx}..{e_idx}")
             vbox = QVBoxLayout(dlg)
@@ -1875,7 +1910,7 @@ class GPXControlWidget(QWidget):
             vbox.addWidget(lbl_info)
     
             spin_range_step = QDoubleSpinBox()
-            spin_range_step.setRange(0.001, 999999.0)  # no more 10s limit
+            spin_range_step.setRange(0.001, 999999.0)
             if seg_count > 0:
                 spin_range_step.setValue(old_total_s / seg_count)
             else:
@@ -1894,8 +1929,7 @@ class GPXControlWidget(QWidget):
             def on_ok_range():
                 new_val = spin_range_step.value()
                 if new_val < 0.001:
-                    QMessageBox.warning(dlg, "Invalid Value",
-                        "New step cannot be < 0.001!")
+                    QMessageBox.warning(dlg, "Invalid Value", "New step cannot be < 0.001!")
                     return
                 dlg.accept()
     
@@ -1906,37 +1940,28 @@ class GPXControlWidget(QWidget):
             btn_cancel.clicked.connect(on_cancel_range)
     
             if not dlg.exec():
-                return  # user cancelled
+                return
     
             new_step_s = spin_range_step.value()
             new_total_s = seg_count * new_step_s
             diff_s = new_total_s - old_total_s
     
-            # 4) Set times from B..E so that each segment has new_step_s
-            #    Keep time[B_idx] as it is.
             for i in range(b_idx + 1, e_idx + 1):
                 offset_s = (i - b_idx) * new_step_s
                 gpx_data[i]["time"] = t_start + timedelta(seconds=offset_s)
     
-            # 5) Shift all points after e_idx by diff_s
             if e_idx < n - 1 and abs(diff_s) > 1e-9:
                 for j in range(e_idx + 1, n):
-                    old_t = gpx_data[j]["time"]
-                    gpx_data[j]["time"] = old_t + timedelta(seconds=diff_s)
+                    gpx_data[j]["time"] += timedelta(seconds=diff_s)
     
-            # 6) recalc + update
             recalc_gpx_data(gpx_data)
             mw.gpx_widget.set_gpx_data(gpx_data)
             mw._gpx_data = gpx_data
             mw._update_gpx_overview()
-    
             mw.chart.set_gpx_data(gpx_data)
             if mw.mini_chart_widget:
                 mw.mini_chart_widget.set_gpx_data(gpx_data)
     
-            #route_geojson = mw._build_route_geojson_from_gpx(gpx_data)
-            #mw.map_widget.loadRoute(route_geojson, do_fit=False)
-
             QMessageBox.information(
                 self, "Done",
                 f"All segments in the range {b_idx}..{e_idx} have been set to {new_step_s:.3f} s.\n"
@@ -1945,7 +1970,12 @@ class GPXControlWidget(QWidget):
             )
             mw.gpx_widget.gpx_list.clear_marked_range()
             mw.map_widget.clear_marked_range()
-   
+    
+        
+        
+    
+    
+    #################################################################
     def on_chPercent_clicked(self):
         
         mw = self._mainwindow
