@@ -1468,6 +1468,9 @@ class MainWindow(QMainWindow):
         
         if hasattr(self, "autocut_button"):
             self.autocut_button.setVisible(enabled)
+            
+        self._update_set_gpx2video_enabled()
+
 
     def _on_encoder_setup_clicked(self):
         # Hier öffnen wir den Dialog
@@ -2093,7 +2096,8 @@ class MainWindow(QMainWindow):
                 video_edit_on=self.action_toggle_video.isChecked(),
                 auto_sync_on=checked
             )
-            
+        self._update_set_gpx2video_enabled()    
+        
     def _on_sync_point_video_time_toggled(self, checked: bool):
         self._autoSyncNewPointsWithVideoTime = checked
         self.map_widget.view.page().runJavaScript(f"enableVSyncMode({str(checked).lower()});")
@@ -5094,3 +5098,13 @@ class MainWindow(QMainWindow):
 
         recalc_gpx_data(new_data)
         return new_data
+
+    def _update_set_gpx2video_enabled(self):
+        """
+        Aktiviert/Deaktiviert die 'SetGPX2VideoTime'-Funktion je nach Modus.
+        Nur aktiv, wenn EditMode != "off" und AutoCutVideo+GPX deaktiviert ist.
+        """
+        if self.gpx_control and hasattr(self.gpx_control, "_action_set_gpx2video"):
+            is_edit_mode = self._edit_mode != "off"
+            autocut = self.action_auto_sync_video.isChecked()
+            self.gpx_control._action_set_gpx2video.setEnabled(is_edit_mode and not autocut)
