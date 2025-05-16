@@ -1977,6 +1977,10 @@ class MainWindow(QMainWindow):
             self.mini_chart_widget.set_gpx_data(self._gpx_data)
         self._update_gpx_overview() 
         print("[UNDO] GPX-Zustand erfolgreich wiederhergestellt")    
+        row = self.gpx_widget.gpx_list.table.currentRow()
+        if row >= 0:
+            self.map_widget.set_selected_point(row)
+            print(f"[UNDO] Punkt {row} nach Undo erneut in Map selektiert")
 
     def append_gpx_history(self, gpx_data: list):
         old_data = copy.deepcopy(gpx_data)
