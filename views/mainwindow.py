@@ -1767,7 +1767,9 @@ class MainWindow(QMainWindow):
 
         Dadurch wird die Route – je nach gewähltem Startpunkt (B/E) – vorn oder hinten angefügt.
         """
-       
+        old_data = copy.deepcopy(self._gpx_data)
+        self._undo_stack.append(lambda: self._restore_gpx_data(old_data))
+        print("[UNDO] InsertPoint => alter Zustand gesichert")
 
         gpx_data = self._gpx_data
         row_selected = self.gpx_widget.gpx_list.table.currentRow()
@@ -1963,6 +1965,18 @@ class MainWindow(QMainWindow):
         
 
         print(f"[INFO] Inserted new GPX point (DirectionsEnabled={self._directions_enabled}); total now {len(gpx_data)} pts.")
+        
+        
+    def _restore_gpx_data(self, gpx_snapshot):
+        self._gpx_data = copy.deepcopy(gpx_snapshot)
+        self.gpx_widget.set_gpx_data(self._gpx_data)
+        self.chart.set_gpx_data(self._gpx_data)
+        geojson = self._build_route_geojson_from_gpx(self._gpx_data)
+        self.map_widget.loadRoute(geojson, do_fit=False)
+        if self.mini_chart_widget:
+            self.mini_chart_widget.set_gpx_data(self._gpx_data)
+        self._update_gpx_overview() 
+        print("[UNDO] GPX-Zustand erfolgreich wiederhergestellt")    
 
     def append_gpx_history(self, gpx_data: list):
         old_data = copy.deepcopy(gpx_data)
