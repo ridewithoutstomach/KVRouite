@@ -110,6 +110,10 @@ class MapWidget(QWidget):
         """
         if self._mainwindow and hasattr(self._mainwindow, "on_new_gpx_point_inserted"):
             self._mainwindow.on_new_gpx_point_inserted(lat, lon, idx)
+            
+        if self._blue_idx is not None:
+            print(f"[DEBUG] Re-selecting blue_idx={self._blue_idx} after insert")
+            self.set_selected_point(self._blue_idx)    
 
     @Slot()
     def _on_sync_noarg_from_js(self):
@@ -352,5 +356,8 @@ class MapWidget(QWidget):
     def set_selected_point(self, idx: int):
         print(f"[DEBUG] MapWidget: selected_point set to idx={idx}")
         self._blue_idx = idx
-        js = f"highlightSelectedPoint({idx});"
+        self._color_point(idx, "blue", None, False)  # ← blau färben
+        js = f"selectPointByIndex({idx});"
         self.view.page().runJavaScript(js)
+        
+    
