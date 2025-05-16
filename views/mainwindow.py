@@ -597,6 +597,7 @@ class MainWindow(QMainWindow):
         undo_action.triggered.connect(self.on_global_undo)
         
         self.gpx_widget = GPXWidget()
+        self.gpx_widget.gpx_list.rowSelected.connect(self._on_gpx_row_selected)
         
         #self.statusBar().showMessage("Ready")
         
@@ -816,6 +817,8 @@ class MainWindow(QMainWindow):
         self.video_editor.set_final_time_callback(self._compute_final_time)
         
     
+    def _on_gpx_row_selected(self, row_idx: int):
+        self.map_widget.set_selected_point(row_idx)
 
     def _on_overlay_button_clicked(self):
         marker_s = self.timeline.marker_position()

@@ -348,3 +348,9 @@ class MapWidget(QWidget):
 
         val = s.value(f"mapSize/{color_key}", default_val, type=int)
         return val
+
+    def set_selected_point(self, idx: int):
+        print(f"[DEBUG] MapWidget: selected_point set to idx={idx}")
+        self._blue_idx = idx
+        js = f"highlightSelectedPoint({idx});"
+        self.view.page().runJavaScript(js)

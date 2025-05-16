@@ -338,7 +338,34 @@
         alertBox.classList.remove("show");
       }, duration);
     }
+	
+	function highlightSelectedPoint(idx) {
+		if (typeof selectPointByIndex === "function") {
+			selectPointByIndex(idx);
+		} else {
+			console.warn("highlightSelectedPoint(): selectPointByIndex() nicht definiert.");
+		}
+	}
 
+	function selectPointByIndex(idx) {
+		dbg("selectPointByIndex called with idx=" + idx);
+		selectedIndex = idx;
+
+		if (!vectorLayer) {
+			console.warn("selectPointByIndex: vectorLayer is null");
+			return;
+		}
+
+		const features = vectorLayer.getSource().getFeatures();
+		for (let f of features) {
+			if (f.get("idx") === idx) {
+				selectedCoord = f.getGeometry().getCoordinates();
+				// Änderung: optional Kamera auf Punkt zentrieren?
+				map.getView().setCenter(selectedCoord);
+				break;
+			}
+		}
+	}
     function enableVideoMapMode(enable) {
       const mapEl = document.getElementById("mapContainer");
       const viewerEl = document.getElementById("mapillaryViewer");

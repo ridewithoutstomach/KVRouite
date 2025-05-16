@@ -50,6 +50,7 @@ class MarkColumnDelegate(QStyledItemDelegate):
 class GPXListWidget(QWidget):
     # Signal, wenn der Nutzer im Pause-Modus in der Tabelle auf eine Zeile klickt
     rowClickedInPause = Signal(int)
+    rowSelected = Signal(int) 
     markBSet = Signal(int)          # Signal: B=Index
     markESet = Signal(int)          # Signal: E=Index
     markRangeCleared = Signal()     # Signal: Deselect
@@ -462,6 +463,7 @@ class GPXListWidget(QWidget):
 
         # 3) Jetzt erst das Signal -> MainWindow
         self.rowClickedInPause.emit(new_idx)
+        self.rowSelected.emit(new_idx)
 
     def _on_item_changed(self, item):
         if self._updating_table or item.column() != 0 or self._original_value is None or self._original_value == item.text():
