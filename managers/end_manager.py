@@ -36,61 +36,78 @@ class EndManager(QObject):
         #print("[DEBUG] EndManager wurde erstellt.")
 
     def go_to_end(self):
-        """
-        Wird aufgerufen, wenn man den >>| -Button anklickt.
-        Bisher hat man hier ans letzte Frame gesprungen. 
-        Neu: Wir prüfen, ob MarkB gesetzt ist. 
-             Falls nein => Warnung.
-             Falls ja => MarkE = komplettes Video-Ende,
-                         und wenn AutoSyncVideo=ON => 
-                         markiere auch in GPX-Liste von B..Ende.
-        """
+        
         print("[DEBUG] go_to_end() wurde aufgerufen")
 
         if not self.video_editor.multi_durations:
             print("[DEBUG] keine Videos geladen (multi_durations ist leer)")
             return
 
-        self.cut_manager.markB_time_s = self.video_editor.get_current_position_s()
-
-        # 2) Komplettes Ende des Videos errechnen
+        global_s = self.video_editor.get_current_position_s()  # = Video-Zeit für Schnitt
         total_duration = sum(self.video_editor.multi_durations)
-        print(f"[DEBUG] Gesamtdauer: {total_duration:.2f} s")
         if total_duration <= 0:
             print("[DEBUG] Video hat keine positive Gesamtdauer.")
             return
-
-        # 3) MarkE = Video-Ende setzen
-        self.cut_manager.markE_time_s = total_duration
-        self.timeline.set_markE_time(total_duration)
-        print(f"[DEBUG] MarkE automatisch gesetzt auf {total_duration:.3f}s")
-
-        # 4) Falls AutoSyncVideo ON => im GPX von B..Ende rot markieren
-        if self.mainwindow._autoSyncVideoEnabled:
-            print("[DEBUG] AutoSyncVideo ist an => auch in GPX den Bereich bis zum Schluss markieren.")
-            gpx_list = self.mainwindow.gpx_widget.gpx_list
-            gpx_list.set_markB_row(gpx_list.table.currentRow())
-            row_count = gpx_list.table.rowCount()
-            if row_count > 0:
-                e_idx = row_count - 1
-                gpx_list.set_markE_row(e_idx)
-                print(f"[DEBUG] GPX => E = letzte Zeile (Index={e_idx})")
-
-        # 5) Optional: Du kannst hier noch eine Info-Box anzeigen,
-        #    damit der User weiß, er braucht jetzt nur noch "cut" zu drücken.
-        reply = QMessageBox.question(
-            None,
-            "Cut Now?",
-            "The End of the video is now marked (B..E).\n"
-            "Do you want to cut this section now?",
-            QMessageBox.Yes | QMessageBox.No
-        )
+    
+        gpx_list = self.mainwindow.gpx_widget.gpx_list
+        map_widget = self.mainwindow.map_widget
+        timeline = self.mainwindow.timeline
         
-        if reply == QMessageBox.Yes:
-            print("[DEBUG] User confirmed => führe Schnitt aus.")
-            self.mainwindow.on_cut_clicked_video()
+
+        # GPX Sync (nur visuell) → final_s => GPX-Punkt suchen
+        final_s = self.mainwindow.get_final_time_for_global(global_s)
+        best_idx = self.mainwindow.gpx_widget.get_closest_index_for_time(final_s)
+        b_row = best_idx + 1
+        max_row = len(gpx_list._gpx_data) - 1
+        if b_row > max_row:
+            b_row = max_row
+        e_row = max_row
+    
+        # Markierung setzen (sichtbar in rot)
+        gpx_list.clear_marked_range()
+        gpx_list.set_markB_row(b_row)
+        gpx_list.set_markE_row(e_row)
+        map_widget.set_markB_point(b_row)
+        map_widget.set_markE_point(e_row)
+    
+        # Dialogtext
+        if self.mainwindow._autoSyncVideoEnabled:
+            text = (
+                "The End of the video is now marked (B..E).\n"
+                "Do you want to cut this section now?\n\n"
+                "This will affect both the video and the GPX track."
+            )
         else:
-            print("[DEBUG] User hat abgelehnt => kein Schnitt.")
+            text = (
+                "The End of the video is now marked (B..E).\n"
+                "Do you want to cut this section now?"
+            )
+    
+        reply = QMessageBox.question(None, "Cut Now?", text, QMessageBox.Yes | QMessageBox.No)
+        
+        
+        if reply != QMessageBox.Yes:
+            print("[DEBUG] Abbruch: Deselektiere alles")
+            self.mainwindow.gpx_control.deselectClicked.emit()
+            self.cut_manager.markB_time_s = None
+            self.cut_manager.markE_time_s = None
+            timeline.set_markB_time(None)
+            timeline.set_markE_time(None)
+            return
+    
+        # Jetzt final: MarkE auf total_duration, MarkB auf global_s
+        self.cut_manager.markB_time_s = global_s
+        self.cut_manager.markE_time_s = total_duration
+        timeline.set_markB_time(global_s)
+        timeline.set_markE_time(total_duration)
+    
+        print(f"[DEBUG] CUT Bereich: Video {global_s:.3f}s → {total_duration:.3f}s | GPX {b_row} → {e_row}")
+        
+        self.mainwindow.on_cut_clicked_video()
+        
+        
+        
+        
         
     def _set_global_time_s(self, new_global_s: float):
         """

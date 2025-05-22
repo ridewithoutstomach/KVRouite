@@ -353,12 +353,14 @@ class VideoTimelineWidget(QWidget):
         painter.setPen(pen_yellow)
         painter.setBrush(Qt.NoBrush)
         xB = xE = -1
-        if 0 <= self.markB_time_s <= self.total_duration:
+        #if 0 <= self.markB_time_s <= self.total_duration:
+        if self.markB_time_s is not None and 0 <= self.markB_time_s <= self.total_duration:
             xB = (self.markB_time_s/self.total_duration)*timeline_real_width - self._horizontal_offset
             if -50 < xB < w+50:
                 painter.drawLine(xB, 0, xB, h)
 
-        if 0 <= self.markE_time_s <= self.total_duration:
+        if self.markE_time_s is not None and 0 <= self.markE_time_s <= self.total_duration:
+        #if 0 <= self.markE_time_s <= self.total_duration:
             xE = (self.markE_time_s/self.total_duration)*timeline_real_width - self._horizontal_offset
             if -50 < xE < w+50:
                 painter.drawLine(xE, 0, xE, h)
