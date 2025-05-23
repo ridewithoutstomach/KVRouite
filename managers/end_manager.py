@@ -75,7 +75,8 @@ class EndManager(QObject):
             text = (
                 "The End of the video is now marked (B..E).\n"
                 "Do you want to cut this section now?\n\n"
-                "This will affect both the video and the GPX track."
+                "This will affect both the video and the GPX track.\n\n"
+                "Note: Rendering the map take some time!"
             )
         else:
             text = (
