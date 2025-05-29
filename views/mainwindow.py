@@ -597,6 +597,7 @@ class MainWindow(QMainWindow):
         undo_action.triggered.connect(self.on_global_undo)
         
         self.gpx_widget = GPXWidget()
+        self.gpx_widget.gpx_list.rowSelected.connect(self._on_gpx_row_selected)
         
         #self.statusBar().showMessage("Ready")
         
@@ -816,6 +817,8 @@ class MainWindow(QMainWindow):
         self.video_editor.set_final_time_callback(self._compute_final_time)
         
     
+    def _on_gpx_row_selected(self, row_idx: int):
+        self.map_widget.set_selected_point(row_idx)
 
     def _on_overlay_button_clicked(self):
         marker_s = self.timeline.marker_position()
@@ -1468,6 +1471,9 @@ class MainWindow(QMainWindow):
         
         if hasattr(self, "autocut_button"):
             self.autocut_button.setVisible(enabled)
+            
+        self._update_set_gpx2video_enabled()
+
 
     def _on_encoder_setup_clicked(self):
         # Hier öffnen wir den Dialog
@@ -1761,7 +1767,9 @@ class MainWindow(QMainWindow):
 
         Dadurch wird die Route – je nach gewähltem Startpunkt (B/E) – vorn oder hinten angefügt.
         """
-       
+        old_data = copy.deepcopy(self._gpx_data)
+        self._undo_stack.append(lambda: self._restore_gpx_data(old_data))
+        print("[UNDO] InsertPoint => alter Zustand gesichert")
 
         gpx_data = self._gpx_data
         row_selected = self.gpx_widget.gpx_list.table.currentRow()
@@ -1957,6 +1965,22 @@ class MainWindow(QMainWindow):
         
 
         print(f"[INFO] Inserted new GPX point (DirectionsEnabled={self._directions_enabled}); total now {len(gpx_data)} pts.")
+        
+        
+    def _restore_gpx_data(self, gpx_snapshot):
+        self._gpx_data = copy.deepcopy(gpx_snapshot)
+        self.gpx_widget.set_gpx_data(self._gpx_data)
+        self.chart.set_gpx_data(self._gpx_data)
+        geojson = self._build_route_geojson_from_gpx(self._gpx_data)
+        self.map_widget.loadRoute(geojson, do_fit=False)
+        if self.mini_chart_widget:
+            self.mini_chart_widget.set_gpx_data(self._gpx_data)
+        self._update_gpx_overview() 
+        print("[UNDO] GPX-Zustand erfolgreich wiederhergestellt")    
+        row = self.gpx_widget.gpx_list.table.currentRow()
+        if row >= 0:
+            self.map_widget.set_selected_point(row)
+            print(f"[UNDO] Punkt {row} nach Undo erneut in Map selektiert")
 
     def append_gpx_history(self, gpx_data: list):
         old_data = copy.deepcopy(gpx_data)
@@ -2066,7 +2090,7 @@ class MainWindow(QMainWindow):
         print(f"[DEBUG] _on_auto_sync_video_toggled => {checked}")
         self._autoSyncVideoEnabled = checked
         self.gpx_control.set_markE_visibility(not checked)
-        
+        self.video_control._update_autocut_icon()
         
         if checked:
             self.video_editor.acut_status_label.setText("V&G:On")
@@ -2093,7 +2117,8 @@ class MainWindow(QMainWindow):
                 video_edit_on=self.action_toggle_video.isChecked(),
                 auto_sync_on=checked
             )
-            
+        self._update_set_gpx2video_enabled()    
+        
     def _on_sync_point_video_time_toggled(self, checked: bool):
         self._autoSyncNewPointsWithVideoTime = checked
         self.map_widget.view.page().runJavaScript(f"enableVSyncMode({str(checked).lower()});")
@@ -5094,3 +5119,13 @@ class MainWindow(QMainWindow):
 
         recalc_gpx_data(new_data)
         return new_data
+
+    def _update_set_gpx2video_enabled(self):
+        """
+        Aktiviert/Deaktiviert die 'SetGPX2VideoTime'-Funktion je nach Modus.
+        Nur aktiv, wenn EditMode != "off" und AutoCutVideo+GPX deaktiviert ist.
+        """
+        if self.gpx_control and hasattr(self.gpx_control, "_action_set_gpx2video"):
+            is_edit_mode = self._edit_mode != "off"
+            autocut = self.action_auto_sync_video.isChecked()
+            self.gpx_control._action_set_gpx2video.setEnabled(is_edit_mode and not autocut)

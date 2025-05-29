@@ -338,7 +338,34 @@
         alertBox.classList.remove("show");
       }, duration);
     }
+	
+	function highlightSelectedPoint(idx) {
+		if (typeof selectPointByIndex === "function") {
+			selectPointByIndex(idx);
+		} else {
+			console.warn("highlightSelectedPoint(): selectPointByIndex() nicht definiert.");
+		}
+	}
 
+	function selectPointByIndex(idx) {
+		dbg("selectPointByIndex called with idx=" + idx);
+		selectedIndex = idx;
+
+		if (!vectorLayer) {
+			console.warn("selectPointByIndex: vectorLayer is null");
+			return;
+		}
+
+		const features = vectorLayer.getSource().getFeatures();
+		for (let f of features) {
+			if (f.get("idx") === idx) {
+				selectedCoord = f.getGeometry().getCoordinates();
+				// Änderung: optional Kamera auf Punkt zentrieren?
+				map.getView().setCenter(selectedCoord);
+				break;
+			}
+		}
+	}
     function enableVideoMapMode(enable) {
       const mapEl = document.getElementById("mapContainer");
       const viewerEl = document.getElementById("mapillaryViewer");
@@ -1045,71 +1072,74 @@
      * 7) loadRoute(...) => index + stable_id
      ***********************************************************/
     function loadRoute(routeGeoJson, doFit=true){
-      showLoading("Loading route ...");
-      vectorLayer.getSource().clear();
-      featuresMapIndex={};
-      featuresMapSid={};
+      showLoading("Rendering GPX...may take some time");
 
-      if(!routeGeoJson || !routeGeoJson.features){
-        console.log("[DEBUG] no routeGeoJson => skip");
+      // alles in setTimeout verschieben, um Anzeige sichtbar zu machen
+      setTimeout(() => {
+        vectorLayer.getSource().clear();
+        featuresMapIndex = {};
+        featuresMapSid = {};
+
+        if (!routeGeoJson || !routeGeoJson.features) {
+          console.log("[DEBUG] no routeGeoJson => skip");
+          hideLoading();
+          return;
+        }
+
+        for (let feat of routeGeoJson.features) {
+          let g = feat.geometry;
+          let p = feat.properties || {};
+          if (!g) continue;
+
+          if (g.type === "LineString") {
+            let coords = g.coordinates.map(c => ol.proj.fromLonLat(c));
+            let lineF = new ol.Feature({
+              geometry: new ol.geom.LineString(coords),
+              color: p.color || "#000"
+            });
+            vectorLayer.getSource().addFeature(lineF);
+            updateFeatureStyle(lineF);
+          } 
+          else if (g.type === "Point") {
+            let coords = ol.proj.fromLonLat(g.coordinates);
+            let idx = p.index;
+            let sid = p.stable_id;
+
+            let rawColor = p.color || "black";
+            if (rawColor === "#000000") rawColor = "black";
+            else if (rawColor === "#FF0000") rawColor = "red";
+            else if (rawColor === "#0000FF") rawColor = "blue";
+            else if (rawColor === "#FFFF00") rawColor = "yellow";
+            let color = rawColor;
+
+            let size = p.size || 4;
+  
+            let f = new ol.Feature({
+              geometry: new ol.geom.Point(coords),
+              index: idx,
+              stable_id: sid,
+              color: color,
+              size: size
+            });
+            vectorLayer.getSource().addFeature(f);
+    
+            if (idx !== undefined) featuresMapIndex[idx] = f;
+            if (sid) featuresMapSid[sid] = f;
+    
+            updateFeatureStyle(f);
+          }
+        }
+
+        if (doFit) {
+          let ext = vectorLayer.getSource().getExtent();
+          if (!ol.extent.isEmpty(ext)) {
+            map.getView().fit(ext, {padding:[30,30,30,30], maxZoom: 20});
+          }
+        }
+ 
         hideLoading();
-        return;
-      }
-      for(let feat of routeGeoJson.features){
-        let g= feat.geometry;
-        let p= feat.properties||{};
-        if(!g) continue;
-
-        if(g.type==="LineString"){
-          let coords= g.coordinates.map(c=>ol.proj.fromLonLat(c));
-          let lineF= new ol.Feature({
-            geometry: new ol.geom.LineString(coords),
-            color: p.color||"#000"
-          });
-          vectorLayer.getSource().addFeature(lineF);
-          updateFeatureStyle(lineF);
-        } 
-        else if(g.type==="Point"){
-          let coords= ol.proj.fromLonLat(g.coordinates);
-          let idx= p.index;
-          let sid= p.stable_id;
-          //let color= p.color||"#000000";
-		  let rawColor = p.color || "black"; // default = "black" statt "#000000"
-			if (rawColor === "#000000") rawColor = "black";
-			else if (rawColor === "#FF0000") rawColor = "red";
-			else if (rawColor === "#0000FF") rawColor = "blue";
-			else if (rawColor === "#FFFF00") rawColor = "yellow";
-			let color = rawColor;
-		  
-          let size= p.size||4;
-
-          let f= new ol.Feature({
-            geometry: new ol.geom.Point(coords),
-            index: idx,
-            stable_id: sid,
-            color: color,
-            size: size
-          });
-          vectorLayer.getSource().addFeature(f);
-
-          if(idx!==undefined){
-            featuresMapIndex[idx]= f;
-          }
-          if(sid){
-            featuresMapSid[sid]= f;
-          }
-          updateFeatureStyle(f);
-        }
-      }
-
-      if(doFit){
-        let ext= vectorLayer.getSource().getExtent();
-        if(!ol.extent.isEmpty(ext)){
-          map.getView().fit(ext,{padding:[30,30,30,30],maxZoom:20});
-        }
-      }
-      hideLoading();
-    }
+      }, 100);  // gibt dem Browser 100 ms Vorlauf für sichtbare Anzeige
+    } 
 
     /***********************************************************
      * 8) addOrUpdatePoint, removePoint, updateFeatureStyle
