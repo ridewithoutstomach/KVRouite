@@ -2090,7 +2090,7 @@ class MainWindow(QMainWindow):
         print(f"[DEBUG] _on_auto_sync_video_toggled => {checked}")
         self._autoSyncVideoEnabled = checked
         self.gpx_control.set_markE_visibility(not checked)
-        
+        self.video_control._update_autocut_icon()
         
         if checked:
             self.video_editor.acut_status_label.setText("V&G:On")
