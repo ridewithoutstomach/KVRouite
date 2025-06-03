@@ -654,7 +654,8 @@ class GPXControlWidget(QWidget):
 
         token = mw._mapbox_key.strip()
         if not token:
-            QMessageBox.warning(self, "No Mapbox Key", "No Mapbox API key found. Please set it in Config > Map Keys.")
+            print("[INFO] No Mapbox key – skipping elevation update")
+            #QMessageBox.warning(self, "No Mapbox Key", "No Mapbox API key found. Please set it in Config > Map Keys.")
             return (0, 0)
 
         gpx_data = mw.gpx_widget.gpx_list._gpx_data
@@ -785,8 +786,10 @@ class GPXControlWidget(QWidget):
         # Elevation abrufen
         successful_points, tile_count = self.update_elevation_from_mapbox(latlon_list)
 
-        if tile_count == 0:
-            QMessageBox.warning(self, "Mapbox Error", "No elevation tiles could be loaded.\nCheck your Mapbox API key.")
+        #if tile_count == 0:
+        if tile_count == 0 and successful_points == 0:
+            #QMessageBox.warning(self, "Mapbox Error", "No elevation tiles could be loaded.\nCheck your Mapbox API key.")
+            print("[INFO] No elevation loaded – possibly due to missing Mapbox key")
             return
         if successful_points == 0:
             QMessageBox.warning(self, "No Elevation Found", "Tiles were loaded, but no elevation values could be decoded.")
