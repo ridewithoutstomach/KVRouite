@@ -73,7 +73,7 @@ class VideoControlWidget(QWidget):
         """
         icon_size = self.style().pixelMetric(QStyle.PM_ToolBarIconSize)
         self.stop_button = QPushButton()
-        self.stop_button.setIcon(QIcon("icon/go_to_start_icon_padded.svg"))
+        self.stop_button.setIcon(QIcon("icon/go_to_start_icon_padded.png"))
         self.stop_button.setIconSize(QSize(icon_size, icon_size))
         play_size = self.play_pause_button.sizeHint()
         self.stop_button.setMinimumSize(play_size)
