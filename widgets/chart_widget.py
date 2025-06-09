@@ -434,7 +434,7 @@ class ChartWidget(QWidget):
         painter.setPen(QPen(QColor(255, 165, 0), 4))  # Blau, Dicke=2
         for i in range(1, count):
             # Zeitdifferenz zwischen Punkt i-1 und i:
-            dt = self._gpx_data[i]["rel_s"] - self._gpx_data[i-1]["rel_s"]
+            dt = self._gpx_data[i]["time"] - self._gpx_data[i-1]["time"]
             if dt > self._stop_threshold:
                 # x_-Koordinate des Punktes i (bereits in path_spd gespeichert)
                 x_ = path_spd[i][0]

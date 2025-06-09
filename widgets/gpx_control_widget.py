@@ -873,12 +873,12 @@ class GPXControlWidget(QWidget):
 
         # Start/End als Sekunden
         if b_idx is not None and 0 <= b_idx < len(gpx_data):
-            gpx_b_sec = gpx_data[b_idx].get("rel_s", -1)
+            gpx_b_sec = gpx_data[b_idx].get("time", -1)
         else:
             gpx_b_sec = -1
     
         if e_idx is not None and 0 <= e_idx < len(gpx_data):
-            gpx_e_sec = gpx_data[e_idx].get("rel_s", -1)
+            gpx_e_sec = gpx_data[e_idx].get("time", -1)
         else:
             gpx_e_sec = -1
 
@@ -887,8 +887,8 @@ class GPXControlWidget(QWidget):
         else:
             gpx_len_sec = (gpx_e_sec - gpx_b_sec)
 
-        gpx_start_str = _format_duration(gpx_b_sec)
-        gpx_end_str   = _format_duration(gpx_e_sec)
+        gpx_start_str = _format_duration(gpx_b_sec-gpx_start_time)
+        gpx_end_str   = _format_duration(gpx_e_sec-gpx_start_time)
         gpx_len_str   = _format_duration(gpx_len_sec)
     
         # --------------------------------------------------------------------
@@ -952,7 +952,7 @@ class GPXControlWidget(QWidget):
         for i in range(b_idx+1, e_idx+1):
             old_ti = gpx_data[i]["time"]
             # fraction
-            fraction = (gpx_data[i]["rel_s"] - gpx_b_sec) / old_duration
+            fraction = (gpx_data[i]["time"] - gpx_b_sec) / old_duration
             # z. B. 0.0..1.0
             new_rel = fraction * new_duration
             # => new_abstime = t_b0 + new_rel sek
@@ -2511,8 +2511,7 @@ class GPXControlWidget(QWidget):
                 "time": t_mid,
                 "delta_m": 0.0,
                 "speed_kmh": 0.0,
-                "gradient": 0.0,
-                "rel_s": 0.0
+                "gradient": 0.0
             }
             # => Insert an i+1
             gpx_data.insert(i+1, new_pt)
@@ -2672,20 +2671,9 @@ class GPXControlWidget(QWidget):
     
         # 3) Zeiten so verschieben, dass neuer Startpunkt rel_s=0
         
-        shift_s = gpx_data[0].get("rel_s", 0.0)
+        shift_s = gpx_data[0].get("time", 0.0) - gpx_start_time
         if shift_s > 0:
-            for pt in gpx_data:
-                pt["rel_s"] = pt["rel_s"] - shift_s
-            # echte Time-Objekte ebenfalls verschieben
-            import datetime
-            first_time = gpx_data[0]["time"]
-            # wir gehen davon aus, dass "time" monoton ist
-            # => shift_dt = old_first_time - new_first_time
-            #    Hier: new_first_time soll 1:1 = first_time bleiben, 
-            #    also eigentlich kein SHIFT in "time" nötig 
-            #    ODER du verschiebst "time" so, dass time[0] = originalZeit.
-            #    Das ist Geschmackssache. 
-            # => wir rufen recalc an, das berechnet delta_m, speed, gradient
+            gpx_start_time = gpx_data[0]["time"] 
         recalc_gpx_data(gpx_data)
     
         # 4) Data neu in GUI setzen
@@ -2835,8 +2823,7 @@ class GPXControlWidget(QWidget):
                 "time": new_t,
                 "delta_m": 0.0,
                 "speed_kmh": 0.0,
-                "gradient": 0.0,
-                "rel_s": 0.0
+                "gradient": 0.0
             }
             new_points.append(pt)
 
@@ -2998,8 +2985,7 @@ class GPXControlWidget(QWidget):
                 "time": t_new,
                 "delta_m": 0.0,
                 "speed_kmh": 0.0,
-                "gradient": 0.0,
-                "rel_s": 0.0
+                "gradient": 0.0
             }
             new_points.append(pt)
 
