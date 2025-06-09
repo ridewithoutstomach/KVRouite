@@ -27,7 +27,7 @@ from datetime import datetime
 from dateutil.parser import parse as dateutil_parse
 
 
-    
+gpx_start_time = datetime(2000, 1, 1, 0, 0, 0)  # Standard-Zeitstempel für rel_s    
 
 
 
@@ -73,17 +73,7 @@ def parse_gpx(gpx_file_path):
 
     # (A) => Hier berechnen wir rel_s ab dem ersten Punkt
     if len(parsed_points) > 0:
-        first_dt = parsed_points[0]["time"]
-        if first_dt is not None:
-            for p in parsed_points:
-                if p["time"] is not None:
-                    p["rel_s"] = (p["time"] - first_dt).total_seconds()
-                else:
-                    p["rel_s"] = 0.0
-        else:
-            # Falls der erste Punkt gar kein dt hat, alle rel_s = 0.0
-            for p in parsed_points:
-                p["rel_s"] = 0.0
+        gpx_start_time = parsed_points[0]["time"]
 
     # Haversine etc.
     def haversine_m(lat1, lon1, lat2, lon2):
@@ -110,8 +100,6 @@ def parse_gpx(gpx_file_path):
                 "delta_m": 0.0, 
                 "speed_kmh": 0.0, 
                 "gradient": 0.0,
-                # (B) NEU => rel_s
-                "rel_s": p.get("rel_s", 0.0)
             }
         else:
             p_prev = parsed_points[i-1]
@@ -137,16 +125,14 @@ def parse_gpx(gpx_file_path):
                 "time": p["time"],
                 "delta_m": delta_m,
                 "speed_kmh": speed_kmh,
-                "gradient": gradient,
-                # (B) NEU => rel_s
-                "rel_s": p.get("rel_s", 0.0)
+                "gradient": gradient
             }
 
         results.append(data)
     return results
 
 
-def recalc_gpx_data(gpx_data: list[dict]):
+def recalc_gpx_data(gpx_data: list[dict], shift_time: bool = True):
     
     """
     Aktualisiert delta_m, speed_kmh, gradient und rel_s,
@@ -156,19 +142,11 @@ def recalc_gpx_data(gpx_data: list[dict]):
     
     if not gpx_data:
         return
-    
-    # A) Ersten Zeitstempel
-    first_time = gpx_data[0].get("time", None)
-    if not first_time:
-        first_time = datetime(2000,1,1,0,0,0)
+
 
     # B) rel_s
-    for pt in gpx_data:
-        dt = pt.get("time")
-        if dt:
-            pt["rel_s"] = (dt - first_time).total_seconds()
-        else:
-            pt["rel_s"] = 0.0
+    if(shift_time):
+        first_time=gpx_data[0].get("time")
 
     # C) Hilfsfunktion Haversine
     def haversine_m(lat1, lon1, lat2, lon2):

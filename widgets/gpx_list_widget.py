@@ -605,7 +605,7 @@ class GPXListWidget(QWidget):
 
         # 4) Neu berechnen
         from core.gpx_parser import recalc_gpx_data
-        recalc_gpx_data(self._gpx_data)
+        recalc_gpx_data(self._gpx_data, shift) 
     
         # 5) Tabelle updaten
         self.set_gpx_data(self._gpx_data)
