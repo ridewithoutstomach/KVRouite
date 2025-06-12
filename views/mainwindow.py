@@ -4540,7 +4540,7 @@ class MainWindow(QMainWindow):
                 self.real_total_duration = 0.0
                 
             self.video_durations = project_data.get("video_durations", [])
-            
+            self.rebuild_timeline()
 
             # 2. GPX-Daten laden + reparieren (datetime aus String machen)
             gpx_data = project_data.get("gpx_data", [])
