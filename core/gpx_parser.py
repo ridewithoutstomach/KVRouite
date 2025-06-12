@@ -27,12 +27,17 @@ from datetime import datetime
 from dateutil.parser import parse as dateutil_parse
 
 
-gpx_start_time = datetime(2000, 1, 1, 0, 0, 0)  # Standard-Zeitstempel für rel_s    
+gpx_video_shift = 0 #in seconds, can be negative (first gpx are before video) or positive (missing gpx at start)
+def set_gpx_video_shift(t):
+    global gpx_video_shift
+    gpx_video_shift = t
+    print(f"[DEBUG] GPX Video Shift set to {gpx_video_shift} seconds.")
 
+def get_gpx_video_shift():
+    return gpx_video_shift 
 
 
 def parse_gpx(gpx_file_path):
-    
     """
     Liest eine GPX-Datei ein, extrahiert lat, lon, ele (Höhe) und time.
     Zusätzlich berechnet die Funktion distance, speed, gradient etc.
@@ -70,10 +75,6 @@ def parse_gpx(gpx_file_path):
             "ele": ele,
             "time": dt
         })
-
-    # (A) => Hier berechnen wir rel_s ab dem ersten Punkt
-    if len(parsed_points) > 0:
-        gpx_start_time = parsed_points[0]["time"]
 
     # Haversine etc.
     def haversine_m(lat1, lon1, lat2, lon2):

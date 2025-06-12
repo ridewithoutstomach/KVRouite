@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QColor
 
+from core.gpx_parser import get_gpx_video_shift, set_gpx_video_shift
 
 
 class MarkColumnDelegate(QStyledItemDelegate):
@@ -588,6 +589,10 @@ class GPXListWidget(QWidget):
             if "stable_id" in self._gpx_data[i]:
                 to_remove_ids.append(self._gpx_data[i]["stable_id"])
     
+        if(not shift and b==0): #if delete first point -> gpx-video shift to update
+            delta = (self._gpx_data[e].get("time") - self._gpx_data[0].get("time")).total_seconds()
+            set_gpx_video_shift(get_gpx_video_shift() + delta)
+            
         # 2) Entfernen
         del self._gpx_data[b:e+1]
     
@@ -673,12 +678,12 @@ class GPXListWidget(QWidget):
         base_ts = base_dt.timestamp() if base_dt else None
         prev_dt = None
 
+        from core.gpx_parser import get_gpx_video_shift
+
         for row_idx, pt in enumerate(data):
             dt = pt.get("time", None)
-            if dt and base_ts is not None:
-                rel_s = dt.timestamp() - base_ts
-                if rel_s < 0:
-                    rel_s = 0.0
+            if dt and base_dt is not None:
+                rel_s = dt.timestamp() - base_ts + get_gpx_video_shift()
             else:
                 rel_s = 0.0
 

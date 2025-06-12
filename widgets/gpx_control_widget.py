@@ -39,19 +39,7 @@ from PySide6.QtCore import Qt, Signal, QPoint
 from PySide6.QtGui import QIcon
 
 from datetime import timedelta
-from core.gpx_parser import recalc_gpx_data
-
-
-
-
-
-
-
-
-
-
-
-
+from core.gpx_parser import recalc_gpx_data, get_gpx_video_shift, set_gpx_video_shift
 
         
 
@@ -815,7 +803,7 @@ class GPXControlWidget(QWidget):
     
     
     ###
-    
+    #TODO: test this
     def _on_set_gpx2video_triggered(self):
         """
         Zeigt eine MessageBox mit den Zeitbereichen (Video + GPX).
@@ -887,8 +875,9 @@ class GPXControlWidget(QWidget):
         else:
             gpx_len_sec = (gpx_e_sec - gpx_b_sec)
 
-        gpx_start_str = _format_duration(gpx_b_sec-gpx_start_time)
-        gpx_end_str   = _format_duration(gpx_e_sec-gpx_start_time)
+        gpx_rel_start = gpx_data[0].get("time",-1) + timedelta(seconds = get_gpx_video_shift())
+        gpx_start_str = _format_duration(gpx_b_sec-gpx_rel_start)
+        gpx_end_str   = _format_duration(gpx_e_sec-gpx_rel_start)
         gpx_len_str   = _format_duration(gpx_len_sec)
     
         # --------------------------------------------------------------------
@@ -2621,9 +2610,9 @@ class GPXControlWidget(QWidget):
         
     def on_cut_before_b_clicked(self):
         """
-        Löscht alle GPX-Punkte von Index 0 bis einschließlich MarkB
-        und verschiebt anschließend die Zeit so, dass die neue erste Zeit = 0 ist.
-        Danach Chart/Map/Minichart/Tabelle usw. updaten.
+        Deletes all GPX points from index 0 up to and including MarkB
+        and then shifts the time so that the new first time = 0.
+        Then update chart/map/minichart/table etc.
         """
         mw = self._mainwindow
         if mw is None:
@@ -2671,9 +2660,7 @@ class GPXControlWidget(QWidget):
     
         # 3) Zeiten so verschieben, dass neuer Startpunkt rel_s=0
         
-        shift_s = gpx_data[0].get("time", 0.0) - gpx_start_time
-        if shift_s > 0:
-            gpx_start_time = gpx_data[0]["time"] 
+        set_gpx_video_shift(0) #TODO: test this 
         recalc_gpx_data(gpx_data)
     
         # 4) Data neu in GUI setzen
