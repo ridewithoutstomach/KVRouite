@@ -4730,8 +4730,8 @@ class MainWindow(QMainWindow):
         truncated = []
         first_gpx_video_time=  gpx_data[0].get("time", 0.0) + timedelta(seconds = get_gpx_video_shift())
         for pt in gpx_data:
-            rel_s = pt.get("time", 0.0) - first_gpx_video_time
-            if rel_s > 0 and rel_s <= final_duration_s:
+            rel_s = (pt.get("time", 0.0) - first_gpx_video_time).total_seconds()
+            if rel_s <= final_duration_s:
                 truncated.append(pt)
             else:
                 break  # Annahme: Zeit ist aufsteigend
