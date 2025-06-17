@@ -767,6 +767,7 @@ class MainWindow(QMainWindow):
         self.cut_manager.cutsChanged.connect(self._on_cuts_changed)
         self.step_manager.set_cut_manager(self.cut_manager)
         self.video_control.syncClicked.connect(self.on_sync_clicked)
+        self.video_control.setSyncClicked.connect(self.on_set_video_gpx_sync_clicked)
         
         self.gpx_control.markBClicked.connect(self.on_markB_clicked_gpx)
         self.gpx_control.deselectClicked.connect(self.on_deselect_clicked)
@@ -2699,7 +2700,8 @@ class MainWindow(QMainWindow):
         if self.playlist:
             self.video_editor.show_first_frame_at_index(0)
 
-        QMessageBox.information(self, "Loaded", f"{len(files)} video(s) added to the playlist.")
+        if self.playlist_counter > 1:
+            QMessageBox.information(self, "Loaded", f"{len(files)} video(s) added to the playlist.")
     
    
     def _set_gpx_data(self, gpx_data):
@@ -3606,6 +3608,34 @@ class MainWindow(QMainWindow):
                 remaining -= seg_len
 
         return total_dur    
+
+    def on_set_video_gpx_sync_clicked(self):
+        """
+        Define synchronization match between selected GPX and video time
+        """
+        global_s = self.video_editor.get_current_position_s()
+        print(f"[DEBUG] on_set_video_gpx_sync_clicked => get_current_position_s()={global_s:.3f}")
+        
+        # 2) => final_s, falls Cuts 
+        final_s = self.get_final_time_for_global(global_s)
+
+        row = self.gpx_widget.gpx_list.table.currentRow()
+        gpx_time = self._gpx_data[row]["time"] - self._gpx_data[0]["time"]
+        new_shift=  final_s - gpx_time.total_seconds()
+
+        reply = QMessageBox.question(
+                self,
+                "Video-GPX sync point",
+                f"Define GPX at {gpx_time} synced with {final_s:.1f} seconds in video?\n"
+                f"GPX-video shift will be {new_shift:.1f} seconds (undo possible).",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+        if reply == QMessageBox.Yes:
+            self.register_gpx_undo_snapshot()
+            set_gpx_video_shift(new_shift)
+            #recalc_gpx_data(self._gpx_data) #to refresh list
+            self.gpx_widget.gpx_list.set_gpx_data(self._gpx_data)
         
     def on_sync_clicked(self):
         """
@@ -4145,6 +4175,7 @@ class MainWindow(QMainWindow):
         self.chart.set_gpx_data([])
         if self.mini_chart_widget:
             self.mini_chart_widget.set_gpx_data([])
+        set_gpx_video_shift(0)
         
         self.map_widget.loadRoute({"type": "FeatureCollection", "features": []}, do_fit=True)
     
@@ -4173,7 +4204,6 @@ class MainWindow(QMainWindow):
         self.video_durations.clear()
         self.playlist_menu.clear()
 
-        QMessageBox.information(self, "New Project", "New project started successfully.")
      
 
     
