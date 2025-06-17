@@ -251,7 +251,7 @@ class VideoControlWidget(QWidget):
         self.cut_button.setVisible(enabled)
         
         self.go_to_end_button.setVisible(enabled)
-        #self.undo_button.setVisible(enabled)
+        self.set_begin_button.setVisible(enabled)
         self.autocut_button.setVisible(enabled)
         self._update_autocut_icon()
         
