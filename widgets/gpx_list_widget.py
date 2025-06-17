@@ -745,14 +745,16 @@ class GPXListWidget(QWidget):
                 it.setBackground(color)
 
     def _format_hhmmss_milli(self, secs: float) -> str:
-        ms_total = int(round(secs * 1000))
+        sign = '-' if secs < 0 else ''
+        secs_abs = abs(secs)
+        ms_total = int(round(secs_abs * 1000))
         hh = ms_total // 3600000
         rest = ms_total % 3600000
         mm = rest // 60000
         rest = rest % 60000
         ss = rest // 1000
         ms = rest % 1000
-        return f"{hh:02d}:{mm:02d}:{ss:02d}.{ms:03d}"
+        return f"{sign}{hh:02d}:{mm:02d}:{ss:02d}.{ms:03d}"
 
     def _parse_hhmmss_milli(self, time_str: str) -> float:
          # Match hh:mm:ss[.mmm] — milliseconds optional
