@@ -447,9 +447,9 @@ class GPXControlWidget(QWidget):
 
             # -- FIXED: Statt gpx_data[j]["ele"] + offset => old_data[j]["ele"] + offset 
             for j in range(e_idx + 1, len(gpx_data)):
-                old_ele_j = old_data[j]["ele"]  # der unveränderte Wert vor der Aktion
-                gpx_data[j]["ele"] = old_ele_j + offset
-    
+                #old_ele_j = old_data[j]["ele"]  # der unveränderte Wert vor der Aktion
+                #gpx_data[j]["ele"] = old_ele_j + offset
+                gpx_data[j]["ele"] += offset
             # Recalc & Refresh
             recalc_gpx_data(gpx_data)
             mw.gpx_widget.set_gpx_data(gpx_data)
