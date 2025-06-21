@@ -467,7 +467,19 @@ class GPXControlWidget(QWidget):
                 f"Start remains {start_ele:.2f}m, end changed to {gpx_data[e_idx]['ele']:.2f}m.\n\n"
                 f"All subsequent points (>{e_idx}) shifted by +{offset:.2f}m."
             )
+            self.markB_index = None
+            self.markE_index = None
+            
 
+            # Marker-Indexe zurücksetzen
+            mw.gpx_widget.gpx_list._markB_idx = None
+            mw.gpx_widget.gpx_list._markE_idx = None
+
+            # Buttons zurücksetzen
+            self.markB_button.setStyleSheet("")
+            self.markE_button.setStyleSheet("")
+            
+            
         def on_cancel_dialog():
             dlg.reject()
 
