@@ -2915,6 +2915,7 @@ class MainWindow(QMainWindow):
 
             
             self.video_editor.set_playlist(self.playlist)
+            self.video_control.activate_controls(True)
             
             if self._edit_mode in ("copy", "encode") and (not self._userDeclinedIndexing):
                 self.start_indexing_process(filepath)
@@ -2943,7 +2944,8 @@ class MainWindow(QMainWindow):
             
             # STATT rebuild_vlc_playlist():
             self.video_editor.set_playlist(self.playlist)
-
+            self.video_control.activate_controls(
+                True if self.playlist.length() > 0 else False)
             # Timeline anpassen:
             self.rebuild_timeline()
     
@@ -4614,6 +4616,7 @@ class MainWindow(QMainWindow):
 
             # 6. VideoEditor neu setzen
             self.video_editor.set_playlist(self.playlist)
+            self.video_control.activate_controls(True)
             if self.video_durations:
                 self.video_editor.set_multi_durations(self.video_durations)
 

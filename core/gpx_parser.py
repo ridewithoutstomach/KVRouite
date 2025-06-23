@@ -27,14 +27,18 @@ from datetime import datetime
 from dateutil.parser import parse as dateutil_parse
 
 
-gpx_video_shift = 0 #in seconds, can be negative (first gpx are before video) or positive (missing gpx at start)
+gpx_video_shift = None #in seconds, can be negative (first gpx are before video) or positive (missing gpx at start)
 def set_gpx_video_shift(t):
     global gpx_video_shift
     gpx_video_shift = t
     print(f"[DEBUG] GPX Video Shift set to {gpx_video_shift} seconds.")
 
 def get_gpx_video_shift():
-    return gpx_video_shift 
+    if is_gpx_video_shift_set(): return gpx_video_shift
+    else: return 0
+
+def is_gpx_video_shift_set():
+    return gpx_video_shift is not None
 
 
 def parse_gpx(gpx_file_path):

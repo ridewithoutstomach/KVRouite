@@ -227,6 +227,7 @@ class VideoControlWidget(QWidget):
         self.autocut_button.setVisible(False)  # nur bei Copy- oder Encode-Mode
 
         layout.addStretch()
+        self.activate_controls(False)  # desactivate all buttons initially
         
         
     def _on_autocut_toggle_clicked(self):
@@ -247,6 +248,17 @@ class VideoControlWidget(QWidget):
         if hasattr(self, "autocut_button"):
             self.autocut_button.setIcon(self.icon_autocut_on if is_on else self.icon_autocut_off)
     
+    def activate_controls(self, enabled: bool = True):
+        self.play_pause_button.setEnabled(enabled)
+        self.stop_button.setEnabled(enabled)
+        self.step_button.setEnabled(enabled)
+        self.multiplier_button.setEnabled(enabled)
+        self.backward_button.setEnabled(enabled)
+        self.forward_button.setEnabled(enabled)
+        self.time_btn.setEnabled(enabled)
+        
+        self.sync_button.setEnabled(enabled)
+        self.set_sync_button.setEnabled(enabled)
     
     def set_editing_mode(self, enabled: bool):
         """
