@@ -504,6 +504,3 @@ class VideoEditorWidget(QWidget):
             offset_prev = self.boundaries[clipIndex - 1]
     
         return offset_prev + local_s   
-
-    def is_video_loaded(self) -> bool:
-        return self._player.playlist_count > 0

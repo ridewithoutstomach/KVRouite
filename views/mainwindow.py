@@ -82,7 +82,7 @@ from widgets.gpx_control_widget import GPXControlWidget
 from managers.step_manager import StepManager
 from managers.end_manager import EndManager
 from managers.cut_manager import VideoCutManager
-from core.gpx_parser import parse_gpx  # Hier hinzufügen!
+from core.gpx_parser import is_gpx_video_shift_set, parse_gpx  # Hier hinzufügen!
 
 from managers.overlay_manager import OverlayManager
 
@@ -1264,25 +1264,6 @@ class MainWindow(QMainWindow):
         js_code = f"updateAllPointsByColor('{color_lower}', {new_size});"
         self.map_widget.view.page().runJavaScript(js_code)
 
-    
-    
-    
-   
-    
-    
-     
-
-
-    def _highlight_index_everywhere(self, idx: int):
-        # Map
-        self.map_widget.show_blue(idx, do_center=True)
-        # Chart
-        self.chart.highlight_gpx_index(idx)
-        # GpxList
-        self.gpx_widget.gpx_list.select_row_in_pause(idx)
-        # MiniChart
-        if self.mini_chart_widget:
-            self.mini_chart_widget.set_current_index(idx)    
         
         
     def _on_zero_speed_action(self):
@@ -1653,7 +1634,7 @@ class MainWindow(QMainWindow):
         row_selected = self.gpx_widget.gpx_list.table.currentRow()
 
         insert_pos = -1
-        if self._autoSyncNewPointsWithVideoTime and self.video_editor.is_video_loaded(): #if video loaded, insert a new point at current video time without shift
+        if self._autoSyncNewPointsWithVideoTime and self.playlist_counter > 0: #if video loaded, insert a new point at current video time without shift
             self.append_gpx_history(gpx_data) #for undo
             video_time = self.video_editor.get_current_position_s()
             final_s = self.get_final_time_for_global(video_time)
@@ -1964,6 +1945,7 @@ class MainWindow(QMainWindow):
         self._autoSyncVideoEnabled = checked
         self.gpx_control.set_markE_visibility(not checked)
         self.video_control._update_autocut_icon()
+        self.video_control.activate_controls(checked)
         
         if checked:
             self.video_editor.acut_status_label.setText("V&G:On")
@@ -2127,7 +2109,7 @@ class MainWindow(QMainWindow):
 
         # 1) Bisherigen gelben Punkt in Map revertieren, falls vorhanden
        
-        if self.video_editor.is_playing:
+        if self.video_editor.is_playing and is_gpx_video_shift_set():
             self.map_widget.show_yellow(new_index)
         else:
             self.map_widget.show_blue(new_index)
@@ -2422,7 +2404,7 @@ class MainWindow(QMainWindow):
             #self.map_widget.show_blue(row_idx)
             self.map_widget.show_blue(row_idx, do_center=True)
             self.chart.highlight_gpx_index(row_idx)
-            if self._autoSyncNewPointsWithVideoTime and self.video_editor.is_video_loaded():
+            if self._autoSyncNewPointsWithVideoTime and self.playlist_counter > 0:
                 self.on_map_sync_any()
 
     def _on_map_pause_clicked(self, index: int):
@@ -2434,7 +2416,6 @@ class MainWindow(QMainWindow):
         if not self.video_editor.is_playing:
             self.gpx_widget.gpx_list.select_row_in_pause(index)
             self.chart.highlight_gpx_index(index)
-    #neu2
 
 
     def _show_copyright_dialog(self):
@@ -2702,8 +2683,70 @@ class MainWindow(QMainWindow):
 
         if self.playlist_counter > 1:
             QMessageBox.information(self, "Loaded", f"{len(files)} video(s) added to the playlist.")
-    
-   
+        
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Edit video")
+
+        vbox = QVBoxLayout(dlg)
+        lbl = QLabel("Select video edition mode")
+        vbox.addWidget(lbl)
+
+        # Button Box
+        btns = QDialogButtonBox()
+
+        # Add "Copy" button
+        btn_copy = QPushButton("Copy")
+        btns.addButton(btn_copy, QDialogButtonBox.YesRole)
+        btn_copy.clicked.connect(lambda: dlg.done(1))
+
+        # Add "Encode" button
+        btn_encode = QPushButton("Encode")
+        btns.addButton(btn_encode, QDialogButtonBox.ActionRole)
+        btn_encode.clicked.connect(lambda: dlg.done(2) )
+
+        # Add "No Edit" button (acts like Cancel)
+        btn_cancel = QPushButton("No Edit")
+        btns.addButton(btn_cancel, QDialogButtonBox.RejectRole)
+        btn_cancel.clicked.connect(lambda: dlg.reject())
+
+        vbox.addWidget(btns)
+
+        result = dlg.exec()
+        if result == 1:
+            self._set_edit_mode("copy")
+        elif result == 2:
+            self._set_edit_mode("encode")
+
+        self.proposeVideoGpxSync()
+
+    def proposeVideoGpxSync(self):
+        if self._gpx_data and self.playlist_counter > 0:
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Video & GPX Sync")
+            
+            yes_btn = msg_box.addButton("Yes", QMessageBox.AcceptRole)
+            msg_box.setText("Do your GPX and video start at the same time?\n " \
+            "If so, let's activate video / GPX sync mode.")
+            no_btn = msg_box.addButton("No", QMessageBox.RejectRole)
+
+            msg_box.setWindowModality(Qt.WindowModal)
+            msg_box.show()
+            QApplication.processEvents()
+
+            msg_box.exec()
+            clicked = msg_box.clickedButton()
+            if clicked == yes_btn:
+                set_gpx_video_shift(0)
+                self.video_control.set_editing_mode(True)
+                self._on_auto_sync_video_toggled(True)
+                self.action_auto_sync_video.setChecked(True)
+                self.video_control._update_autocut_icon()
+                self._on_sync_point_video_time_toggled(True)
+            else:
+                QMessageBox.information(self, "Video & GPX Sync", 
+                                        "In this case it is advised to define the sync point.\n " \
+                                        "Select a GPX point, find it in video and click on the red button")
+
     def _set_gpx_data(self, gpx_data):
         """Integriere die Daten in UI + merke sie in self._gpx_data."""
         self._gpx_data = gpx_data
@@ -2815,6 +2858,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, "Load GPX", "GPX appended successfully.")
     
         self.map_widget.view.page().runJavaScript("hideLoading();")
+        self.proposeVideoGpxSync()
     
     def update_timeline_marker(self):
         
@@ -2857,21 +2901,22 @@ class MainWindow(QMainWindow):
                 # falls _time_mode == "global", konvertieren wir global_s zu final_s
                 final_s = self.get_final_time_for_global(global_s)
         
-            # b) GPX-Widget highlighten
-            self.gpx_widget.highlight_video_time(final_s, is_playing=True)
+            if is_gpx_video_shift_set():
+                # b) GPX-Widget highlighten
+                self.gpx_widget.highlight_video_time(final_s, is_playing=True)
 
-            # c) Index im GPX finden
-            i = self.gpx_widget.get_closest_index_for_time(final_s)
+                # c) Index im GPX finden
+                i = self.gpx_widget.get_closest_index_for_time(final_s)
         
-            # d) Chart-Index highlighten
-            self.chart.highlight_gpx_index(i)
+                # d) Chart-Index highlighten
+                self.chart.highlight_gpx_index(i)
         
-            # e) Mini-Chart ebenfalls
-            if self.mini_chart_widget:
-                self.mini_chart_widget.set_current_index(i)
+                # e) Mini-Chart ebenfalls
+                if self.mini_chart_widget:
+                    self.mini_chart_widget.set_current_index(i)
         
-            # f) Map => gelben Marker
-            self.map_widget.show_yellow(i)
+                # f) Map => gelben Marker
+                self.map_widget.show_yellow(i)
         else:
             # Video pausiert => kein automatisches "Mitlaufen" in Map/GPX
             pass
@@ -2893,6 +2938,8 @@ class MainWindow(QMainWindow):
             self.map_widget.show_blue(index, do_center=True)
             #self.map_widget.show_blue(index)
             self.chart.highlight_gpx_index(index)
+            if self._autoSyncNewPointsWithVideoTime and self.playlist_counter > 0:
+                self.on_map_sync_any()
         else:
             # Wenn Video gerade läuft => evtl. jump dorthin
             # ... oder du pausierst / oder was du willst
@@ -3638,6 +3685,7 @@ class MainWindow(QMainWindow):
             set_gpx_video_shift(new_shift)
             #recalc_gpx_data(self._gpx_data) #to refresh list
             self.gpx_widget.gpx_list.set_gpx_data(self._gpx_data)
+            self.video_control.activate_controls()
         
     def on_sync_clicked(self):
         """

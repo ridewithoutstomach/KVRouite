@@ -30,7 +30,7 @@ from PySide6.QtGui import QRegularExpressionValidator, QCursor, QIcon
 from PySide6.QtGui import QIcon
 from PySide6.QtCore import QSize
 
-
+from core.gpx_parser import is_gpx_video_shift_set
 
 class VideoControlWidget(QWidget):
     play_pause_clicked       = Signal()
@@ -188,8 +188,10 @@ class VideoControlWidget(QWidget):
 
         self.set_sync_button = QPushButton()
         self.set_sync_button.setIcon(QIcon("icon/video_gpx_sync.png")) 
+        self.set_sync_button.setIconSize(QSize(25, 25))
         self.set_sync_button.setToolTip("Set current video frame synchronized with selected GPX Point")
         self.set_sync_button.clicked.connect(self.setSyncClicked.emit)
+        self.update_set_sync_highlight()
         layout.addWidget(self.set_sync_button)
 
         self.sync_button = QPushButton("GSync")
@@ -257,8 +259,20 @@ class VideoControlWidget(QWidget):
         self.forward_button.setEnabled(enabled)
         self.time_btn.setEnabled(enabled)
         
-        self.sync_button.setEnabled(enabled)
+        self.sync_button.setEnabled(enabled and is_gpx_video_shift_set())
         self.set_sync_button.setEnabled(enabled)
+        self.update_set_sync_highlight()
+
+    def update_set_sync_highlight(self):
+        color= "none" if  is_gpx_video_shift_set() else "#ff0000"  # Red or none
+        self.set_sync_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {color};     /* Red */
+            }}
+            QPushButton:hover {{
+                background-color: #005fa3;
+            }}
+        """)
     
     def set_editing_mode(self, enabled: bool):
         """
@@ -269,9 +283,9 @@ class VideoControlWidget(QWidget):
         self.clear_button.setVisible(enabled)
         self.cut_button.setVisible(enabled)
         
-        self.go_to_end_button.setVisible(enabled)
-        self.set_begin_button.setVisible(enabled)
-        self.autocut_button.setVisible(enabled)
+        self.go_to_end_button.setVisible(enabled and is_gpx_video_shift_set())
+        self.set_begin_button.setVisible(enabled and is_gpx_video_shift_set())
+        self.autocut_button.setVisible(enabled and is_gpx_video_shift_set())
         self._update_autocut_icon()
         
     def show_ovl_button(self, show: bool):

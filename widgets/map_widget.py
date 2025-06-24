@@ -28,6 +28,8 @@ from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtCore import QSettings
 
+from core.gpx_parser import is_gpx_video_shift_set
+
 
 from .map_bridge import MapBridge
 
@@ -184,19 +186,21 @@ class MapWidget(QWidget):
         Wird vom MainWindow aufgerufen, wenn Play/Pause umgeschaltet wird.
         """
         self._video_is_playing = playing
-        js_bool = "true" if playing else "false"
-        self.view.page().runJavaScript(f"setVideoPlayState({js_bool})")
 
-        if playing:
-            # alten blauen Marker entfernen
-            if self._blue_idx is not None:
-                
-                
-                self._color_point(self._blue_idx, "#000000")
-                self._blue_idx = None
-        else:
-            # Bei Pause belassen wir ggf. den gelben Marker
-            pass
+        if is_gpx_video_shift_set():
+            js_bool = "true" if playing else "false"
+            self.view.page().runJavaScript(f"setVideoPlayState({js_bool})")
+
+            if playing:
+                # alten blauen Marker entfernen
+                if self._blue_idx is not None:
+                    
+                    
+                    self._color_point(self._blue_idx, "#000000")
+                    self._blue_idx = None
+            else:
+                # Bei Pause belassen wir ggf. den gelben Marker
+                pass
 
     # ----------------------------------------------------------
     # Klick in der Karte => onMapPointClicked

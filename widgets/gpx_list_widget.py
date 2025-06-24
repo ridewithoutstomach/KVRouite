@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QColor
 
-from core.gpx_parser import get_gpx_video_shift, set_gpx_video_shift
+from core.gpx_parser import get_gpx_video_shift, is_gpx_video_shift_set, set_gpx_video_shift
 
 
 class MarkColumnDelegate(QStyledItemDelegate):
@@ -364,7 +364,7 @@ class GPXListWidget(QWidget):
         """
         Wird vom MainWindow aufgerufen, wenn wir auf Play oder Pause wechseln.
         """
-        if playing:
+        if playing and is_gpx_video_shift_set():
             # Beim Umschalten auf Play -> vorhandene manuelle Auswahl entfernen
             self.table.blockSignals(True)
             self.table.clearSelection()
@@ -430,7 +430,7 @@ class GPXListWidget(QWidget):
         - Neue Zeile (0..7) wird gelb
         - Signal rowClickedInPause(new_idx) => damit MainWindow synchron agieren kann
         """
-        if self._video_is_playing:
+        if self._video_is_playing and is_gpx_video_shift_set():
             return
 
         selected = self.table.selectionModel().selectedRows()
@@ -524,7 +524,7 @@ class GPXListWidget(QWidget):
             self._original_value = item.text()
 
     def select_row_in_pause(self, row_idx: int):
-        if self._video_is_playing:
+        if self._video_is_playing and is_gpx_video_shift_set():
             return
         if not (0 <= row_idx < self.table.rowCount()):
             return
