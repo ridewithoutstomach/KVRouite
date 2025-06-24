@@ -1508,7 +1508,6 @@ class MainWindow(QMainWindow):
         ret = QMessageBox.question(
             self,
             "Confirm Cut Begin",
-            f"Have you set the video exactly to the same crossing/place\n"
             f"Cut gpx and video before {current_local_s}s?\n"
             "Press Yes to proceed, No to abort.",
             QMessageBox.Yes | QMessageBox.No,
@@ -1539,7 +1538,7 @@ class MainWindow(QMainWindow):
     
         i0 = -1
         while i0 < len(gpx_data) - 1:
-            if gpx_data[i0+1].get("time", 0.0) >= gpx_cut_time:
+            if gpx_data[i0+1].get("time", 0.0) > gpx_cut_time:
                 break
             i0 += 1
     
