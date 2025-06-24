@@ -435,9 +435,9 @@ class GPXControlWidget(QWidget):
 
             # -- FIXED: Statt gpx_data[j]["ele"] + offset => old_data[j]["ele"] + offset 
             for j in range(e_idx + 1, len(gpx_data)):
-                old_ele_j = old_data[j]["ele"]  # der unveränderte Wert vor der Aktion
-                gpx_data[j]["ele"] = old_ele_j + offset
-    
+                #old_ele_j = old_data[j]["ele"]  # der unveränderte Wert vor der Aktion
+                #gpx_data[j]["ele"] = old_ele_j + offset
+                gpx_data[j]["ele"] += offset
             # Recalc & Refresh
             recalc_gpx_data(gpx_data)
             mw.gpx_widget.set_gpx_data(gpx_data)
@@ -455,7 +455,19 @@ class GPXControlWidget(QWidget):
                 f"Start remains {start_ele:.2f}m, end changed to {gpx_data[e_idx]['ele']:.2f}m.\n\n"
                 f"All subsequent points (>{e_idx}) shifted by +{offset:.2f}m."
             )
+            self.markB_index = None
+            self.markE_index = None
+            
 
+            # Marker-Indexe zurücksetzen
+            mw.gpx_widget.gpx_list._markB_idx = None
+            mw.gpx_widget.gpx_list._markE_idx = None
+
+            # Buttons zurücksetzen
+            self.markB_button.setStyleSheet("")
+            self.markE_button.setStyleSheet("")
+            
+            
         def on_cancel_dialog():
             dlg.reject()
 
