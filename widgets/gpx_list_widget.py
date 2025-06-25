@@ -355,6 +355,12 @@ class GPXListWidget(QWidget):
                 self.table.setItem(row, col, item)
             item.setBackground(color)
     
+    def _set_row_foreground(self, row: int, color):
+        col_count = self.table.columnCount()
+        for col in range(col_count):
+            if col != 8:
+                item = self.table.item(row, col)
+                item.setForeground(color)
         
 
     # ---------------------------------------------------
@@ -714,6 +720,8 @@ class GPXListWidget(QWidget):
             grd_val = pt.get("gradient", 0.0)
             self._set_cell(row_idx, 7, f"{grd_val:.1f}")
             self._set_cell(row_idx, 8, "")
+            if rel_s < 0 : 
+                self._set_row_foreground(row_idx,Qt.red)
 
         self._updating_table = False
 

@@ -2736,15 +2736,18 @@ class MainWindow(QMainWindow):
             clicked = msg_box.clickedButton()
             if clicked == yes_btn:
                 set_gpx_video_shift(0)
-                self.video_control.set_editing_mode(True)
-                self._on_auto_sync_video_toggled(True)
-                self.action_auto_sync_video.setChecked(True)
-                self.video_control._update_autocut_icon()
-                self._on_sync_point_video_time_toggled(True)
+                self.enableVideoGpxSync(True)
             else:
                 QMessageBox.information(self, "Video & GPX Sync", 
                                         "In this case it is advised to define the sync point.\n " \
                                         "Select a GPX point, find it in video and click on the red button")
+                
+    def enableVideoGpxSync(self,enable = True):
+        self.video_control.set_editing_mode(enable)
+        self._on_auto_sync_video_toggled(enable)
+        self.action_auto_sync_video.setChecked(enable)
+        self.video_control._update_autocut_icon()
+        self._on_sync_point_video_time_toggled(enable)
 
     def _set_gpx_data(self, gpx_data):
         """Integriere die Daten in UI + merke sie in self._gpx_data."""
@@ -3685,6 +3688,7 @@ class MainWindow(QMainWindow):
             #recalc_gpx_data(self._gpx_data) #to refresh list
             self.gpx_widget.gpx_list.set_gpx_data(self._gpx_data)
             self.video_control.activate_controls()
+            self.enableVideoGpxSync()
         
     def on_sync_clicked(self):
         """

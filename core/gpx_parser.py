@@ -137,7 +137,7 @@ def parse_gpx(gpx_file_path):
     return results
 
 
-def recalc_gpx_data(gpx_data: list[dict], shift_time: bool = True):
+def recalc_gpx_data(gpx_data: list[dict]):
     
     """
     Aktualisiert delta_m, speed_kmh, gradient und rel_s,
@@ -147,11 +147,6 @@ def recalc_gpx_data(gpx_data: list[dict], shift_time: bool = True):
     
     if not gpx_data:
         return
-
-
-    # B) rel_s
-    if(shift_time):
-        first_time=gpx_data[0].get("time")
 
     # C) Hilfsfunktion Haversine
     def haversine_m(lat1, lon1, lat2, lon2):
