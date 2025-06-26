@@ -4228,7 +4228,7 @@ class MainWindow(QMainWindow):
         self.chart.set_gpx_data([])
         if self.mini_chart_widget:
             self.mini_chart_widget.set_gpx_data([])
-        set_gpx_video_shift(0)
+        set_gpx_video_shift(None) # reset GPX-Video shift
         
         self.map_widget.loadRoute({"type": "FeatureCollection", "features": []}, do_fit=True)
     
@@ -4815,7 +4815,7 @@ class MainWindow(QMainWindow):
         first_gpx_video_time=  gpx_data[0].get("time", 0.0) + timedelta(seconds = get_gpx_video_shift())
         for pt in gpx_data:
             rel_s = (pt.get("time", 0.0) - first_gpx_video_time).total_seconds()
-            if rel_s <= final_duration_s:
+            if rel_s >=0 and rel_s <= final_duration_s:
                 truncated.append(pt)
             else:
                 break  # Annahme: Zeit ist aufsteigend
