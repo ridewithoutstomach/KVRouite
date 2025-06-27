@@ -1386,6 +1386,9 @@ class MainWindow(QMainWindow):
         old_mode = self._edit_mode
         if new_mode == old_mode:
             return  # Nichts geändert
+        self. off_action.setChecked(new_mode== "off")
+        self.copy_action.setChecked(new_mode== "copy")
+        self.encode_action.setChecked(new_mode== "encode")
 
         self._edit_mode = new_mode
         if new_mode == "off" and self._autoSyncVideoEnabled:
@@ -1973,7 +1976,9 @@ class MainWindow(QMainWindow):
         self._update_set_gpx2video_enabled()    
         
     def _on_sync_point_video_time_toggled(self, checked: bool):
+        print(f"[DEBUG] _on_sync_point_video_time_toggled {checked}")
         self._autoSyncNewPointsWithVideoTime = checked
+        self.action_new_pts_video_time.setChecked(checked)
         self.map_widget.view.page().runJavaScript(f"enableVSyncMode({str(checked).lower()});")
         
    # OpenGL     
@@ -2761,10 +2766,13 @@ class MainWindow(QMainWindow):
                                         "Select a GPX point, find it in video and click on the red button")
                 
     def enableVideoGpxSync(self,enable = True):
-        self.video_control.set_editing_mode(enable)
-        self._on_auto_sync_video_toggled(enable)
-        self.action_auto_sync_video.setChecked(enable)
-        self.video_control._update_autocut_icon()
+        #self.video_control.set_editing_mode(enable)
+        self._on_auto_sync_video_toggled(enable and self._edit_mode != "off")
+        if enable and self._edit_mode != "off":
+            self.video_control._on_autocut_toggle_clicked()
+        else:
+            self.video_control.activate_controls()
+
         self._on_sync_point_video_time_toggled(enable)
 
     def _set_gpx_data(self, gpx_data):
