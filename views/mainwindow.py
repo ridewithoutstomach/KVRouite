@@ -1944,7 +1944,6 @@ class MainWindow(QMainWindow):
         self._autoSyncVideoEnabled = checked
         self.gpx_control.set_markE_visibility(not checked)
         self.video_control._update_autocut_icon()
-        self.video_control.activate_controls(checked)
         
         if checked:
             self.video_editor.acut_status_label.setText("V&G:On")
@@ -4839,8 +4838,6 @@ class MainWindow(QMainWindow):
             rel_s = (pt.get("time", 0.0) - first_gpx_video_time).total_seconds()
             if rel_s >=0 and rel_s <= final_duration_s:
                 truncated.append(pt)
-            else:
-                break  # Annahme: Zeit ist aufsteigend
 
         if len(truncated) < 2:
             QMessageBox.warning(self, "Truncation", 
