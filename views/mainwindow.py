@@ -2190,11 +2190,18 @@ class MainWindow(QMainWindow):
         wobei jeder Point => properties.index = i hat.
         """
         features = []
+        positive_time = data[0].get("time", 0.0)
+        if get_gpx_video_shift() < 0: #extra points at begin
+            positive_time = positive_time + timedelta(seconds = abs(get_gpx_video_shift()))
 
         # Linestring-Koords
         coords_line = []
+        outside_line = []
         for i, pt in enumerate(data):
-            coords_line.append([pt["lon"], pt["lat"]])
+            if pt.get("time", 0.0) >= positive_time:
+                coords_line.append([pt["lon"], pt["lat"]])
+            else:
+                outside_line.append([pt["lon"], pt["lat"]])
 
         line_feat = {
             "type": "Feature",
@@ -2202,9 +2209,21 @@ class MainWindow(QMainWindow):
                 "type": "LineString",
                 "coordinates": coords_line
             },
-            "properties": { "color": "#000000" }
+            "properties": { "color":"#000000"  }
         }
         features.append(line_feat)
+
+        if outside_line:
+            outside_line.append(coords_line[0])
+            outside_line_feat = {
+                "type": "Feature",
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": outside_line
+                },
+                "properties": { "color":"grey" }
+            }
+            features.append(outside_line_feat)
 
         # Einzelne Punkt-Features
         for i, pt in enumerate(data):
@@ -2216,7 +2235,7 @@ class MainWindow(QMainWindow):
                 },
                 "properties": {
                     "index": i,
-                    "color": "#000000"
+                    "color": "#000000" if pt.get("time", 0.0) >= positive_time else "grey", 
                 }
             }
             features.append(point_feat)
@@ -3689,6 +3708,9 @@ class MainWindow(QMainWindow):
             self.gpx_widget.gpx_list.set_gpx_data(self._gpx_data)
             self.video_control.activate_controls()
             self.enableVideoGpxSync()
+            if(get_gpx_video_shift() < 0): # color negative points in grey
+                route_geojson = self._build_route_geojson_from_gpx(self._gpx_data)
+                self.map_widget.loadRoute(route_geojson, do_fit=False)
         
     def on_sync_clicked(self):
         """

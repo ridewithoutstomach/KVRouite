@@ -616,7 +616,7 @@ class GPXListWidget(QWidget):
 
         # 4) Neu berechnen
         from core.gpx_parser import recalc_gpx_data
-        recalc_gpx_data(self._gpx_data, shift) 
+        recalc_gpx_data(self._gpx_data) 
     
         # 5) Tabelle updaten
         self.set_gpx_data(self._gpx_data)
@@ -692,6 +692,9 @@ class GPXListWidget(QWidget):
                 rel_s = dt.timestamp() - base_ts + get_gpx_video_shift()
             else:
                 rel_s = 0.0
+            
+            if(abs(rel_s) < 0.001):
+                rel_s = 0.0
 
             self._gpx_times[row_idx] = rel_s
 
@@ -721,7 +724,7 @@ class GPXListWidget(QWidget):
             self._set_cell(row_idx, 7, f"{grd_val:.1f}")
             self._set_cell(row_idx, 8, "")
             if rel_s < 0 : 
-                self._set_row_foreground(row_idx,Qt.red)
+                self._set_row_foreground(row_idx,Qt.gray)
 
         self._updating_table = False
 
