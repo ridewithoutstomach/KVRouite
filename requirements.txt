@@ -11,5 +11,5 @@ python-mpv==1.0.7
 pywin32-ctypes==0.2.3
 shiboken6==6.8.2.1
 six==1.17.0
-pillow==11.2.1
+pillow>=11.3.0
 setuptools>=78.1.1
