@@ -2068,10 +2068,13 @@ class MainWindow(QMainWindow):
         )
     
         paused_count = 0
-        for i in range(1, len(data)):
-            dt = (data[i]["time"] - data[i-1]["time"]).total_seconds()
-            if dt > 1.0:
-                paused_count += 1
+        if data[0]["time"]:
+            for i in range(1, len(data)):
+                dt = (data[i]["time"] - data[i-1]["time"]).total_seconds()
+                if dt > 1.0:
+                    paused_count += 1
+        else:
+            paused_count = len(data)
     
         # 6) An Dein gpx_control_widget übergeben
         self.gpx_control.update_info_line(
@@ -2213,7 +2216,7 @@ class MainWindow(QMainWindow):
         wobei jeder Point => properties.index = i hat.
         """
         features = []
-        positive_time = data[0].get("time", 0.0)
+        positive_time = data[0].get("time") or 0.0
         if get_gpx_video_shift() < 0: #extra points at begin
             positive_time = positive_time + timedelta(seconds = abs(get_gpx_video_shift()))
 
@@ -2221,7 +2224,7 @@ class MainWindow(QMainWindow):
         coords_line = []
         outside_line = []
         for i, pt in enumerate(data):
-            if pt.get("time", 0.0) >= positive_time:
+            if pt.get("time") or 0.0 >= positive_time:
                 coords_line.append([pt["lon"], pt["lat"]])
             else:
                 outside_line.append([pt["lon"], pt["lat"]])
@@ -2258,7 +2261,7 @@ class MainWindow(QMainWindow):
                 },
                 "properties": {
                     "index": i,
-                    "color": "#000000" if pt.get("time", 0.0) >= positive_time else "grey", 
+                    "color": "#000000" if (pt.get("time") or 0.0) >= positive_time else "grey", 
                 }
             }
             features.append(point_feat)
