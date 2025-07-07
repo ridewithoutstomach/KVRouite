@@ -1647,7 +1647,9 @@ class MainWindow(QMainWindow):
                 t2 = gpx_data[insert_pos]["time"]
                 dt = (t2 - t1).total_seconds()
                 if dt > 2 :
-                    prof = self.gpx_control._ask_profile_mode()
+                    prof = self.map_widget._curr_mapbox_profile
+                    if not prof:
+                        prof = self.gpx_control._ask_profile_mode()
                     if prof:
                         self.gpx_control._close_gaps_mapbox(insert_pos-1, insert_pos, dt, prof)
 

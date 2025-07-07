@@ -670,6 +670,9 @@
       if(profB){
         profB.textContent= profileNames[profileIndex];
       }
+      if(channelObj){
+        channelObj.mapboxProfileChanged(mapboxProfile);
+      }
       dbg("Profile switched => " + mapboxProfile);
     }
 

@@ -52,6 +52,7 @@ class MapWidget(QWidget):
         self._num_points = 0
         self._markB_idx  = None
         self._markE_idx  = None
+        self._curr_mapbox_profile = "cycling"
 
         # Layout + QWebEngineView
         layout = QVBoxLayout(self)
@@ -86,6 +87,7 @@ class MapWidget(QWidget):
         self._bridge.pointMovedSignal.connect(self.on_point_moved)
         self._bridge.syncClickedNoArg.connect(self._on_sync_noarg_from_js)
         self._bridge.newPointInsertedSignal.connect(self._on_new_point_inserted)
+        self._bridge.mapboxProfileChangedSignal.connect(self._on_mapbox_profile_changed)
 
     @Slot(bool)
     def _on_map_page_load_finished(self, ok):
@@ -364,4 +366,6 @@ class MapWidget(QWidget):
         js = f"selectPointByIndex({idx});"
         self.view.page().runJavaScript(js)
         
-    
+    def _on_mapbox_profile_changed(self, profile: str):
+        print(f"[DEBUG] MapWidget: mapboxProfileChanged => profile={profile}")
+        self._curr_mapbox_profile = profile
