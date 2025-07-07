@@ -4277,6 +4277,7 @@ class MainWindow(QMainWindow):
         if self.mini_chart_widget:
             self.mini_chart_widget.set_gpx_data([])
         set_gpx_video_shift(None) # reset GPX-Video shift
+        self.enableVideoGpxSync(False)  
         
         self.map_widget.loadRoute({"type": "FeatureCollection", "features": []}, do_fit=True)
     
@@ -4304,7 +4305,6 @@ class MainWindow(QMainWindow):
         self.playlist.clear()
         self.video_durations.clear()
         self.playlist_menu.clear()
-
      
 
     
@@ -4564,10 +4564,12 @@ class MainWindow(QMainWindow):
     
     def register_gpx_undo_snapshot(self):
         gpx_snapshot = copy.deepcopy(self.gpx_widget.gpx_list._gpx_data)
-        curr_gpx_video_shift = get_gpx_video_shift()
+        curr_gpx_video_shift = get_gpx_video_shift() if is_gpx_video_shift_set() else None
 
         def undo():
             set_gpx_video_shift(curr_gpx_video_shift)
+            if(not curr_gpx_video_shift):
+                self.enableVideoGpxSync(False)
             self.gpx_widget.set_gpx_data(gpx_snapshot)
             self._gpx_data = gpx_snapshot
             self._update_gpx_overview()
