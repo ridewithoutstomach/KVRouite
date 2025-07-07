@@ -1724,7 +1724,7 @@ class MainWindow(QMainWindow):
                                 gpx_data[i]["time"] = oldt + timedelta(seconds=1)
                     
             elif idx == -1:
-                # =============== Punkt NACH dem letzten einfügen ===============
+                # =============== Insert point AFTER the last one ===============
                 if not gpx_data:
                     # ganz leer => erster Punkt
                     new_pt = {
@@ -1737,7 +1737,9 @@ class MainWindow(QMainWindow):
                         "gradient": 0.0
                     }
                     gpx_data.append(new_pt)
-                    insert_pos=len(gpx_data)-1
+                    insert_pos=0
+                    if self.playlist_counter > 0 :
+                        self.askSwitchCreateMode()
                 else:
                     last_pt = gpx_data[-1]
                     t_last = last_pt.get("time")
@@ -1774,7 +1776,9 @@ class MainWindow(QMainWindow):
                         "gradient": 0.0
                     }
                     gpx_data.append(new_pt)
-                    insert_pos=len(gpx_data)-1
+                    insert_pos=0
+                    if self.playlist_counter > 0 :
+                        self.askSwitchCreateMode()
                 else:
                     base_pt = gpx_data[idx]
                     t_base = base_pt.get("time")
@@ -1802,6 +1806,8 @@ class MainWindow(QMainWindow):
                             if t_old:
                                 gpx_data[j]["time"] = t_old + timedelta(seconds=1)      
                                 
+        
+        self.gpx_widget.set_gpx_data(gpx_data) #need to update gpx_widget data before update elevation
         self.gpx_control.update_elevation_from_mapbox([(insert_pos, lat, lon)])
 
         #  => recalc
@@ -1822,6 +1828,17 @@ class MainWindow(QMainWindow):
 
         print(f"[INFO] Inserted new GPX point (DirectionsEnabled={self._directions_enabled}); total now {len(gpx_data)} pts.")
         
+    def askSwitchCreateMode(self):
+        answer = QMessageBox.question(
+            self,
+            "Switch to Create Mode?",
+            "New point creation is easier in 'creation' mode. Their time will be equal to current video position.\n"
+            "Switch to it now?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+        if answer == QMessageBox.Yes:
+            self._set_map_video_view()
         
     def _restore_gpx_data(self, gpx_snapshot):
         self._gpx_data = copy.deepcopy(gpx_snapshot)
