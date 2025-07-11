@@ -595,8 +595,8 @@ class GPXListWidget(QWidget):
             if "stable_id" in self._gpx_data[i]:
                 to_remove_ids.append(self._gpx_data[i]["stable_id"])
     
-        if(not shift and b==0): #if delete first point -> gpx-video shift to update
-            delta = (self._gpx_data[e].get("time") - self._gpx_data[0].get("time")).total_seconds()
+        if(not shift and b==0 and e < len(self._gpx_data)): #if delete first point -> gpx-video shift to update
+            delta = (self._gpx_data[e+1].get("time") - self._gpx_data[0].get("time")).total_seconds()
             set_gpx_video_shift(get_gpx_video_shift() + delta)
             
         # 2) Entfernen
