@@ -102,6 +102,8 @@ from managers.encoder_manager import EncoderDialog
 from datetime import datetime, timedelta
 
 
+FIT_BUILD = False  # Set to True if you want to enable Fit Immersion export functionality
+
 class MainWindow(QMainWindow):
     def __init__(self, user_wants_editing=False):
         
@@ -636,10 +638,11 @@ class MainWindow(QMainWindow):
         action_avgspeed.triggered.connect(self.gpx_control.on_show_average_speed_info)
         action_avgspeed.setStatusTip("Show average speed for current GPX selection.")
         
-        
-        
-        
-        
+        if FIT_BUILD:
+            export_fit = QAction("Export to Fit Immersion", self)
+            gpx_info_menu.addAction(export_fit)
+            export_fit.triggered.connect(self.gpx_control.export_fit_immersion)
+
         
         self.bottom_right_layout.addWidget(self.gpx_widget, stretch=5)
         self.right_v_layout.addWidget(self.bottom_right_widget, stretch=3)
@@ -777,14 +780,6 @@ class MainWindow(QMainWindow):
         self.gpx_control.markEClicked.connect(self._on_markE_from_gpx)
         self.video_control.markClearClicked.connect(self.on_deselect_clicked)
         
-        
-       
-            
-        
-       # self.video_control.safeClicked.connect(self.on_render_clicked)
-
-       
-
         # Geschwindigkeiten / Rate
         self.vlc_speeds = [0.5, 0.67, 1.0, 1.5, 2.0, 4.0, 8.0, 16.0, 32.0]
         self.speed_index = 2
@@ -3740,6 +3735,8 @@ class MainWindow(QMainWindow):
             if(get_gpx_video_shift() < 0): # color negative points in grey
                 route_geojson = self._build_route_geojson_from_gpx(self._gpx_data)
                 self.map_widget.loadRoute(route_geojson, do_fit=False)
+            if self._edit_mode != "off":
+                self.video_control.set_editing_mode(True) #to refresh the button state
         
     def on_sync_clicked(self):
         """

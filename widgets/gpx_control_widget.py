@@ -41,8 +41,6 @@ from PySide6.QtGui import QIcon
 from datetime import timedelta
 from core.gpx_parser import recalc_gpx_data, get_gpx_video_shift, set_gpx_video_shift
 
-        
-
 
 class GPXControlWidget(QWidget):
     """
@@ -3165,3 +3163,76 @@ class GPXControlWidget(QWidget):
 
         QMessageBox.information(self, "Done", "GPX track has been resampled to 1s intervals.")
     
+
+    def export_fit_immersion(self, threshold: float = 1.0):
+        mw = self._mainwindow
+        if not mw:
+            return
+
+        gpx_data = mw.gpx_widget.gpx_list._gpx_data
+        if not gpx_data or len(gpx_data) < 2:
+            return "<difficulty></difficulty>"
+
+        start_time = gpx_data[0].get("time")
+        if not start_time:
+            return "<difficulty></difficulty>"
+
+        def format_time(seconds: float) -> str:
+            total_seconds = int(seconds)
+            minutes = total_seconds // 60
+            secs = total_seconds % 60
+            return f"{minutes}:{secs:02d}"
+
+        def calc_avg_slope(start_idx, end_idx):
+            segment = gpx_data[start_idx:end_idx+1]
+            total_dist = sum(p.get("delta_m", 0.0) for p in segment[1:])
+            elev_diff = segment[-1]["ele"] - segment[0]["ele"]
+            if total_dist > 0:
+                return (elev_diff / total_dist) * 100
+            else:
+                return 0.0
+
+        def convert_slope(slope):
+            return int(round(15 + (slope/15) * 85))
+
+        output = []
+        segment_start = 0
+        last_slope = calc_avg_slope(segment_start, segment_start+1)
+        last_value = convert_slope(last_slope)
+        output.append(f"0:00/{last_value}")
+
+        i = segment_start + 2
+        while i < len(gpx_data):
+            best_index = None
+            best_delta = 0
+            current_slope = last_slope
+
+            for j in range(i, min(i + 60, len(gpx_data))):
+                avg_slope = calc_avg_slope(segment_start, j)
+                delta = convert_slope(avg_slope) - last_value
+
+                if abs(delta) >= threshold and abs(delta) > abs(best_delta):
+                    best_index = j
+                    best_delta = delta
+                    current_slope = avg_slope
+
+            if best_index is not None:
+                t = gpx_data[best_index]["time"]
+                rel_sec = (t - start_time).total_seconds()
+                new_val = convert_slope(current_slope)
+                output.append(f"{format_time(rel_sec)}/{new_val}")
+                segment_start = best_index
+                last_slope = current_slope
+                last_value = new_val
+                i = best_index + 1
+            else:
+                i += 1
+
+        t = gpx_data[-1]["time"]
+        rel_sec = (t - start_time).total_seconds()
+        output.append(f"{format_time(rel_sec)}/{convert_slope(last_slope)}")
+
+        result = f"<difficulty>{';'.join(output)}</difficulty>"
+        print(result)
+        return result
+
