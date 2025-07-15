@@ -487,14 +487,15 @@ class GPXListWidget(QWidget):
         match column:
             case 0: 
                  # Parse relative time and update GPX datetime
-                base_dt = self._gpx_data[0].get("time")
+                base_dt = self._gpx_data[0].get("time") - timedelta(seconds=get_gpx_video_shift())
                 if base_dt is None:
                     return  # Can't apply relative update
 
                 try:
                     rel_s = self._parse_hhmmss_milli(value)
-                    new_dt = base_dt + timedelta(seconds=rel_s)
-                    next_dt = self._get_time_of_row(row + 1)
+                    new_dt = base_dt + timedelta(seconds=rel_s) 
+                    next_dt = self._get_time_of_row(row + 1)  
+                    print(f"[DEBUG] Setting new time for row {row}: {new_dt} (base={base_dt}, rel_s={rel_s})")
 
                     if next_dt and new_dt >= next_dt:
                         from PySide6.QtWidgets import QMessageBox
@@ -505,14 +506,14 @@ class GPXListWidget(QWidget):
                         )
                         self.set_gpx_data(self._gpx_data) # Reset to original value
                         return
-                    prev_dt = self._get_time_of_row(row -1)
+                    prev_dt = self._get_time_of_row(row -1) 
 
                     if prev_dt and new_dt <= prev_dt:
                         from PySide6.QtWidgets import QMessageBox
                         QMessageBox.warning(
                             self.table,  # parent widget
                             "Invalid Range",
-                            "New time must be later than the previous time"
+                            f"New time must be later than the previous time"
                         )
                         self.set_gpx_data(self._gpx_data) # Reset to original value
                         return

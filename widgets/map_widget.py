@@ -28,7 +28,7 @@ from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtCore import QSettings
 
-from core.gpx_parser import is_gpx_video_shift_set
+from core.gpx_parser import get_gpx_video_shift, is_gpx_video_shift_set
 
 
 from .map_bridge import MapBridge
@@ -333,7 +333,8 @@ class MapWidget(QWidget):
             if i == self._markE_idx:
                 return "red"
 
-        return "black"
+        rel_s= (self._mainwindow._gpx_data[i].get("time",0.0) - self._mainwindow._gpx_data[0].get("time",0.0)).total_seconds() + get_gpx_video_shift()
+        return "black" if  rel_s >= 0 else "gray"
         
         
 
