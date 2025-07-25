@@ -4521,7 +4521,11 @@ class MainWindow(QMainWindow):
     def ordered_insert_new_point(self,lat: float, lon: float, video_time: float) -> int:
         print(f"[DEBUG] ordered_insert_new_point => video_time={video_time}")
         gpx_data = self._gpx_data
-        video_ts = gpx_data[0].get("time",0.0) + timedelta(seconds = video_time - get_gpx_video_shift()) 
+        if gpx_data is None or len(gpx_data) == 0:
+            video_ts = datetime.now()
+            set_gpx_video_shift(video_time)  # Set initial shift
+        else:
+            video_ts = gpx_data[0].get("time",0.0) + timedelta(seconds = video_time - get_gpx_video_shift()) 
 
         idx = -1
         for i in range(0, len(gpx_data)):
