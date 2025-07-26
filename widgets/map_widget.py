@@ -196,9 +196,12 @@ class MapWidget(QWidget):
             if playing:
                 # alten blauen Marker entfernen
                 if self._blue_idx is not None:
+                    delta_ts = (
+                        self._mainwindow._gpx_data[self._blue_idx].get("time", 0.0) -
+                        self._mainwindow._gpx_data[0].get("time", 0.0)
+                    ).total_seconds() + get_gpx_video_shift()
                     
-                    
-                    self._color_point(self._blue_idx, "#000000")
+                    self._color_point(self._blue_idx, "#000000" if delta_ts >= 0 else "gray") 
                     self._blue_idx = None
             else:
                 # Bei Pause belassen wir ggf. den gelben Marker
