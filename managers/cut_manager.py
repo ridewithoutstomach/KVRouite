@@ -77,7 +77,9 @@ class VideoCutManager(QObject):
                 f"You cannot set MarkE ({current_global_s:.2f}s) in front of MarkB ({self.markB_time_s:.2f}s)!"
             )
             return
-        
+        video_total = sum(self.video_durations)
+        if video_total - current_global_s < 1 : #impossible to select last frame on mpv, so we clamp manually
+            current_global_s = video_total
         self.markE_time_s = current_global_s
         self.timeline.set_markE_time(current_global_s)
 

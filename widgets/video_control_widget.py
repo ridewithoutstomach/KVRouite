@@ -35,6 +35,7 @@ from core.gpx_parser import is_gpx_video_shift_set
 class VideoControlWidget(QWidget):
     play_pause_clicked       = Signal()
     stop_clicked             = Signal()
+    goto_video_end_clicked   = Signal()
     step_value_changed       = Signal(str)
     multiplier_value_changed = Signal(str)
     backward_clicked         = Signal()
@@ -77,14 +78,20 @@ class VideoControlWidget(QWidget):
         self.stop_button.setIcon(QIcon("icon/go_to_start_icon_padded.png"))
         self.stop_button.setIconSize(QSize(icon_size, icon_size))
         play_size = self.play_pause_button.sizeHint()
-        self.stop_button.setMinimumSize(play_size)
         self.stop_button.setMaximumSize(play_size)    
         
         self.stop_button.setToolTip("Goto Start (Second 0)")
         self.stop_button.clicked.connect(self.stop_clicked.emit)
         layout.addWidget(self.stop_button)
 
+        self.goto_end = QPushButton()
+        self.goto_end.setIcon(QIcon("icon/go_to_end.png"))
+        self.goto_end.setIconSize(QSize(icon_size, icon_size))
+        self.goto_end.setMaximumSize(play_size)    
         
+        self.goto_end.setToolTip("Goto End (last frame)")
+        self.goto_end.clicked.connect(self.goto_video_end_clicked.emit)
+        layout.addWidget(self.goto_end)
         
         self._step_values = ["s", "m", "k", "f"]  # <-- "f" ergänzt
         self._step_index = 0

@@ -740,6 +740,7 @@ class MainWindow(QMainWindow):
 
         self.video_control.play_pause_clicked.connect(self.on_play_pause)
         self.video_control.stop_clicked.connect(self.on_stop)
+        self.video_control.goto_video_end_clicked.connect(self.on_goto_video_end_clicked)
         self.video_control.step_value_changed.connect(self.on_step_mode_changed)
         self.video_control.multiplier_value_changed.connect(self.on_multiplier_changed)
         self.video_control.backward_clicked.connect(self.step_manager.step_backward)
@@ -3186,12 +3187,15 @@ class MainWindow(QMainWindow):
         return 0.0
         
     
-      
-    
     def on_stop(self):
         self.video_editor.stop()
         
+    def on_goto_video_end_clicked(self):
+        total = sum(self.video_durations)
+        self.video_editor._jump_to_global_time(total)
+        
     def on_play_ended(self):
+        self.video_editor.media_player
         self.video_control.update_play_pause_icon(False)
 
         # 1) Player manuell in "Pause"-State
@@ -3211,53 +3215,6 @@ class MainWindow(QMainWindow):
         
         self._video_at_end = True
     
-    def _jump_player_to_time(self, new_s: float):
-        total = sum(self.video_durations)
-        if total <= 0:
-            return
-        new_s = max(0.0, min(new_s, total))
-
-        # boundaries + local_s berechnen
-        boundaries = []
-        offset = 0.0
-        for dur in self.video_durations:
-            offset += dur
-            boundaries.append(offset)
-
-        new_idx = 0
-        offset_prev = 0.0
-        for i, b in enumerate(boundaries):
-            if new_s < b:
-                new_idx = i
-                break
-            offset_prev = b
-    
-        local_s = new_s - offset_prev
-        if local_s < 0:
-            local_s = 0
-    
-        old_idx = self.video_editor._current_index
-    
-        # 1) Falls wir das Video wechseln müssen:
-        if new_idx != old_idx:
-            self.video_editor._player.command('stop')
-            self.video_editor.is_playing = False
-            self.video_editor._current_index = new_idx
-    
-            if new_idx < len(self.playlist):
-                path_ = self.playlist[new_idx]
-                self.video_editor._player.command('loadfile', path_)
-                # => local_s
-                self.video_editor._player.seek(local_s, reference='absolute')
-                self.video_editor._player.pause = True
-                self.video_editor.is_playing = False
-        else:
-            # Gleicher Index => nur seek
-            self.video_editor._player.seek(local_s, reference='absolute')
-            self.video_editor._player.pause = True
-            self.video_editor.is_playing = False
-            
-
 
     def on_step_mode_changed(self, new_value):
         self.step_manager.set_step_mode(new_value)
@@ -3271,7 +3228,6 @@ class MainWindow(QMainWindow):
         self.step_manager.set_step_multiplier(val)
 
     def _on_timeline_marker_moved(self, new_time_s: float):
-        #self._jump_player_to_time(new_time_s)
         self.video_editor._jump_to_global_time(new_time_s)
         
     def _on_timeline_overlay_remove(self, start_s, end_s):

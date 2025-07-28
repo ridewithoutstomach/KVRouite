@@ -381,7 +381,8 @@ class VideoEditorWidget(QWidget):
         if current_idx == clip_idx:
             # 1) GLEICHER CLIP => kein Delay, kein playlist-play-index
             try:
-                self._player.command("seek", f"{local_s}", "absolute", "exact")
+                seekpos = local_s if wanted_s != total else total - 0.001 #to prevent player jump to 0
+                self._player.command("seek", f"{seekpos}", "absolute", "exact")
                 self._player.pause = True
                 self.is_playing = False
             except SystemError as e:
