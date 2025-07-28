@@ -2978,7 +2978,7 @@ class GPXControlWidget(QWidget):
             pt = {
                 "lat": lat_,
                 "lon": lon_,
-                "ele": 0.0,  # falls du ELEVation linear interpolieren willst, machst du es später
+                "ele": 0,  
                 "time": t_new,
                 "delta_m": 0.0,
                 "speed_kmh": 0.0,
@@ -2993,20 +2993,21 @@ class GPXControlWidget(QWidget):
         new_points[-1]["time"] = gpx_data[e_idx]["time"]
 
         # Optional: Elevation linear B->E
-        eleB = gpx_data[b_idx]["ele"]
-        eleE = gpx_data[e_idx]["ele"]
-        total_count = len(new_points)
-        for i in range(1, total_count):
-            frac = i/total_count
-            new_points[i]["ele"] = eleB + frac*(eleE-eleB)
+        # eleB = gpx_data[b_idx]["ele"]
+        # eleE = gpx_data[e_idx]["ele"]
+        # total_count = len(new_points)
+        # for i in range(1, total_count):
+        #     frac = i/total_count
+        #     new_points[i]["ele"] = eleB + frac*(eleE-eleB)
 
         # 6) b_idx+1.. e_idx entfernen
         del gpx_data[b_idx+1 : e_idx+1]
 
+        mapbox_ele_update_list =[]
         # Füge new_points[1..] ein (index=0 ist b_idx selbst)
         for i, p in enumerate(new_points[1:], start=1):
             gpx_data.insert(b_idx + i, p)
-
+            mapbox_ele_update_list.append((b_idx + i,p["lat"], p["lon"]))
         # 7) recalc
        
         recalc_gpx_data(gpx_data)
@@ -3026,6 +3027,8 @@ class GPXControlWidget(QWidget):
 
         mw.gpx_widget.gpx_list.clear_marked_range()
         mw.map_widget.clear_marked_range()
+
+        self.update_elevation_from_mapbox(mapbox_ele_update_list)
 
     def register_gpx_undo_snapshot(self):
         mw = self._mainwindow
