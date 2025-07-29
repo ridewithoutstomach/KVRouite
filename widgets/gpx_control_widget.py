@@ -649,7 +649,7 @@ class GPXControlWidget(QWidget):
         mw = self._mainwindow
         if not mw:
             return (0, 0)
-
+        
         token = mw._mapbox_key.strip()
         if not token:
             print("[INFO] No Mapbox key – skipping elevation update")
@@ -2935,7 +2935,7 @@ class GPXControlWidget(QWidget):
 
         if total_dist < 0.01:
             QMessageBox.information(self, "No Distance", 
-                "Mapbox lieferte quasi Start=End.\nFalle zurück auf lokal.")
+                "Mapbox returned quasi Start=End.\nFall back to local.")
             self._close_gaps_local_interpolation(b_idx, e_idx, dt)
             return
 
@@ -3009,9 +3009,12 @@ class GPXControlWidget(QWidget):
             gpx_data.insert(b_idx + i, p)
             mapbox_ele_update_list.append((b_idx + i,p["lat"], p["lon"]))
         # 7) recalc
-       
+        mw.gpx_widget.set_gpx_data(gpx_data)
+        self.update_elevation_from_mapbox(mapbox_ele_update_list)
+
         recalc_gpx_data(gpx_data)
         mw.gpx_widget.set_gpx_data(gpx_data)
+        
         mw._gpx_data = gpx_data
         mw._update_gpx_overview()
 
@@ -3028,7 +3031,7 @@ class GPXControlWidget(QWidget):
         mw.gpx_widget.gpx_list.clear_marked_range()
         mw.map_widget.clear_marked_range()
 
-        self.update_elevation_from_mapbox(mapbox_ele_update_list)
+        
 
     def register_gpx_undo_snapshot(self):
         mw = self._mainwindow

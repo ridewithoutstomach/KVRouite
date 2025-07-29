@@ -260,6 +260,7 @@ class VideoControlWidget(QWidget):
     def activate_controls(self, enabled: bool = True):
         self.play_pause_button.setEnabled(enabled)
         self.stop_button.setEnabled(enabled)
+        self.goto_end.setEnabled(enabled)
         self.step_button.setEnabled(enabled)
         self.multiplier_button.setEnabled(enabled)
         self.backward_button.setEnabled(enabled)
