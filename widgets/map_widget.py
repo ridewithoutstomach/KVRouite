@@ -28,6 +28,8 @@ from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtCore import QSettings
 
+from core.gpx_parser import get_gpx_video_shift, is_gpx_video_shift_set
+
 
 from .map_bridge import MapBridge
 
@@ -50,6 +52,7 @@ class MapWidget(QWidget):
         self._num_points = 0
         self._markB_idx  = None
         self._markE_idx  = None
+        self._curr_mapbox_profile = "cycling"
 
         # Layout + QWebEngineView
         layout = QVBoxLayout(self)
@@ -84,6 +87,7 @@ class MapWidget(QWidget):
         self._bridge.pointMovedSignal.connect(self.on_point_moved)
         self._bridge.syncClickedNoArg.connect(self._on_sync_noarg_from_js)
         self._bridge.newPointInsertedSignal.connect(self._on_new_point_inserted)
+        self._bridge.mapboxProfileChangedSignal.connect(self._on_mapbox_profile_changed)
 
     @Slot(bool)
     def _on_map_page_load_finished(self, ok):
@@ -184,19 +188,24 @@ class MapWidget(QWidget):
         Wird vom MainWindow aufgerufen, wenn Play/Pause umgeschaltet wird.
         """
         self._video_is_playing = playing
-        js_bool = "true" if playing else "false"
-        self.view.page().runJavaScript(f"setVideoPlayState({js_bool})")
 
-        if playing:
-            # alten blauen Marker entfernen
-            if self._blue_idx is not None:
-                
-                
-                self._color_point(self._blue_idx, "#000000")
-                self._blue_idx = None
-        else:
-            # Bei Pause belassen wir ggf. den gelben Marker
-            pass
+        if is_gpx_video_shift_set():
+            js_bool = "true" if playing else "false"
+            self.view.page().runJavaScript(f"setVideoPlayState({js_bool})")
+
+            if playing:
+                # alten blauen Marker entfernen
+                if self._blue_idx is not None:
+                    delta_ts = (
+                        self._mainwindow._gpx_data[self._blue_idx].get("time", 0.0) -
+                        self._mainwindow._gpx_data[0].get("time", 0.0)
+                    ).total_seconds() + get_gpx_video_shift()
+                    
+                    self._color_point(self._blue_idx, "#000000" if delta_ts >= 0 else "gray") 
+                    self._blue_idx = None
+            else:
+                # Bei Pause belassen wir ggf. den gelben Marker
+                pass
 
     # ----------------------------------------------------------
     # Klick in der Karte => onMapPointClicked
@@ -327,7 +336,8 @@ class MapWidget(QWidget):
             if i == self._markE_idx:
                 return "red"
 
-        return "black"
+        rel_s= (self._mainwindow._gpx_data[i].get("time",0.0) - self._mainwindow._gpx_data[0].get("time",0.0)).total_seconds() + get_gpx_video_shift()
+        return "black" if  rel_s >= 0 else "gray"
         
         
 
@@ -360,4 +370,6 @@ class MapWidget(QWidget):
         js = f"selectPointByIndex({idx});"
         self.view.page().runJavaScript(js)
         
-    
+    def _on_mapbox_profile_changed(self, profile: str):
+        print(f"[DEBUG] MapWidget: mapboxProfileChanged => profile={profile}")
+        self._curr_mapbox_profile = profile

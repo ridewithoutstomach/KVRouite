@@ -27,12 +27,21 @@ from datetime import datetime
 from dateutil.parser import parse as dateutil_parse
 
 
-    
+gpx_video_shift = None #in seconds, can be negative (first gpx are before video) or positive (missing gpx at start)
+def set_gpx_video_shift(t):
+    global gpx_video_shift
+    gpx_video_shift = t
+    print(f"[DEBUG] GPX Video Shift set to {gpx_video_shift} seconds.")
 
+def get_gpx_video_shift():
+    if is_gpx_video_shift_set(): return gpx_video_shift
+    else: return 0
+
+def is_gpx_video_shift_set():
+    return gpx_video_shift is not None
 
 
 def parse_gpx(gpx_file_path):
-    
     """
     Liest eine GPX-Datei ein, extrahiert lat, lon, ele (Höhe) und time.
     Zusätzlich berechnet die Funktion distance, speed, gradient etc.
@@ -71,20 +80,6 @@ def parse_gpx(gpx_file_path):
             "time": dt
         })
 
-    # (A) => Hier berechnen wir rel_s ab dem ersten Punkt
-    if len(parsed_points) > 0:
-        first_dt = parsed_points[0]["time"]
-        if first_dt is not None:
-            for p in parsed_points:
-                if p["time"] is not None:
-                    p["rel_s"] = (p["time"] - first_dt).total_seconds()
-                else:
-                    p["rel_s"] = 0.0
-        else:
-            # Falls der erste Punkt gar kein dt hat, alle rel_s = 0.0
-            for p in parsed_points:
-                p["rel_s"] = 0.0
-
     # Haversine etc.
     def haversine_m(lat1, lon1, lat2, lon2):
         R = 6371000
@@ -110,8 +105,6 @@ def parse_gpx(gpx_file_path):
                 "delta_m": 0.0, 
                 "speed_kmh": 0.0, 
                 "gradient": 0.0,
-                # (B) NEU => rel_s
-                "rel_s": p.get("rel_s", 0.0)
             }
         else:
             p_prev = parsed_points[i-1]
@@ -137,9 +130,7 @@ def parse_gpx(gpx_file_path):
                 "time": p["time"],
                 "delta_m": delta_m,
                 "speed_kmh": speed_kmh,
-                "gradient": gradient,
-                # (B) NEU => rel_s
-                "rel_s": p.get("rel_s", 0.0)
+                "gradient": gradient
             }
 
         results.append(data)
@@ -156,19 +147,6 @@ def recalc_gpx_data(gpx_data: list[dict]):
     
     if not gpx_data:
         return
-    
-    # A) Ersten Zeitstempel
-    first_time = gpx_data[0].get("time", None)
-    if not first_time:
-        first_time = datetime(2000,1,1,0,0,0)
-
-    # B) rel_s
-    for pt in gpx_data:
-        dt = pt.get("time")
-        if dt:
-            pt["rel_s"] = (dt - first_time).total_seconds()
-        else:
-            pt["rel_s"] = 0.0
 
     # C) Hilfsfunktion Haversine
     def haversine_m(lat1, lon1, lat2, lon2):

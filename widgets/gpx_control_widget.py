@@ -39,21 +39,7 @@ from PySide6.QtCore import Qt, Signal, QPoint
 from PySide6.QtGui import QIcon
 
 from datetime import timedelta
-from core.gpx_parser import recalc_gpx_data
-
-
-
-
-
-
-
-
-
-
-
-
-
-        
+from core.gpx_parser import recalc_gpx_data, get_gpx_video_shift, set_gpx_video_shift
 
 
 class GPXControlWidget(QWidget):
@@ -663,7 +649,7 @@ class GPXControlWidget(QWidget):
         mw = self._mainwindow
         if not mw:
             return (0, 0)
-
+        
         token = mw._mapbox_key.strip()
         if not token:
             print("[INFO] No Mapbox key – skipping elevation update")
@@ -827,7 +813,7 @@ class GPXControlWidget(QWidget):
     
     
     ###
-    
+    #TODO: test this
     def _on_set_gpx2video_triggered(self):
         """
         Zeigt eine MessageBox mit den Zeitbereichen (Video + GPX).
@@ -885,12 +871,12 @@ class GPXControlWidget(QWidget):
 
         # Start/End als Sekunden
         if b_idx is not None and 0 <= b_idx < len(gpx_data):
-            gpx_b_sec = gpx_data[b_idx].get("rel_s", -1)
+            gpx_b_sec = gpx_data[b_idx].get("time", -1)
         else:
             gpx_b_sec = -1
     
         if e_idx is not None and 0 <= e_idx < len(gpx_data):
-            gpx_e_sec = gpx_data[e_idx].get("rel_s", -1)
+            gpx_e_sec = gpx_data[e_idx].get("time", -1)
         else:
             gpx_e_sec = -1
 
@@ -899,8 +885,9 @@ class GPXControlWidget(QWidget):
         else:
             gpx_len_sec = (gpx_e_sec - gpx_b_sec)
 
-        gpx_start_str = _format_duration(gpx_b_sec)
-        gpx_end_str   = _format_duration(gpx_e_sec)
+        gpx_rel_start = gpx_data[0].get("time",-1) + timedelta(seconds = get_gpx_video_shift())
+        gpx_start_str = _format_duration(gpx_b_sec-gpx_rel_start)
+        gpx_end_str   = _format_duration(gpx_e_sec-gpx_rel_start)
         gpx_len_str   = _format_duration(gpx_len_sec)
     
         # --------------------------------------------------------------------
@@ -964,7 +951,7 @@ class GPXControlWidget(QWidget):
         for i in range(b_idx+1, e_idx+1):
             old_ti = gpx_data[i]["time"]
             # fraction
-            fraction = (gpx_data[i]["rel_s"] - gpx_b_sec) / old_duration
+            fraction = (gpx_data[i]["time"] - gpx_b_sec) / old_duration
             # z. B. 0.0..1.0
             new_rel = fraction * new_duration
             # => new_abstime = t_b0 + new_rel sek
@@ -2523,8 +2510,7 @@ class GPXControlWidget(QWidget):
                 "time": t_mid,
                 "delta_m": 0.0,
                 "speed_kmh": 0.0,
-                "gradient": 0.0,
-                "rel_s": 0.0
+                "gradient": 0.0
             }
             # => Insert an i+1
             gpx_data.insert(i+1, new_pt)
@@ -2634,9 +2620,9 @@ class GPXControlWidget(QWidget):
         
     def on_cut_before_b_clicked(self):
         """
-        Löscht alle GPX-Punkte von Index 0 bis einschließlich MarkB
-        und verschiebt anschließend die Zeit so, dass die neue erste Zeit = 0 ist.
-        Danach Chart/Map/Minichart/Tabelle usw. updaten.
+        Deletes all GPX points from index 0 up to and including MarkB
+        and then shifts the time so that the new first time = 0.
+        Then update chart/map/minichart/table etc.
         """
         mw = self._mainwindow
         if mw is None:
@@ -2684,20 +2670,7 @@ class GPXControlWidget(QWidget):
     
         # 3) Zeiten so verschieben, dass neuer Startpunkt rel_s=0
         
-        shift_s = gpx_data[0].get("rel_s", 0.0)
-        if shift_s > 0:
-            for pt in gpx_data:
-                pt["rel_s"] = pt["rel_s"] - shift_s
-            # echte Time-Objekte ebenfalls verschieben
-            import datetime
-            first_time = gpx_data[0]["time"]
-            # wir gehen davon aus, dass "time" monoton ist
-            # => shift_dt = old_first_time - new_first_time
-            #    Hier: new_first_time soll 1:1 = first_time bleiben, 
-            #    also eigentlich kein SHIFT in "time" nötig 
-            #    ODER du verschiebst "time" so, dass time[0] = originalZeit.
-            #    Das ist Geschmackssache. 
-            # => wir rufen recalc an, das berechnet delta_m, speed, gradient
+        set_gpx_video_shift(0) #TODO: test this 
         recalc_gpx_data(gpx_data)
     
         # 4) Data neu in GUI setzen
@@ -2847,8 +2820,7 @@ class GPXControlWidget(QWidget):
                 "time": new_t,
                 "delta_m": 0.0,
                 "speed_kmh": 0.0,
-                "gradient": 0.0,
-                "rel_s": 0.0
+                "gradient": 0.0
             }
             new_points.append(pt)
 
@@ -2963,7 +2935,7 @@ class GPXControlWidget(QWidget):
 
         if total_dist < 0.01:
             QMessageBox.information(self, "No Distance", 
-                "Mapbox lieferte quasi Start=End.\nFalle zurück auf lokal.")
+                "Mapbox returned quasi Start=End.\nFall back to local.")
             self._close_gaps_local_interpolation(b_idx, e_idx, dt)
             return
 
@@ -3006,12 +2978,11 @@ class GPXControlWidget(QWidget):
             pt = {
                 "lat": lat_,
                 "lon": lon_,
-                "ele": 0.0,  # falls du ELEVation linear interpolieren willst, machst du es später
+                "ele": 0,  
                 "time": t_new,
                 "delta_m": 0.0,
                 "speed_kmh": 0.0,
-                "gradient": 0.0,
-                "rel_s": 0.0
+                "gradient": 0.0
             }
             new_points.append(pt)
 
@@ -3022,24 +2993,28 @@ class GPXControlWidget(QWidget):
         new_points[-1]["time"] = gpx_data[e_idx]["time"]
 
         # Optional: Elevation linear B->E
-        eleB = gpx_data[b_idx]["ele"]
-        eleE = gpx_data[e_idx]["ele"]
-        total_count = len(new_points)
-        for i in range(1, total_count):
-            frac = i/total_count
-            new_points[i]["ele"] = eleB + frac*(eleE-eleB)
+        # eleB = gpx_data[b_idx]["ele"]
+        # eleE = gpx_data[e_idx]["ele"]
+        # total_count = len(new_points)
+        # for i in range(1, total_count):
+        #     frac = i/total_count
+        #     new_points[i]["ele"] = eleB + frac*(eleE-eleB)
 
         # 6) b_idx+1.. e_idx entfernen
         del gpx_data[b_idx+1 : e_idx+1]
 
+        mapbox_ele_update_list =[]
         # Füge new_points[1..] ein (index=0 ist b_idx selbst)
         for i, p in enumerate(new_points[1:], start=1):
             gpx_data.insert(b_idx + i, p)
-
+            mapbox_ele_update_list.append((b_idx + i,p["lat"], p["lon"]))
         # 7) recalc
-       
+        mw.gpx_widget.set_gpx_data(gpx_data)
+        self.update_elevation_from_mapbox(mapbox_ele_update_list)
+
         recalc_gpx_data(gpx_data)
         mw.gpx_widget.set_gpx_data(gpx_data)
+        
         mw._gpx_data = gpx_data
         mw._update_gpx_overview()
 
@@ -3055,6 +3030,8 @@ class GPXControlWidget(QWidget):
 
         mw.gpx_widget.gpx_list.clear_marked_range()
         mw.map_widget.clear_marked_range()
+
+        
 
     def register_gpx_undo_snapshot(self):
         mw = self._mainwindow
@@ -3192,3 +3169,76 @@ class GPXControlWidget(QWidget):
 
         QMessageBox.information(self, "Done", "GPX track has been resampled to 1s intervals.")
     
+
+    def export_fit_immersion(self, threshold: float = 1.0):
+        mw = self._mainwindow
+        if not mw:
+            return
+
+        gpx_data = mw.gpx_widget.gpx_list._gpx_data
+        if not gpx_data or len(gpx_data) < 2:
+            return "<difficulty></difficulty>"
+
+        start_time = gpx_data[0].get("time")
+        if not start_time:
+            return "<difficulty></difficulty>"
+
+        def format_time(seconds: float) -> str:
+            total_seconds = int(seconds)
+            minutes = total_seconds // 60
+            secs = total_seconds % 60
+            return f"{minutes}:{secs:02d}"
+
+        def calc_avg_slope(start_idx, end_idx):
+            segment = gpx_data[start_idx:end_idx+1]
+            total_dist = sum(p.get("delta_m", 0.0) for p in segment[1:])
+            elev_diff = segment[-1]["ele"] - segment[0]["ele"]
+            if total_dist > 0:
+                return (elev_diff / total_dist) * 100
+            else:
+                return 0.0
+
+        def convert_slope(slope):
+            return int(round(15 + (slope/15) * 85))
+
+        output = []
+        segment_start = 0
+        last_slope = calc_avg_slope(segment_start, segment_start+1)
+        last_value = convert_slope(last_slope)
+        output.append(f"0:00/{last_value}")
+
+        i = segment_start + 2
+        while i < len(gpx_data):
+            best_index = None
+            best_delta = 0
+            current_slope = last_slope
+
+            for j in range(i, min(i + 60, len(gpx_data))):
+                avg_slope = calc_avg_slope(segment_start, j)
+                delta = convert_slope(avg_slope) - last_value
+
+                if abs(delta) >= threshold and abs(delta) > abs(best_delta):
+                    best_index = j
+                    best_delta = delta
+                    current_slope = avg_slope
+
+            if best_index is not None:
+                t = gpx_data[best_index]["time"]
+                rel_sec = (t - start_time).total_seconds()
+                new_val = convert_slope(current_slope)
+                output.append(f"{format_time(rel_sec)}/{new_val}")
+                segment_start = best_index
+                last_slope = current_slope
+                last_value = new_val
+                i = best_index + 1
+            else:
+                i += 1
+
+        t = gpx_data[-1]["time"]
+        rel_sec = (t - start_time).total_seconds()
+        output.append(f"{format_time(rel_sec)}/{convert_slope(last_slope)}")
+
+        result = f"<difficulty>{';'.join(output)}</difficulty>"
+        print(result)
+        return result
+

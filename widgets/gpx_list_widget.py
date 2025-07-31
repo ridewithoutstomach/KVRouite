@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QColor
 
+from core.gpx_parser import get_gpx_video_shift, is_gpx_video_shift_set, set_gpx_video_shift
 
 
 class MarkColumnDelegate(QStyledItemDelegate):
@@ -354,6 +355,12 @@ class GPXListWidget(QWidget):
                 self.table.setItem(row, col, item)
             item.setBackground(color)
     
+    def _set_row_foreground(self, row: int, color):
+        col_count = self.table.columnCount()
+        for col in range(col_count):
+            if col != 8:
+                item = self.table.item(row, col)
+                item.setForeground(color)
         
 
     # ---------------------------------------------------
@@ -363,7 +370,7 @@ class GPXListWidget(QWidget):
         """
         Wird vom MainWindow aufgerufen, wenn wir auf Play oder Pause wechseln.
         """
-        if playing:
+        if playing and is_gpx_video_shift_set():
             # Beim Umschalten auf Play -> vorhandene manuelle Auswahl entfernen
             self.table.blockSignals(True)
             self.table.clearSelection()
@@ -429,7 +436,7 @@ class GPXListWidget(QWidget):
         - Neue Zeile (0..7) wird gelb
         - Signal rowClickedInPause(new_idx) => damit MainWindow synchron agieren kann
         """
-        if self._video_is_playing:
+        if self._video_is_playing and is_gpx_video_shift_set():
             return
 
         selected = self.table.selectionModel().selectedRows()
@@ -480,14 +487,15 @@ class GPXListWidget(QWidget):
         match column:
             case 0: 
                  # Parse relative time and update GPX datetime
-                base_dt = self._gpx_data[0].get("time")
+                base_dt = self._gpx_data[0].get("time") - timedelta(seconds=get_gpx_video_shift())
                 if base_dt is None:
                     return  # Can't apply relative update
 
                 try:
                     rel_s = self._parse_hhmmss_milli(value)
-                    new_dt = base_dt + timedelta(seconds=rel_s)
-                    next_dt = self._get_time_of_row(row + 1)
+                    new_dt = base_dt + timedelta(seconds=rel_s) 
+                    next_dt = self._get_time_of_row(row + 1)  
+                    print(f"[DEBUG] Setting new time for row {row}: {new_dt} (base={base_dt}, rel_s={rel_s})")
 
                     if next_dt and new_dt >= next_dt:
                         from PySide6.QtWidgets import QMessageBox
@@ -498,14 +506,14 @@ class GPXListWidget(QWidget):
                         )
                         self.set_gpx_data(self._gpx_data) # Reset to original value
                         return
-                    prev_dt = self._get_time_of_row(row -1)
+                    prev_dt = self._get_time_of_row(row -1) 
 
                     if prev_dt and new_dt <= prev_dt:
                         from PySide6.QtWidgets import QMessageBox
                         QMessageBox.warning(
                             self.table,  # parent widget
                             "Invalid Range",
-                            "New time must be later than the previous time"
+                            f"New time must be later than the previous time"
                         )
                         self.set_gpx_data(self._gpx_data) # Reset to original value
                         return
@@ -523,7 +531,7 @@ class GPXListWidget(QWidget):
             self._original_value = item.text()
 
     def select_row_in_pause(self, row_idx: int):
-        if self._video_is_playing:
+        if self._video_is_playing and is_gpx_video_shift_set():
             return
         if not (0 <= row_idx < self.table.rowCount()):
             return
@@ -588,6 +596,10 @@ class GPXListWidget(QWidget):
             if "stable_id" in self._gpx_data[i]:
                 to_remove_ids.append(self._gpx_data[i]["stable_id"])
     
+        if(not shift and b==0 and e < len(self._gpx_data)): #if delete first point -> gpx-video shift to update
+            delta = (self._gpx_data[e+1].get("time") - self._gpx_data[0].get("time")).total_seconds()
+            set_gpx_video_shift(get_gpx_video_shift() + delta)
+            
         # 2) Entfernen
         del self._gpx_data[b:e+1]
     
@@ -605,7 +617,7 @@ class GPXListWidget(QWidget):
 
         # 4) Neu berechnen
         from core.gpx_parser import recalc_gpx_data
-        recalc_gpx_data(self._gpx_data)
+        recalc_gpx_data(self._gpx_data) 
     
         # 5) Tabelle updaten
         self.set_gpx_data(self._gpx_data)
@@ -673,13 +685,16 @@ class GPXListWidget(QWidget):
         base_ts = base_dt.timestamp() if base_dt else None
         prev_dt = None
 
+        from core.gpx_parser import get_gpx_video_shift
+
         for row_idx, pt in enumerate(data):
             dt = pt.get("time", None)
-            if dt and base_ts is not None:
-                rel_s = dt.timestamp() - base_ts
-                if rel_s < 0:
-                    rel_s = 0.0
+            if dt and base_dt is not None:
+                rel_s = dt.timestamp() - base_ts + get_gpx_video_shift()
             else:
+                rel_s = 0.0
+            
+            if(abs(rel_s) < 0.001):
                 rel_s = 0.0
 
             self._gpx_times[row_idx] = rel_s
@@ -709,6 +724,8 @@ class GPXListWidget(QWidget):
             grd_val = pt.get("gradient", 0.0)
             self._set_cell(row_idx, 7, f"{grd_val:.1f}")
             self._set_cell(row_idx, 8, "")
+            if rel_s < 0 : 
+                self._set_row_foreground(row_idx,Qt.gray)
 
         self._updating_table = False
 
@@ -740,14 +757,16 @@ class GPXListWidget(QWidget):
                 it.setBackground(color)
 
     def _format_hhmmss_milli(self, secs: float) -> str:
-        ms_total = int(round(secs * 1000))
+        sign = '-' if secs < 0 else ''
+        secs_abs = abs(secs)
+        ms_total = int(round(secs_abs * 1000))
         hh = ms_total // 3600000
         rest = ms_total % 3600000
         mm = rest // 60000
         rest = rest % 60000
         ss = rest // 1000
         ms = rest % 1000
-        return f"{hh:02d}:{mm:02d}:{ss:02d}.{ms:03d}"
+        return f"{sign}{hh:02d}:{mm:02d}:{ss:02d}.{ms:03d}"
 
     def _parse_hhmmss_milli(self, time_str: str) -> float:
          # Match hh:mm:ss[.mmm] — milliseconds optional

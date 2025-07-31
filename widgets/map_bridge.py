@@ -28,6 +28,7 @@ class MapBridge(QObject):
     syncClickedSignal = Signal(int)  # <-- Neu
     syncClickedNoArg = Signal()   # <-- Neue Signal-Variante ohne Parameter
     newPointInsertedSignal = Signal(float, float, int)
+    mapboxProfileChangedSignal = Signal(str)  
     
         
     def __init__(self, parent=None):
@@ -82,3 +83,11 @@ class MapBridge(QObject):
         # Weitergeben an MainWindow oder sonstige Logik:
         self.newPointInsertedSignal.emit(lat, lon, idx)
     
+    @Slot(str)
+    def mapboxProfileChanged(self, profile):
+        """
+        Diese Methode wird von JS via channelObj.mapboxProfileChanged(...) aufgerufen.
+        """
+        print(f"[Py Debug] => mapboxProfileChanged => profile={profile}")
+        # Weitergeben an MainWindow oder sonstige Logik:
+        self.mapboxProfileChangedSignal.emit(profile)

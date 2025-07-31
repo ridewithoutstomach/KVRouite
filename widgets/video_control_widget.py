@@ -30,11 +30,12 @@ from PySide6.QtGui import QRegularExpressionValidator, QCursor, QIcon
 from PySide6.QtGui import QIcon
 from PySide6.QtCore import QSize
 
-
+from core.gpx_parser import is_gpx_video_shift_set
 
 class VideoControlWidget(QWidget):
     play_pause_clicked       = Signal()
     stop_clicked             = Signal()
+    goto_video_end_clicked   = Signal()
     step_value_changed       = Signal(str)
     multiplier_value_changed = Signal(str)
     backward_clicked         = Signal()
@@ -50,6 +51,7 @@ class VideoControlWidget(QWidget):
     syncClicked              = Signal()
     set_beginClicked         = Signal()  
     overlayClicked        = Signal()
+    setSyncClicked           = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -73,17 +75,23 @@ class VideoControlWidget(QWidget):
         """
         icon_size = self.style().pixelMetric(QStyle.PM_ToolBarIconSize)
         self.stop_button = QPushButton()
-        self.stop_button.setIcon(QIcon("icon/go_to_start_icon_padded.svg"))
+        self.stop_button.setIcon(QIcon("icon/go_to_start_icon_padded.png"))
         self.stop_button.setIconSize(QSize(icon_size, icon_size))
         play_size = self.play_pause_button.sizeHint()
-        self.stop_button.setMinimumSize(play_size)
         self.stop_button.setMaximumSize(play_size)    
         
         self.stop_button.setToolTip("Goto Start (Second 0)")
         self.stop_button.clicked.connect(self.stop_clicked.emit)
         layout.addWidget(self.stop_button)
 
+        self.goto_end = QPushButton()
+        self.goto_end.setIcon(QIcon("icon/go_to_end.png"))
+        self.goto_end.setIconSize(QSize(icon_size, icon_size))
+        self.goto_end.setMaximumSize(play_size)    
         
+        self.goto_end.setToolTip("Goto End (last frame)")
+        self.goto_end.clicked.connect(self.goto_video_end_clicked.emit)
+        layout.addWidget(self.goto_end)
         
         self._step_values = ["s", "m", "k", "f"]  # <-- "f" ergänzt
         self._step_index = 0
@@ -185,8 +193,16 @@ class VideoControlWidget(QWidget):
         self.go_to_end_button.clicked.connect(self.goToEndClicked.emit)
         layout.addWidget(self.go_to_end_button)
 
+        self.set_sync_button = QPushButton()
+        self.set_sync_button.setIcon(QIcon("icon/video_gpx_sync.png")) 
+        self.set_sync_button.setIconSize(QSize(25, 25))
+        self.set_sync_button.setToolTip("Set current video frame synchronized with selected GPX Point")
+        self.set_sync_button.clicked.connect(self.setSyncClicked.emit)
+        self.update_set_sync_highlight()
+        layout.addWidget(self.set_sync_button)
+
         self.sync_button = QPushButton("GSync")
-        self.sync_button.setToolTip("Show the corresponding GPX-Point")
+        self.sync_button.setToolTip("Select the corresponding GPX-Point")
         self.sync_button.setFixedWidth(45)
         self.sync_button.clicked.connect(self.syncClicked.emit)
         layout.addWidget(self.sync_button)
@@ -220,6 +236,7 @@ class VideoControlWidget(QWidget):
         self.autocut_button.setVisible(False)  # nur bei Copy- oder Encode-Mode
 
         layout.addStretch()
+        self.activate_controls(False)  # desactivate all buttons initially
         
         
     def _on_autocut_toggle_clicked(self):
@@ -240,6 +257,30 @@ class VideoControlWidget(QWidget):
         if hasattr(self, "autocut_button"):
             self.autocut_button.setIcon(self.icon_autocut_on if is_on else self.icon_autocut_off)
     
+    def activate_controls(self, enabled: bool = True):
+        self.play_pause_button.setEnabled(enabled)
+        self.stop_button.setEnabled(enabled)
+        self.goto_end.setEnabled(enabled)
+        self.step_button.setEnabled(enabled)
+        self.multiplier_button.setEnabled(enabled)
+        self.backward_button.setEnabled(enabled)
+        self.forward_button.setEnabled(enabled)
+        self.time_btn.setEnabled(enabled)
+        
+        self.sync_button.setEnabled(enabled and is_gpx_video_shift_set())
+        self.set_sync_button.setEnabled(enabled)
+        self.update_set_sync_highlight()
+
+    def update_set_sync_highlight(self):
+        color= "none" if  is_gpx_video_shift_set() else "#ff0000"  # Red or none
+        self.set_sync_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {color};     /* Red */
+            }}
+            QPushButton:hover {{
+                background-color: #005fa3;
+            }}
+        """)
     
     def set_editing_mode(self, enabled: bool):
         """
@@ -250,9 +291,9 @@ class VideoControlWidget(QWidget):
         self.clear_button.setVisible(enabled)
         self.cut_button.setVisible(enabled)
         
-        self.go_to_end_button.setVisible(enabled)
-        #self.undo_button.setVisible(enabled)
-        self.autocut_button.setVisible(enabled)
+        self.go_to_end_button.setVisible(enabled and is_gpx_video_shift_set())
+        self.set_begin_button.setVisible(enabled and is_gpx_video_shift_set())
+        self.autocut_button.setVisible(enabled and is_gpx_video_shift_set())
         self._update_autocut_icon()
         
     def show_ovl_button(self, show: bool):
