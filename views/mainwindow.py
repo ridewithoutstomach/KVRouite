@@ -82,7 +82,7 @@ from widgets.gpx_control_widget import GPXControlWidget
 from managers.step_manager import StepManager
 from managers.end_manager import EndManager
 from managers.cut_manager import VideoCutManager
-from core.gpx_parser import parse_gpx  # Hier hinzufügen!
+from core.gpx_parser import is_gpx_video_shift_set, parse_gpx  # Hier hinzufügen!
 
 from managers.overlay_manager import OverlayManager
 
@@ -91,17 +91,18 @@ from .dialogs import _IndexingDialog, _SafeExportDialog, DetachDialog
 from widgets.mini_chart_widget import MiniChartWidget
 from config import is_edit_video_enabled, set_edit_video_enabled
 from core.gpx_parser import parse_gpx, ensure_gpx_stable_ids  # <--- Achte auf diesen Import!
-from core.gpx_parser import recalc_gpx_data
+from core.gpx_parser import recalc_gpx_data, get_gpx_video_shift, set_gpx_video_shift
 from tools.merge_keyframes_incremental import merge_keyframes_incremental
 from config import APP_VERSION
 
 from path_manager import is_valid_mpv_folder
-from core.gpx_parser import recalc_gpx_data
 from config import reset_config
 from managers.encoder_manager import EncoderDialog
 
 from datetime import datetime, timedelta
 
+
+FIT_BUILD = False  # Set to True if you want to enable Fit Immersion export functionality
 
 class MainWindow(QMainWindow):
     def __init__(self, user_wants_editing=False):
@@ -637,10 +638,11 @@ class MainWindow(QMainWindow):
         action_avgspeed.triggered.connect(self.gpx_control.on_show_average_speed_info)
         action_avgspeed.setStatusTip("Show average speed for current GPX selection.")
         
-        
-        
-        
-        
+        if FIT_BUILD:
+            export_fit = QAction("Export to Fit Immersion", self)
+            gpx_info_menu.addAction(export_fit)
+            export_fit.triggered.connect(self.gpx_control.export_fit_immersion)
+
         
         self.bottom_right_layout.addWidget(self.gpx_widget, stretch=5)
         self.right_v_layout.addWidget(self.bottom_right_widget, stretch=3)
@@ -738,6 +740,7 @@ class MainWindow(QMainWindow):
 
         self.video_control.play_pause_clicked.connect(self.on_play_pause)
         self.video_control.stop_clicked.connect(self.on_stop)
+        self.video_control.goto_video_end_clicked.connect(self.on_goto_video_end_clicked)
         self.video_control.step_value_changed.connect(self.on_step_mode_changed)
         self.video_control.multiplier_value_changed.connect(self.on_multiplier_changed)
         self.video_control.backward_clicked.connect(self.step_manager.step_backward)
@@ -768,6 +771,7 @@ class MainWindow(QMainWindow):
         self.cut_manager.cutsChanged.connect(self._on_cuts_changed)
         self.step_manager.set_cut_manager(self.cut_manager)
         self.video_control.syncClicked.connect(self.on_sync_clicked)
+        self.video_control.setSyncClicked.connect(self.on_set_video_gpx_sync_clicked)
         
         self.gpx_control.markBClicked.connect(self.on_markB_clicked_gpx)
         self.gpx_control.deselectClicked.connect(self.on_deselect_clicked)
@@ -777,14 +781,6 @@ class MainWindow(QMainWindow):
         self.gpx_control.markEClicked.connect(self._on_markE_from_gpx)
         self.video_control.markClearClicked.connect(self.on_deselect_clicked)
         
-        
-       
-            
-        
-       # self.video_control.safeClicked.connect(self.on_render_clicked)
-
-       
-
         # Geschwindigkeiten / Rate
         self.vlc_speeds = [0.5, 0.67, 1.0, 1.5, 2.0, 4.0, 8.0, 16.0, 32.0]
         self.speed_index = 2
@@ -1264,25 +1260,6 @@ class MainWindow(QMainWindow):
         js_code = f"updateAllPointsByColor('{color_lower}', {new_size});"
         self.map_widget.view.page().runJavaScript(js_code)
 
-    
-    
-    
-   
-    
-    
-     
-
-
-    def _highlight_index_everywhere(self, idx: int):
-        # Map
-        self.map_widget.show_blue(idx, do_center=True)
-        # Chart
-        self.chart.highlight_gpx_index(idx)
-        # GpxList
-        self.gpx_widget.gpx_list.select_row_in_pause(idx)
-        # MiniChart
-        if self.mini_chart_widget:
-            self.mini_chart_widget.set_current_index(idx)    
         
         
     def _on_zero_speed_action(self):
@@ -1405,6 +1382,9 @@ class MainWindow(QMainWindow):
         old_mode = self._edit_mode
         if new_mode == old_mode:
             return  # Nichts geändert
+        self. off_action.setChecked(new_mode== "off")
+        self.copy_action.setChecked(new_mode== "copy")
+        self.encode_action.setChecked(new_mode== "encode")
 
         self._edit_mode = new_mode
         if new_mode == "off" and self._autoSyncVideoEnabled:
@@ -1522,13 +1502,12 @@ class MainWindow(QMainWindow):
     
 
     def on_set_begin_clicked(self):
-       
+        current_local_s = self.video_editor.get_current_position_s()
         
         ret = QMessageBox.question(
             self,
             "Confirm Cut Begin",
-            "Have you set the video exactly to the same crossing/place\n"
-            "as the corresponding GPX point?\n"
+            f"Cut gpx and video before {current_local_s}s?\n"
             "Press Yes to proceed, No to abort.",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
@@ -1537,18 +1516,9 @@ class MainWindow(QMainWindow):
             # => Abbrechen
             return
         
-        
-        
-
-        # 1) Markierten GPX-Punkt
-        row_idx = self.gpx_widget.gpx_list.table.currentRow()
-        if row_idx < 0:
-            QMessageBox.warning(self, "No GPX Selection", 
-                "Please select a GPX point first!")
-            return
 
         # 2) Videozeit => global_video_s
-        current_local_s = self.video_editor.get_current_position_s()
+        
         if current_local_s < 0:
             current_local_s = 0.0
         vid_idx = self.video_editor.get_current_index()
@@ -1558,171 +1528,58 @@ class MainWindow(QMainWindow):
     
         # 3) GPX => rel_s_marked
         gpx_data = self.gpx_widget.gpx_list._gpx_data
-        if not gpx_data or row_idx >= len(gpx_data):
-            QMessageBox.warning(self, "GPX Error", "Invalid row in GPX data.")
-            return
+        final_time = self.get_final_time_for_global(global_video_s)
+        gpx_cut_time = gpx_data[0].get("time", 0.0) + timedelta(seconds = final_time - get_gpx_video_shift())
+        
+        # => Undo-Snapshot => wir ändern definitiv was
+        self.register_gpx_undo_snapshot()
+        self.register_video_undo_snapshot(True)
     
-        rel_s_marked = gpx_data[row_idx].get("rel_s", 0.0)
-        print(f"[DEBUG] set_begin => row_idx={row_idx}, rel_s_marked={rel_s_marked:.2f}")
+        i0 = -1
+        while i0 < len(gpx_data) - 1:
+            if gpx_data[i0+1].get("time", 0.0) > gpx_cut_time:
+                break
+            i0 += 1
+    
+        new_gpx_video_shift=0
+        if i0 >= 0:
+            gpx_delta = (gpx_data[i0+1].get("time", 0.0) - gpx_data[0].get("time", 0.0)).total_seconds()
+            self.gpx_widget.gpx_list.set_markB_row(0)
+            self.gpx_widget.gpx_list.set_markE_row(i0)
+            self.gpx_widget.gpx_list.delete_selected_range()
+            print(f"[DEBUG] on_set_begin_clicked => gpx_delta={gpx_delta:.2f}s")
+            new_gpx_video_shift = gpx_delta - final_time
+        else: #first gpx is after video cut, reducing time between gpx and video
+            new_gpx_video_shift = get_gpx_video_shift() - final_time
 
-        # ----------------------------------------------
-        # FALL A) AutoVideoSync=OFF
-        # ----------------------------------------------
-        if not self._autoSyncVideoEnabled:
-            print("[DEBUG] set_begin => CASE A (OFF)")
+        set_gpx_video_shift(new_gpx_video_shift) 
     
-            if abs(global_video_s) < 0.01:
-                # => Videozeit ~0 => wir schneiden GPX am markierten Punkt
-                cut_start = rel_s_marked
-                if cut_start < 0:
-                    cut_start = 0.0
+        new_data = self.gpx_widget.gpx_list._gpx_data
+        if new_data:
+            recalc_gpx_data(new_data)
+            self.gpx_widget.set_gpx_data(new_data)
     
-                # => Erstellen wir Undo-Snapshot => JETZT, weil wir sicher was ändern
-                self.register_gpx_undo_snapshot()
-    
-                i0 = 0
-                while i0 < len(gpx_data):
-                    if gpx_data[i0].get("rel_s", 0.0) >= cut_start:
-                        break
-                    i0 += 1
-    
-                if i0 > 0:
-                    self.gpx_widget.gpx_list.set_markB_row(0)
-                    self.gpx_widget.gpx_list.set_markE_row(i0 - 1)
-                    self.gpx_widget.gpx_list.delete_selected_range()
-    
-                new_data = self.gpx_widget.gpx_list._gpx_data
-                if new_data:
-                    shift_s = new_data[0].get("rel_s", 0.0)
-                    if shift_s > 0:
-                        for pt in new_data:
-                            pt["rel_s"] -= shift_s
-                        recalc_gpx_data(new_data)
-                    self.gpx_widget.set_gpx_data(new_data)
-    
-                QMessageBox.information(
-                    self,
-                    "Set Begin (OFF / Video=0s)",
-                    "Cut GPX at the marked point.\n"
-                    "Undo possible in GPX-liste."
-                )
-    
-            else:
-                # => global_video_s>0 => wir behalten global_video_s sek. vor markiertem
-                cut_start = rel_s_marked - global_video_s
-                if cut_start < 0:
-                    # => Fehlermeldung => ABBRUCH => KEIN Undo
-                    #QMessageBox.warning(
-                    #    self,
-                    #    "Not enough GPX data",
-                    #    f"You want to keep {global_video_s:.2f}s before {rel_s_marked:.2f}s,\n"
-                    #    f"that starts at {cut_start:.2f}s < 0 => impossible.\n"
-                    #    "Operation canceled."
-                    #)
-                    QMessageBox.warning(
-                        self,
-                        "GPX Cut Not Possible",
-                        (
-                        "In gpx edit mode only not possible to cut gpx data shorter than the video.\n"
-                        f"You tried to keep {global_video_s:.1f}s of video before the selected point at {rel_s_marked:.1f}s.\n"
-                        f"→ But this would start the cut at {cut_start:.1f}s (before the GPX track starts at 0s).\n\n"
-                        "No GPX data exists before time 0.\n\n"
-                        "Solutions:\n"
-                        "• Choose an earlier Video/GPX point to match your video point\n"
-                        "• Or extend the GPX start (e.g. use 'chT' to shift it)"
-                        )
-                    )
-    
-                    return
-    
-                # => JETZT erst Undo-Snapshot => weil wir sicher etwas löschen
-                old_data = copy.deepcopy(gpx_data)
-                self.gpx_widget.gpx_list._history_stack.append(old_data)
-    
-                i0 = 0
-                while i0 < len(gpx_data):
-                    if gpx_data[i0].get("rel_s", 0.0) >= cut_start:
-                        break
-                    i0 += 1
-    
-                if i0 > 0:
-                    self.gpx_widget.gpx_list.set_markB_row(0)
-                    self.gpx_widget.gpx_list.set_markE_row(i0 - 1)
-                    self.gpx_widget.gpx_list.delete_selected_range()
-    
-                new_data = self.gpx_widget.gpx_list._gpx_data
-                if new_data:
-                    shift_s = new_data[0].get("rel_s", 0.0)
-                    if shift_s > 0:
-                        for pt in new_data:
-                            pt["rel_s"] -= shift_s
-                        recalc_gpx_data(new_data)
-                    self.gpx_widget.set_gpx_data(new_data)
-    
-                QMessageBox.information(
-                    self,
-                    "Set Begin (OFF / keepVideoTime)",
-                    f"Kept {global_video_s:.2f}s before the marked GPX point.\n"
-                    "Video remains unchanged.\n"
-                    "Undo possible in GPX-liste."
-                )
-    
-        # ----------------------------------------------
-        # FALL B) AutoVideoSync=ON
-        # ----------------------------------------------
+        # => Video => cut 0..global_video_s
+        if global_video_s <= 0.01:
+            QMessageBox.information(
+                self, "Set Begin (ON)",
+                "Video near 0s => no cut.\n"
+                "GPX cut at the point.\n"
+                "Undo in GPX-list + Video possible."
+            )
+            
         else:
-            print("[DEBUG] set_begin => CASE B (ON)")
-    
-            # => wir schneiden in GPX am markierten Punkt => SHIFT => 0
-            cut_start = rel_s_marked
-            if cut_start < 0:
-                cut_start = 0.0
-    
-            # => Undo-Snapshot => wir ändern definitiv was
-            self.register_gpx_undo_snapshot()
-            self.register_video_undo_snapshot(True)
-    
-            i0 = 0
-            while i0 < len(gpx_data):
-                if gpx_data[i0].get("rel_s", 0.0) >= cut_start:
-                    break
-                i0 += 1
-    
-            if i0 > 0:
-                self.gpx_widget.gpx_list.set_markB_row(0)
-                self.gpx_widget.gpx_list.set_markE_row(i0 - 1)
-                self.gpx_widget.gpx_list.delete_selected_range()
-    
-            new_data = self.gpx_widget.gpx_list._gpx_data
-            if new_data:
-                shift_s = new_data[0].get("rel_s", 0.0)
-                if shift_s > 0:
-                    for pt in new_data:
-                        pt["rel_s"] -= shift_s
-                    recalc_gpx_data(new_data)
-                self.gpx_widget.set_gpx_data(new_data)
-    
-            # => Video => cut 0..global_video_s
-            if global_video_s <= 0.01:
-                QMessageBox.information(
-                    self, "Set Begin (ON)",
-                    "Video near 0s => no cut.\n"
-                    "GPX cut at the point.\n"
-                    "Undo in GPX-liste + Video possible."
-                )
-            else:
-                self.cut_manager.markB_time_s = 0.0
-                self.cut_manager.markE_time_s = global_video_s
-                self.timeline.set_markB_time(0.0)
-                self.timeline.set_markE_time(global_video_s)
-                self.cut_manager.on_cut_clicked()
-    
-                QMessageBox.information(
-                    self, "Set Begin (ON)",
-                    f"Video cut at {global_video_s:.2f}s.\n"
-                    f"GPX cut at {rel_s_marked:.2f}s.\n"
-                    "Undo in GPX-liste + Video possible."
-                )
+            self.cut_manager.markB_time_s = 0.0
+            self.cut_manager.markE_time_s = global_video_s
+            self.timeline.set_markB_time(0.0)
+            self.timeline.set_markE_time(global_video_s)
+            self.cut_manager.on_cut_clicked()
+
+            QMessageBox.information(
+                self, "Set Begin (ON)",
+                f"Video and gpx cut at {global_video_s:.2f}s.\n"
+                "Undo in GPX-list + Video possible."
+            )
     
         # -------------------------------------------
         #  (3) Chart / Map / MiniChart aktualisieren
@@ -1775,17 +1632,19 @@ class MainWindow(QMainWindow):
         row_selected = self.gpx_widget.gpx_list.table.currentRow()
 
         insert_pos = -1
-        if self._autoSyncNewPointsWithVideoTime and self.video_editor.is_video_loaded(): #if video loaded, insert a new point at current video time without shift
-            self.append_gpx_history(gpx_data) #for undo
+        if self._autoSyncNewPointsWithVideoTime and self.playlist_counter > 0: #if video loaded, insert a new point at current video time without shift
             video_time = self.video_editor.get_current_position_s()
-            insert_pos = self.ordered_insert_new_point(lat,lon,video_time)
+            final_s = self.get_final_time_for_global(video_time)
+            insert_pos = self.ordered_insert_new_point(lat,lon,final_s)
 
             if(insert_pos > 0 and self._directions_enabled):
                 t1 = gpx_data[insert_pos-1]["time"]
                 t2 = gpx_data[insert_pos]["time"]
                 dt = (t2 - t1).total_seconds()
                 if dt > 2 :
-                    prof = self.gpx_control._ask_profile_mode()
+                    prof = self.map_widget._curr_mapbox_profile
+                    if not prof:
+                        prof = self.gpx_control._ask_profile_mode()
                     if prof:
                         self.gpx_control._close_gaps_mapbox(insert_pos-1, insert_pos, dt, prof)
 
@@ -1833,8 +1692,7 @@ class MainWindow(QMainWindow):
                         "time": now,
                         "delta_m": 0.0,
                         "speed_kmh": 0.0,
-                        "gradient": 0.0,
-                        "rel_s": 0.0
+                        "gradient": 0.0
                     }
                     gpx_data.append(new_pt)
                 else:
@@ -1851,8 +1709,7 @@ class MainWindow(QMainWindow):
                         "time": new_time,
                         "delta_m": 0.0,
                         "speed_kmh": 0.0,
-                        "gradient": 0.0,
-                        "rel_s": 0.0
+                        "gradient": 0.0
                     }
                     gpx_data.insert(0, new_pt)
                     insert_pos=0
@@ -1864,7 +1721,7 @@ class MainWindow(QMainWindow):
                                 gpx_data[i]["time"] = oldt + timedelta(seconds=1)
                     
             elif idx == -1:
-                # =============== Punkt NACH dem letzten einfügen ===============
+                # =============== Insert point AFTER the last one ===============
                 if not gpx_data:
                     # ganz leer => erster Punkt
                     new_pt = {
@@ -1874,11 +1731,12 @@ class MainWindow(QMainWindow):
                         "time": now,
                         "delta_m": 0.0,
                         "speed_kmh": 0.0,
-                        "gradient": 0.0,
-                        "rel_s": 0.0
+                        "gradient": 0.0
                     }
                     gpx_data.append(new_pt)
-                    insert_pos=len(gpx_data)-1
+                    insert_pos=0
+                    if self.playlist_counter > 0 :
+                        self.askSwitchCreateMode()
                 else:
                     last_pt = gpx_data[-1]
                     t_last = last_pt.get("time")
@@ -1892,8 +1750,7 @@ class MainWindow(QMainWindow):
                         "time": new_time, 
                         "delta_m": 0.0,
                         "speed_kmh": 0.0,
-                        "gradient": 0.0,
-                        "rel_s": 0.0
+                        "gradient": 0.0
                     }
                     gpx_data.append(new_pt)
                     insert_pos=len(gpx_data)-1
@@ -1913,11 +1770,12 @@ class MainWindow(QMainWindow):
                         "time": now,
                         "delta_m": 0.0,
                         "speed_kmh": 0.0,
-                        "gradient": 0.0,
-                        "rel_s": 0.0
+                        "gradient": 0.0
                     }
                     gpx_data.append(new_pt)
-                    insert_pos=len(gpx_data)-1
+                    insert_pos=0
+                    if self.playlist_counter > 0 :
+                        self.askSwitchCreateMode()
                 else:
                     base_pt = gpx_data[idx]
                     t_base = base_pt.get("time")
@@ -1932,8 +1790,7 @@ class MainWindow(QMainWindow):
                         "time": new_time,
                         "delta_m": 0.0,
                         "speed_kmh": 0.0,
-                        "gradient": 0.0,
-                        "rel_s": 0.0
+                        "gradient": 0.0
                     }
                     insert_pos = idx + 1
                     if insert_pos > len(gpx_data):
@@ -1946,6 +1803,8 @@ class MainWindow(QMainWindow):
                             if t_old:
                                 gpx_data[j]["time"] = t_old + timedelta(seconds=1)      
                                 
+        
+        self.gpx_widget.set_gpx_data(gpx_data) #need to update gpx_widget data before update elevation
         self.gpx_control.update_elevation_from_mapbox([(insert_pos, lat, lon)])
 
         #  => recalc
@@ -1966,6 +1825,17 @@ class MainWindow(QMainWindow):
 
         print(f"[INFO] Inserted new GPX point (DirectionsEnabled={self._directions_enabled}); total now {len(gpx_data)} pts.")
         
+    def askSwitchCreateMode(self):
+        answer = QMessageBox.question(
+            self,
+            "Switch to Create Mode?",
+            "New point creation is easier in 'creation' mode. Their time will be equal to current video position.\n"
+            "Switch to it now?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+        if answer == QMessageBox.Yes:
+            self._set_map_video_view()
         
     def _restore_gpx_data(self, gpx_snapshot):
         self._gpx_data = copy.deepcopy(gpx_snapshot)
@@ -2120,7 +1990,9 @@ class MainWindow(QMainWindow):
         self._update_set_gpx2video_enabled()    
         
     def _on_sync_point_video_time_toggled(self, checked: bool):
+        print(f"[DEBUG] _on_sync_point_video_time_toggled {checked}")
         self._autoSyncNewPointsWithVideoTime = checked
+        self.action_new_pts_video_time.setChecked(checked)
         self.map_widget.view.page().runJavaScript(f"enableVSyncMode({str(checked).lower()});")
         
    # OpenGL     
@@ -2191,10 +2063,13 @@ class MainWindow(QMainWindow):
         )
     
         paused_count = 0
-        for i in range(1, len(data)):
-            dt = data[i]["rel_s"] - data[i-1]["rel_s"]
-            if dt > 1.0:
-                paused_count += 1
+        if data[0]["time"]:
+            for i in range(1, len(data)):
+                dt = (data[i]["time"] - data[i-1]["time"]).total_seconds()
+                if dt > 1.0:
+                    paused_count += 1
+        else:
+            paused_count = len(data)
     
         # 6) An Dein gpx_control_widget übergeben
         self.gpx_control.update_info_line(
@@ -2225,13 +2100,11 @@ class MainWindow(QMainWindow):
         point = self._gpx_data[gpx_index]
         print(f"[DEBUG] on_map_sync_idx => point={point}")
 
-        rel_s = point.get("rel_s", 0.0)
+        rel_s = point.get("time", 0.0) - timedelta(seconds = get_gpx_video_shift())
 
         hh = int(rel_s // 3600)
         mm = int((rel_s % 3600) // 60)
         ss = int(rel_s % 60)
-
-        
     
         # Extra Debug:
         print(f"[DEBUG] => resolved time => hh={hh}, mm={mm}, ss={ss}")
@@ -2256,7 +2129,7 @@ class MainWindow(QMainWindow):
 
         # 1) Bisherigen gelben Punkt in Map revertieren, falls vorhanden
        
-        if self.video_editor.is_playing:
+        if self.video_editor.is_playing and is_gpx_video_shift_set():
             self.map_widget.show_yellow(new_index)
         else:
             self.map_widget.show_blue(new_index)
@@ -2338,11 +2211,18 @@ class MainWindow(QMainWindow):
         wobei jeder Point => properties.index = i hat.
         """
         features = []
+        positive_time = data[0].get("time") or 0.0
+        if get_gpx_video_shift() < 0: #extra points at begin
+            positive_time = positive_time + timedelta(seconds = abs(get_gpx_video_shift()))
 
         # Linestring-Koords
         coords_line = []
+        outside_line = []
         for i, pt in enumerate(data):
-            coords_line.append([pt["lon"], pt["lat"]])
+            if pt.get("time") or 0.0 >= positive_time:
+                coords_line.append([pt["lon"], pt["lat"]])
+            else:
+                outside_line.append([pt["lon"], pt["lat"]])
 
         line_feat = {
             "type": "Feature",
@@ -2350,9 +2230,21 @@ class MainWindow(QMainWindow):
                 "type": "LineString",
                 "coordinates": coords_line
             },
-            "properties": { "color": "#000000" }
+            "properties": { "color":"#000000"  }
         }
         features.append(line_feat)
+
+        if outside_line:
+            outside_line.append(coords_line[0])
+            outside_line_feat = {
+                "type": "Feature",
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": outside_line
+                },
+                "properties": { "color":"grey" }
+            }
+            features.append(outside_line_feat)
 
         # Einzelne Punkt-Features
         for i, pt in enumerate(data):
@@ -2364,7 +2256,7 @@ class MainWindow(QMainWindow):
                 },
                 "properties": {
                     "index": i,
-                    "color": "#000000"
+                    "color": "#000000" if (pt.get("time") or 0.0) >= positive_time else "grey", 
                 }
             }
             features.append(point_feat)
@@ -2551,7 +2443,7 @@ class MainWindow(QMainWindow):
             #self.map_widget.show_blue(row_idx)
             self.map_widget.show_blue(row_idx, do_center=True)
             self.chart.highlight_gpx_index(row_idx)
-            if self._autoSyncNewPointsWithVideoTime and self.video_editor.is_video_loaded():
+            if self._autoSyncNewPointsWithVideoTime and self.playlist_counter > 0:
                 self.on_map_sync_any()
 
     def _on_map_pause_clicked(self, index: int):
@@ -2563,7 +2455,6 @@ class MainWindow(QMainWindow):
         if not self.video_editor.is_playing:
             self.gpx_widget.gpx_list.select_row_in_pause(index)
             self.chart.highlight_gpx_index(index)
-    #neu2
 
 
     def _show_copyright_dialog(self):
@@ -2829,9 +2720,78 @@ class MainWindow(QMainWindow):
         if self.playlist:
             self.video_editor.show_first_frame_at_index(0)
 
-        QMessageBox.information(self, "Loaded", f"{len(files)} video(s) added to the playlist.")
-    
-   
+        if self.playlist_counter > 1:
+            QMessageBox.information(self, "Loaded", f"{len(files)} video(s) added to the playlist.")
+        
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Edit video")
+
+        vbox = QVBoxLayout(dlg)
+        lbl = QLabel("Select video edition mode")
+        vbox.addWidget(lbl)
+
+        # Button Box
+        btns = QDialogButtonBox()
+
+        # Add "Copy" button
+        btn_copy = QPushButton("Copy")
+        btns.addButton(btn_copy, QDialogButtonBox.YesRole)
+        btn_copy.clicked.connect(lambda: dlg.done(1))
+
+        # Add "Encode" button
+        btn_encode = QPushButton("Encode")
+        btns.addButton(btn_encode, QDialogButtonBox.ActionRole)
+        btn_encode.clicked.connect(lambda: dlg.done(2) )
+
+        # Add "No Edit" button (acts like Cancel)
+        btn_cancel = QPushButton("No Edit")
+        btns.addButton(btn_cancel, QDialogButtonBox.RejectRole)
+        btn_cancel.clicked.connect(lambda: dlg.reject())
+
+        vbox.addWidget(btns)
+
+        result = dlg.exec()
+        if result == 1:
+            self._set_edit_mode("copy")
+        elif result == 2:
+            self._set_edit_mode("encode")
+
+        self.proposeVideoGpxSync()
+
+    def proposeVideoGpxSync(self):
+        if self._gpx_data and self.playlist_counter > 0:
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Video & GPX Sync")
+            
+            yes_btn = msg_box.addButton("Yes", QMessageBox.AcceptRole)
+            msg_box.setText("Do your GPX and video start at the same time?\n " \
+            "If so, let's activate video / GPX sync mode.")
+            no_btn = msg_box.addButton("No", QMessageBox.RejectRole)
+
+            msg_box.setWindowModality(Qt.WindowModal)
+            msg_box.show()
+            QApplication.processEvents()
+
+            msg_box.exec()
+            clicked = msg_box.clickedButton()
+            if clicked == yes_btn:
+                set_gpx_video_shift(0)
+                self.enableVideoGpxSync(True)
+            else:
+                QMessageBox.information(self, "Video & GPX Sync", 
+                                        "In this case it is advised to define the sync point.\n " \
+                                        "Select a GPX point, find it in video and click on the red button")
+                
+    def enableVideoGpxSync(self,enable = True):
+        #self.video_control.set_editing_mode(enable)
+        self._on_auto_sync_video_toggled(enable and self._edit_mode != "off")
+        if enable and self._edit_mode != "off":
+            self.video_control._on_autocut_toggle_clicked()
+        else:
+            self.video_control.activate_controls()
+
+        self._on_sync_point_video_time_toggled(enable)
+
     def _set_gpx_data(self, gpx_data):
         """Integriere die Daten in UI + merke sie in self._gpx_data."""
         self._gpx_data = gpx_data
@@ -2847,63 +2807,7 @@ class MainWindow(QMainWindow):
         self._update_gpx_overview()
         self.check_gpx_errors(gpx_data)
 
-    def _parse_and_set_gpx(self, file_path, mode="new"):
-        """
-        Parst die GPX-Datei und hängt sie je nach mode ("new" vs. "append")
-        an die vorhandene self._gpx_data an.
-        """
-        # 1) Kurzes Loading-Overlay oder Statusmeldung
-        self.map_widget.view.page().runJavaScript("showLoading('Parsing GPX...');")
-        QApplication.processEvents()
-
-        # 2) PARSEN
-        try:
-            new_data = parse_gpx(file_path)
-            ensure_gpx_stable_ids(new_data)
-            if not new_data:
-                QMessageBox.warning(self, "Load GPX", "File is empty or invalid.")
-                self.map_widget.view.page().runJavaScript("hideLoading();")
-                return
-        except Exception as e:
-            QMessageBox.critical(self, "Load GPX", f"Error parsing file:\n{e}")
-            self.map_widget.view.page().runJavaScript("hideLoading();")
-            return
-
-        # 3) Je nach mode: "new" vs "append"
-        if mode == "new" or (not self._gpx_data):
-            # => alte Daten verwerfen
-            self._set_gpx_data(new_data)
-            QMessageBox.information(self, "Load GPX", "New GPX loaded successfully.")
-        elif mode == "append":
-            if not self._gpx_data:
-                # falls aus irgendeinem Grund doch leer => wie "new"
-                self._set_gpx_data(new_data)
-            else:
-                # => an vorhandene Daten dranhängen
-                old_data = self._gpx_data
-
-                # Optional: Undo-Snapshot
-                old_snapshot = copy.deepcopy(old_data)
-                self.gpx_widget.gpx_list._history_stack.append(old_snapshot)
-
-                old_end_time = old_data[-1]["time"]  # datetime
-                gap_start = old_end_time + timedelta(seconds=1)
-                shift_dt = gap_start - new_data[0]["time"]
-                shift_s = shift_dt.total_seconds()
-
-                # alle Zeitstempel verschieben
-                for pt in new_data:
-                    pt["time"] = pt["time"] + shift_dt
-                    pt["rel_s"] += shift_s
-
-                merged_data = old_data + new_data
-                recalc_gpx_data(merged_data)
-                self._set_gpx_data(merged_data)
-
-                QMessageBox.information(self, "Load GPX", "GPX appended successfully.")
-
-        # 4) Overlay beenden
-        self.map_widget.view.page().runJavaScript("hideLoading();")
+    
 
    
     def load_gpx_file(self):
@@ -2992,7 +2896,6 @@ class MainWindow(QMainWindow):
                 shift_s = shift_dt.total_seconds()
                 for pt in new_data:
                     pt["time"] = pt["time"] + shift_dt
-                    pt["rel_s"] += shift_s
     
                 merged_data = old_data + new_data
                 recalc_gpx_data(merged_data)
@@ -3000,6 +2903,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, "Load GPX", "GPX appended successfully.")
     
         self.map_widget.view.page().runJavaScript("hideLoading();")
+        self.proposeVideoGpxSync()
     
     def update_timeline_marker(self):
         
@@ -3042,21 +2946,22 @@ class MainWindow(QMainWindow):
                 # falls _time_mode == "global", konvertieren wir global_s zu final_s
                 final_s = self.get_final_time_for_global(global_s)
         
-            # b) GPX-Widget highlighten
-            self.gpx_widget.highlight_video_time(final_s, is_playing=True)
+            if is_gpx_video_shift_set():
+                # b) GPX-Widget highlighten
+                self.gpx_widget.highlight_video_time(final_s, is_playing=True)
 
-            # c) Index im GPX finden
-            i = self.gpx_widget.get_closest_index_for_time(final_s)
+                # c) Index im GPX finden
+                i = self.gpx_widget.get_closest_index_for_time(final_s)
         
-            # d) Chart-Index highlighten
-            self.chart.highlight_gpx_index(i)
+                # d) Chart-Index highlighten
+                self.chart.highlight_gpx_index(i)
         
-            # e) Mini-Chart ebenfalls
-            if self.mini_chart_widget:
-                self.mini_chart_widget.set_current_index(i)
+                # e) Mini-Chart ebenfalls
+                if self.mini_chart_widget:
+                    self.mini_chart_widget.set_current_index(i)
         
-            # f) Map => gelben Marker
-            self.map_widget.show_yellow(i)
+                # f) Map => gelben Marker
+                self.map_widget.show_yellow(i)
         else:
             # Video pausiert => kein automatisches "Mitlaufen" in Map/GPX
             pass
@@ -3078,6 +2983,8 @@ class MainWindow(QMainWindow):
             self.map_widget.show_blue(index, do_center=True)
             #self.map_widget.show_blue(index)
             self.chart.highlight_gpx_index(index)
+            if self._autoSyncNewPointsWithVideoTime and self.playlist_counter > 0:
+                self.on_map_sync_any()
         else:
             # Wenn Video gerade läuft => evtl. jump dorthin
             # ... oder du pausierst / oder was du willst
@@ -3100,6 +3007,7 @@ class MainWindow(QMainWindow):
 
             
             self.video_editor.set_playlist(self.playlist)
+            self.video_control.activate_controls(True)
             
             if self._edit_mode in ("copy", "encode") and (not self._userDeclinedIndexing):
                 self.start_indexing_process(filepath)
@@ -3128,7 +3036,8 @@ class MainWindow(QMainWindow):
             
             # STATT rebuild_vlc_playlist():
             self.video_editor.set_playlist(self.playlist)
-
+            self.video_control.activate_controls(
+                True if self.playlist.length() > 0 else False)
             # Timeline anpassen:
             self.rebuild_timeline()
     
@@ -3277,12 +3186,15 @@ class MainWindow(QMainWindow):
         return 0.0
         
     
-      
-    
     def on_stop(self):
         self.video_editor.stop()
         
+    def on_goto_video_end_clicked(self):
+        total = sum(self.video_durations)
+        self.video_editor._jump_to_global_time(total)
+        
     def on_play_ended(self):
+        self.video_editor.media_player
         self.video_control.update_play_pause_icon(False)
 
         # 1) Player manuell in "Pause"-State
@@ -3302,53 +3214,6 @@ class MainWindow(QMainWindow):
         
         self._video_at_end = True
     
-    def _jump_player_to_time(self, new_s: float):
-        total = sum(self.video_durations)
-        if total <= 0:
-            return
-        new_s = max(0.0, min(new_s, total))
-
-        # boundaries + local_s berechnen
-        boundaries = []
-        offset = 0.0
-        for dur in self.video_durations:
-            offset += dur
-            boundaries.append(offset)
-
-        new_idx = 0
-        offset_prev = 0.0
-        for i, b in enumerate(boundaries):
-            if new_s < b:
-                new_idx = i
-                break
-            offset_prev = b
-    
-        local_s = new_s - offset_prev
-        if local_s < 0:
-            local_s = 0
-    
-        old_idx = self.video_editor._current_index
-    
-        # 1) Falls wir das Video wechseln müssen:
-        if new_idx != old_idx:
-            self.video_editor._player.command('stop')
-            self.video_editor.is_playing = False
-            self.video_editor._current_index = new_idx
-    
-            if new_idx < len(self.playlist):
-                path_ = self.playlist[new_idx]
-                self.video_editor._player.command('loadfile', path_)
-                # => local_s
-                self.video_editor._player.seek(local_s, reference='absolute')
-                self.video_editor._player.pause = True
-                self.video_editor.is_playing = False
-        else:
-            # Gleicher Index => nur seek
-            self.video_editor._player.seek(local_s, reference='absolute')
-            self.video_editor._player.pause = True
-            self.video_editor.is_playing = False
-            
-
 
     def on_step_mode_changed(self, new_value):
         self.step_manager.set_step_mode(new_value)
@@ -3362,7 +3227,6 @@ class MainWindow(QMainWindow):
         self.step_manager.set_step_multiplier(val)
 
     def _on_timeline_marker_moved(self, new_time_s: float):
-        #self._jump_player_to_time(new_time_s)
         self.video_editor._jump_to_global_time(new_time_s)
         
     def _on_timeline_overlay_remove(self, start_s, end_s):
@@ -3793,6 +3657,41 @@ class MainWindow(QMainWindow):
                 remaining -= seg_len
 
         return total_dur    
+
+    def on_set_video_gpx_sync_clicked(self):
+        """
+        Define synchronization match between selected GPX and video time
+        """
+        global_s = self.video_editor.get_current_position_s()
+        print(f"[DEBUG] on_set_video_gpx_sync_clicked => get_current_position_s()={global_s:.3f}")
+        
+        # 2) => final_s, falls Cuts 
+        final_s = self.get_final_time_for_global(global_s)
+
+        row = self.gpx_widget.gpx_list.table.currentRow()
+        gpx_time = self._gpx_data[row]["time"] - self._gpx_data[0]["time"]
+        new_shift=  final_s - gpx_time.total_seconds()
+
+        reply = QMessageBox.question(
+                self,
+                "Video-GPX sync point",
+                f"Define GPX at {gpx_time} synced with {final_s:.1f} seconds in video?\n"
+                f"GPX-video shift will be {new_shift:.1f} seconds (undo possible).",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+        if reply == QMessageBox.Yes:
+            self.register_gpx_undo_snapshot()
+            set_gpx_video_shift(new_shift)
+            #recalc_gpx_data(self._gpx_data) #to refresh list
+            self.gpx_widget.gpx_list.set_gpx_data(self._gpx_data)
+            self.video_control.activate_controls()
+            self.enableVideoGpxSync()
+            if(get_gpx_video_shift() < 0): # color negative points in grey
+                route_geojson = self._build_route_geojson_from_gpx(self._gpx_data)
+                self.map_widget.loadRoute(route_geojson, do_fit=False)
+            if self._edit_mode != "off":
+                self.video_control.set_editing_mode(True) #to refresh the button state
         
     def on_sync_clicked(self):
         """
@@ -3833,10 +3732,10 @@ class MainWindow(QMainWindow):
         
     def on_map_sync_any(self):
         """
-        Wird von map_widget._on_sync_noarg_from_js aufgerufen,
-        wenn der Sync-Button in map_page.html geklickt wird.
+        Is called by map_widget._on_sync_noarg_from_js,
+        when the sync button in map_page.html is clicked.
 
-        1) Index => map_widget._blue_idx oder fallback => gpx_list.currentRow()
+        1) Index => map_widget._blue_idx or fallback => gpx_list.currentRow()
         2) final_s = gpx_data[idx]["rel_s"]
         3) global_s = get_global_time_for_final(final_s)
         4) => on_time_hms_set_clicked => Video
@@ -3857,10 +3756,12 @@ class MainWindow(QMainWindow):
 
         # 2) final_s
         point = self._gpx_data[idx_map]
-        final_s = point.get("rel_s", 0.0)
+        final_s = (point.get("time", 0.0) - self._gpx_data[0].get("time", 0.0)).total_seconds() + get_gpx_video_shift()
 
         # 3) global_s => Falls Cuts => global_s = get_global_time_for_final(final_s)
         global_s = self.get_global_time_for_final(final_s)
+        if(global_s < 0): #selected gpx point with negative time, going to 0
+            global_s = 0.0
 
         # => h,m,s
         hh = int(global_s // 3600)
@@ -4330,6 +4231,8 @@ class MainWindow(QMainWindow):
         self.chart.set_gpx_data([])
         if self.mini_chart_widget:
             self.mini_chart_widget.set_gpx_data([])
+        set_gpx_video_shift(None) # reset GPX-Video shift
+        self.enableVideoGpxSync(False)  
         
         self.map_widget.loadRoute({"type": "FeatureCollection", "features": []}, do_fit=True)
     
@@ -4357,8 +4260,6 @@ class MainWindow(QMainWindow):
         self.playlist.clear()
         self.video_durations.clear()
         self.playlist_menu.clear()
-
-        QMessageBox.information(self, "New Project", "New project started successfully.")
      
 
     
@@ -4573,11 +4474,15 @@ class MainWindow(QMainWindow):
         self.map_widget.view.page().runJavaScript(js_code)
 
     def ordered_insert_new_point(self,lat: float, lon: float, video_time: float) -> int:
+        print(f"[DEBUG] ordered_insert_new_point => video_time={video_time}")
         gpx_data = self._gpx_data
-        t_first = gpx_data[0].get("time", 0) if gpx_data else datetime.now()  # Fallback, falls Zeit gar nicht existiert
-        video_ts = t_first + timedelta(seconds=video_time)
+        if gpx_data is None or len(gpx_data) == 0:
+            video_ts = datetime.now()
+            set_gpx_video_shift(video_time)  # Set initial shift
+        else:
+            video_ts = gpx_data[0].get("time",0.0) + timedelta(seconds = video_time - get_gpx_video_shift()) 
 
-        idx = 0
+        idx = -1
         for i in range(0, len(gpx_data)):
             if (gpx_data[i].get("time") > video_ts):
                 break
@@ -4585,7 +4490,7 @@ class MainWindow(QMainWindow):
                 idx = i
 
         ele = 0
-        if idx > 0:
+        if idx >= 0:
             base_pt = gpx_data[idx]
             ele = base_pt.get("ele", 0.0)
 
@@ -4596,13 +4501,17 @@ class MainWindow(QMainWindow):
             "time": video_ts,
             "delta_m": 0.0,
             "speed_kmh": 0.0,
-            "gradient": 0.0,
-            "rel_s": 0.0
+            "gradient": 0.0
         }
+
         insert_pos = idx + 1
         if insert_pos > len(gpx_data):
             insert_pos = len(gpx_data)
+        elif insert_pos == 0: #inserted in the begin, so shift between video and gpx gets smaller
+            set_gpx_video_shift(video_time)
+
         gpx_data.insert(insert_pos, new_pt)
+        
         return insert_pos  # Index des neuen Punktes in gpx_data
         
     def on_global_undo(self):
@@ -4614,8 +4523,12 @@ class MainWindow(QMainWindow):
     
     def register_gpx_undo_snapshot(self):
         gpx_snapshot = copy.deepcopy(self.gpx_widget.gpx_list._gpx_data)
+        curr_gpx_video_shift = get_gpx_video_shift() if is_gpx_video_shift_set() else None
 
         def undo():
+            set_gpx_video_shift(curr_gpx_video_shift)
+            if(not curr_gpx_video_shift):
+                self.enableVideoGpxSync(False)
             self.gpx_widget.set_gpx_data(gpx_snapshot)
             self._gpx_data = gpx_snapshot
             self._update_gpx_overview()
@@ -4678,6 +4591,7 @@ class MainWindow(QMainWindow):
                 "markE_idx": self.gpx_widget.gpx_list._markE_idx
             },
             "overlays": self._overlay_manager.get_all_overlays(),
+            "gpx_video_shift": get_gpx_video_shift(),
         }
 
     
@@ -4718,7 +4632,7 @@ class MainWindow(QMainWindow):
                 self.real_total_duration = 0.0
                 
             self.video_durations = project_data.get("video_durations", [])
-            
+            self.rebuild_timeline()
 
             # 2. GPX-Daten laden + reparieren (datetime aus String machen)
             gpx_data = project_data.get("gpx_data", [])
@@ -4751,6 +4665,9 @@ class MainWindow(QMainWindow):
             self.gpx_widget.gpx_list._markB_idx = gpx_markers.get("markB_idx", None)
             self.gpx_widget.gpx_list._markE_idx = gpx_markers.get("markE_idx", None)
 
+            # GPX/Video shift (s)
+            set_gpx_video_shift(project_data.get("gpx_video_shift", 0.0))
+
             # 5. Overlays laden
             overlays = project_data.get("overlays", [])
             self._overlay_manager.clear_overlays()
@@ -4759,6 +4676,7 @@ class MainWindow(QMainWindow):
 
             # 6. VideoEditor neu setzen
             self.video_editor.set_playlist(self.playlist)
+            self.video_control.activate_controls(True)
             if self.video_durations:
                 self.video_editor.set_multi_durations(self.video_durations)
 
@@ -4901,19 +4819,19 @@ class MainWindow(QMainWindow):
             return
 
         # 4) Kürzen => alle Punkte, deren rel_s <= final_duration_s
+        
         truncated = []
+        first_gpx_video_time=  gpx_data[0].get("time", 0.0) - timedelta(seconds = get_gpx_video_shift())
         for pt in gpx_data:
-            rel_s = pt.get("rel_s", 0.0)
-            if rel_s <= final_duration_s:
+            rel_s = (pt.get("time", 0.0) - first_gpx_video_time).total_seconds()
+            if rel_s >=0 and rel_s <= final_duration_s:
                 truncated.append(pt)
-            else:
-                break  # Annahme: Zeit ist aufsteigend
 
         if len(truncated) < 2:
             QMessageBox.warning(self, "Truncation", 
-                "Nach Kürzen an die Videolänge bleibt kein sinnvolles GPX übrig!")
+                "After shortening to the video length, no meaningful GPX remains!")
             return
-    
+        
         # 5) => Speichern
         self._save_gpx_to_file(truncated, out_path)
         
@@ -5056,7 +4974,6 @@ class MainWindow(QMainWindow):
                 "lon": lon,
                 "ele": ele,
                 "time": current_time,
-                "rel_s": (current_time - start_time).total_seconds(),
                 "delta_m": 0.0,        # wird durch recalc gesetzt
                 "speed_kmh": 0.0,      # wird durch recalc gesetzt
                 "gradient": 0.0        # wird durch recalc gesetzt
@@ -5109,7 +5026,6 @@ class MainWindow(QMainWindow):
                 "lon": lon,
                 "ele": ele,
                 "time": base_time + timedelta(seconds=target_s),
-                "rel_s": target_s,
                 "delta_m": 0.0,
                 "speed_kmh": 0.0,
                 "gradient": 0.0

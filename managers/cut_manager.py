@@ -77,7 +77,9 @@ class VideoCutManager(QObject):
                 f"You cannot set MarkE ({current_global_s:.2f}s) in front of MarkB ({self.markB_time_s:.2f}s)!"
             )
             return
-        
+        video_total = sum(self.video_durations)
+        if video_total - current_global_s < 1 : #impossible to select last frame on mpv, so we clamp manually
+            current_global_s = video_total
         self.markE_time_s = current_global_s
         self.timeline.set_markE_time(current_global_s)
 
@@ -90,7 +92,7 @@ class VideoCutManager(QObject):
         start_s = max(0.0, start_s)
         end_s   = min(end_s, video_total)
         if (end_s - start_s) < 0.01:
-            print("[DEBUG] Cut-Bereich zu klein, Abbruch.")
+            print("[DEBUG] Cut-Bereich zu klein, Abbruch. Start:", start_s, "Ende:", end_s)
             return
         print(f"[DEBUG] CUT hinzugefügt: ({start_s:.3f}, {end_s:.3f})")
         self._cut_intervals.append((start_s, end_s))
