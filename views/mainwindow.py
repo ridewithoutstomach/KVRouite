@@ -1994,7 +1994,7 @@ class MainWindow(QMainWindow):
                 video_edit_on=self.action_toggle_video.isChecked(),
                 auto_sync_on=checked
             )
-            self.gpx_control.setEnabled(not checked)  # <--- HIER: komplett ausgrauen/eingrauen
+            #self.gpx_control.setEnabled(not checked)  # <--- HIER: komplett ausgrauen/eingrauen
 
         
     def _on_sync_point_video_time_toggled(self, checked: bool):
