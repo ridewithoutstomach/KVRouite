@@ -1070,8 +1070,6 @@ class GPXControlWidget(QWidget):
         mw = self._mainwindow
         gpx_data = mw.gpx_widget.gpx_list._gpx_data
         mw.register_gpx_undo_snapshot()
-        if mw._autoSyncVideoEnabled and mw._edit_mode in ("copy", "encode"):
-            mw.register_video_undo_snapshot(True)
         
         mw.map_widget.view.page().runJavaScript("showLoading('Deleting GPX-Range...');")
         mw.gpx_widget.gpx_list.delete_selected_range(shift_next)
