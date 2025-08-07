@@ -1058,6 +1058,7 @@ class GPXControlWidget(QWidget):
         self.markE_button.setVisible(visible)    
         self.markB_button.setVisible(visible)   # auch markB vestecken 
         self.deselect_button.setVisible(visible) # auch deselect verstecken
+        self.cut_button.setVisible(visible)  
         
     
     def _process_delete_points(self,shift_next: bool = True):

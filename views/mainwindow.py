@@ -2797,9 +2797,8 @@ class MainWindow(QMainWindow):
         self._on_auto_sync_video_toggled(enable and self._edit_mode != "off")
         if enable and self._edit_mode != "off":
             self.video_control._on_autocut_toggle_clicked()
-        else:
-            self.video_control.activate_controls()
-
+        
+        self.video_control.activate_controls()
         self._on_sync_point_video_time_toggled(enable)
 
     def _set_gpx_data(self, gpx_data):
