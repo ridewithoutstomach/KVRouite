@@ -4537,7 +4537,7 @@ class MainWindow(QMainWindow):
 
         def undo():
             set_gpx_video_shift(curr_gpx_video_shift)
-            if(not curr_gpx_video_shift):
+            if(not is_gpx_video_shift_set()):
                 self.enableVideoGpxSync(False)
             self.gpx_widget.set_gpx_data(gpx_snapshot)
             self._gpx_data = gpx_snapshot
@@ -4576,6 +4576,7 @@ class MainWindow(QMainWindow):
             def combined_undo():
                 last_undo()
                 undo()
+                print("[DEBUG] Combined with video undo snapshot.")
 
             self._undo_stack.append(combined_undo)
         else:
