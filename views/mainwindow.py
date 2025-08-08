@@ -2337,7 +2337,7 @@ class MainWindow(QMainWindow):
         s = (s_rounded % 60)
         return (h, m, s)
     
-    
+    """
     def on_markB_clicked_video(self):
         row = self.gpx_widget.gpx_list.table.currentRow()
         if row < 0:
@@ -2347,9 +2347,9 @@ class MainWindow(QMainWindow):
         global_s = self.video_editor.get_current_position_s()
         self.cut_manager.markB_time_s = global_s
         self.timeline.set_markB_time(global_s)
-        
     """    
-   
+        
+  
     def on_markB_clicked_video(self):
         
         #Wird     aufgerufen, wenn man im VideoControlWidget den Button '[-' klickt.
@@ -2380,7 +2380,7 @@ class MainWindow(QMainWindow):
             best_idx = self.gpx_widget.get_closest_index_for_time(final_s)
         
             # Das +1:
-            row = best_idx + 1
+            row = best_idx
         
             # Klemme, falls row jenseits der letzten Zeile liegt
             maxrow = len(self.gpx_widget.gpx_list._gpx_data) - 1
@@ -2404,7 +2404,7 @@ class MainWindow(QMainWindow):
             self.cut_manager.markB_time_s = global_s
             self.timeline.set_markB_time(global_s)
 
-    """    
+    
 
     def on_markE_clicked(self):
         print("[DEBUG] Alter markE")

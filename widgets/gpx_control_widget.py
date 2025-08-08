@@ -1657,6 +1657,9 @@ class GPXControlWidget(QWidget):
             )
             mw.gpx_widget.gpx_list.clear_marked_range()
             mw.map_widget.clear_marked_range()
+            
+            
+            mw.cut_manager.on_markClear_clicked()   # auch den video editor restetten       
     
         else:
             # -----------------------------------------------
