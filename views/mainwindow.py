@@ -1904,7 +1904,58 @@ class MainWindow(QMainWindow):
     
         self.map_widget.view.page().runJavaScript("hideLoading();")
     """    
+    def on_cut_clicked_video(self):
+        if self._autoSyncVideoEnabled and self._edit_mode in ("copy", "encode"):
+            self.register_gpx_undo_snapshot()  # ❗ Vor dem Cut!
+            self.register_video_undo_snapshot(True)
 
+            # ➕ Vor dem Cut: MarkB um +1 verschieben (aber nur intern!)
+            current_B = self.gpx_widget.gpx_list._markB_idx
+            current_E = self.gpx_widget.gpx_list._markE_idx
+
+            if current_B is not None and current_E is not None:
+                
+                if current_B == 0:
+                    new_B = 0
+                else:    
+                    new_B = current_B + 1   
+    
+                # Klemme: darf nicht hinter E liegen
+                if new_B >= current_E:
+                    from PySide6.QtWidgets import QMessageBox
+                    QMessageBox.warning(
+                        self,
+                        "Invalid GPX Range",
+                        f"Cannot shift start of range from {current_B} to {new_B} because it would be >= E={current_E}!"
+                    )
+                    return
+    
+                print(f"[DEBUG] Shift MarkB: {current_B} → {new_B}")
+                self.gpx_widget.gpx_list.set_markB_row(new_B)
+                self.map_widget.set_markB_point(new_B)
+
+        else:
+            self.register_video_undo_snapshot(False)
+
+        # 1) Video-Cut
+        self.cut_manager.on_cut_clicked()
+
+        # 2) autoSyncVideo?
+        if self._autoSyncVideoEnabled and self._edit_mode in ("copy", "encode"):
+            self.map_widget.view.page().runJavaScript("showLoading('Deleting GPX-Range...');")
+            print("[DEBUG] autoSyncVideo=ON => rufe gpx_list.delete_selected_range()")
+            self.gpx_widget.gpx_list.delete_selected_range()
+            self.map_widget.clear_marked_range()
+
+            self._update_gpx_overview()
+            self._gpx_data = self.gpx_widget.gpx_list._gpx_data
+            route_geojson = self._build_route_geojson_from_gpx(self._gpx_data)
+            self.map_widget.loadRoute(route_geojson, do_fit=False)
+            self.chart.set_gpx_data(self._gpx_data)
+            self.map_widget.view.page().runJavaScript("hideLoading();")
+
+    
+    """
     def on_cut_clicked_video(self):
         if self._autoSyncVideoEnabled and self._edit_mode in ("copy", "encode"):
             self.register_gpx_undo_snapshot()  # ❗ Vor dem Cut!
@@ -1913,12 +1964,12 @@ class MainWindow(QMainWindow):
             self.register_video_undo_snapshot(False)
 
         
-        """
-        Wird aufgerufen, wenn der 'cut'-Button im VideoControlWidget gedrückt wird.
-        1) Führt den normalen Video-Cut via cut_manager durch
-        2) Falls autoSyncVideo ON => Löschen wir im GPXList ebenfalls B..E
-        """
+        
+        #Wird aufgerufen, wenn der 'cut'-Button im VideoControlWidget gedrückt wird.
+        #1) Führt den normalen Video-Cut via cut_manager durch
+        #2) Falls autoSyncVideo ON => Löschen wir im GPXList ebenfalls B..E
         # 1) Video-Cut
+        
         self.cut_manager.on_cut_clicked()
         
 
@@ -1938,7 +1989,7 @@ class MainWindow(QMainWindow):
         else:
             pass    
         
-        
+    """    
     def _on_auto_sync_video_toggled(self, checked: bool):
         """
         Wird aufgerufen, wenn der Menüpunkt "AutoSyncVideo" an-/abgehakt wird.
@@ -2287,12 +2338,22 @@ class MainWindow(QMainWindow):
         return (h, m, s)
     
     
-    
+    def on_markB_clicked_video(self):
+        row = self.gpx_widget.gpx_list.table.currentRow()
+        if row < 0:
+            return
+        self.gpx_widget.gpx_list.set_markB_row(row)  # 🔧 <- das fehlte!
+        self.map_widget.set_markB_point(row)
+        global_s = self.video_editor.get_current_position_s()
+        self.cut_manager.markB_time_s = global_s
+        self.timeline.set_markB_time(global_s)
+        
+    """    
    
     def on_markB_clicked_video(self):
-        """
-        Wird     aufgerufen, wenn man im VideoControlWidget den Button '[-' klickt.
-        """
+        
+        #Wird     aufgerufen, wenn man im VideoControlWidget den Button '[-' klickt.
+        
         # 1) Falls AutoSync=OFF => verhalte dich wie bisher (ohne +1).
         # 2) Falls AutoSync=ON  => *erst* Video/GPS syncen, dann +1 in der GPX-Liste.
         #
@@ -2343,7 +2404,7 @@ class MainWindow(QMainWindow):
             self.cut_manager.markB_time_s = global_s
             self.timeline.set_markB_time(global_s)
 
-    
+    """    
 
     def on_markE_clicked(self):
         print("[DEBUG] Alter markE")
@@ -4527,6 +4588,8 @@ class MainWindow(QMainWindow):
         if self._undo_stack:
             undo_fn = self._undo_stack.pop()
             undo_fn()  # Die gespeicherte Undo-Funktion ausführen
+            self._update_gpx_overview()
+
         else:
             QMessageBox.warning(self,"Undo ignored","Undo stack is empty.")    
     
