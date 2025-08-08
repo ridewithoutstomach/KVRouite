@@ -593,6 +593,7 @@ class MainWindow(QMainWindow):
         self.bottom_right_layout.setSpacing(0)
         
         self.gpx_control = GPXControlWidget()
+        
         self.bottom_right_layout.addWidget(self.gpx_control, stretch=1)
         
         undo_action.triggered.connect(self.on_global_undo)

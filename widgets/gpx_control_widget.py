@@ -79,6 +79,7 @@ class GPXControlWidget(QWidget):
         
         self._mainwindow = None
         
+        
 
 
         # SORGT DAFÜR, DASS DAS WIDGET NICHT ENDLOS IN DIE HÖHE WÄCHST
@@ -1658,8 +1659,13 @@ class GPXControlWidget(QWidget):
             mw.gpx_widget.gpx_list.clear_marked_range()
             mw.map_widget.clear_marked_range()
             
+            ### nur range in editor llschen wenn autocut is enabled
+            main_window = self.window()
+            if hasattr(main_window, "_autoSyncVideoEnabled") and main_window._autoSyncVideoEnabled:
+                main_window.cut_manager.on_markClear_clicked()
+                
             
-            mw.cut_manager.on_markClear_clicked()   # auch den video editor restetten       
+            #mw.cut_manager.on_markClear_clicked()   # auch den video editor restetten       
     
         else:
             # -----------------------------------------------
