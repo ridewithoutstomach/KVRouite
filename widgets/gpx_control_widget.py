@@ -447,6 +447,16 @@ class GPXControlWidget(QWidget):
             mw.chart.set_gpx_data(gpx_data)
             if mw.mini_chart_widget:
                 mw.mini_chart_widget.set_gpx_data(gpx_data)
+                
+                
+            mw.gpx_widget.gpx_list.clear_marked_range()
+            mw.map_widget.clear_marked_range()
+            
+            ### nur range in editor llschen wenn autocut is enabled
+            
+            if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+                mw.cut_manager.on_markClear_clicked()        
+            
 
             QMessageBox.information(
                 self, "Done",
@@ -805,6 +815,15 @@ class GPXControlWidget(QWidget):
             mw.mini_chart_widget.set_gpx_data(gpx_data)
         mw.map_widget.clear_marked_range()
         mw.gpx_widget.gpx_list.clear_marked_range()
+        
+        
+        
+            
+        ### nur range in editor llschen wenn autocut is enabled
+        
+        if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+            mw.cut_manager.on_markClear_clicked()
+                
     
         QMessageBox.information(
             self, "Done",
@@ -1085,6 +1104,10 @@ class GPXControlWidget(QWidget):
             mw.mini_chart_widget.set_gpx_data(mw._gpx_data)
         
         mw.map_widget.view.page().runJavaScript("hideLoading();")
+            
+        if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+            mw.cut_manager.on_markClear_clicked()
+            
 
     def on_cut_range_clicked(self):
        self._process_delete_points(True)
@@ -1264,14 +1287,21 @@ class GPXControlWidget(QWidget):
     
         #route_geojson = mw._build_route_geojson_from_gpx(gpx_data)
         #mw.map_widget.loadRoute(route_geojson, do_fit=False)
+        
+        mw.gpx_widget.gpx_list.clear_marked_range()
+        mw.map_widget.clear_marked_range()
+            
+        ### nur range in editor llschen wenn autocut is enabled
+        if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+            mw.cut_manager.on_markClear_clicked()
 
         QMessageBox.information(
             self, "Flatten done",
             "All subsegments in this range now share the same local speed.\n"
             "Total time remained unchanged."
         )
-        mw.gpx_widget.gpx_list.clear_marked_range()
-        mw.map_widget.clear_marked_range()
+        
+        
 
     def on_show_average_speed_info(self):
         mw = self._mainwindow
@@ -1651,18 +1681,20 @@ class GPXControlWidget(QWidget):
                 mw.mini_chart_widget.set_gpx_data(gpx_data)
             route_geojson = mw._build_route_geojson_from_gpx(gpx_data)
             mw.map_widget.loadRoute(route_geojson, do_fit=False)
+            
+            mw.gpx_widget.gpx_list.clear_marked_range()
+            mw.map_widget.clear_marked_range()
+            
+            ### nur range in editor llschen wenn autocut is enabled
+            if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+                mw.cut_manager.on_markClear_clicked()    
+            
     
             QMessageBox.information(
                 self, "Done",
                 f"Elevation of all Points in {b_idx}..{e_idx} chamged by {offset_val:+.2f} m."
             )
-            mw.gpx_widget.gpx_list.clear_marked_range()
-            mw.map_widget.clear_marked_range()
             
-            ### nur range in editor llschen wenn autocut is enabled
-            main_window = self.window()
-            if hasattr(main_window, "_autoSyncVideoEnabled") and main_window._autoSyncVideoEnabled:
-                main_window.cut_manager.on_markClear_clicked()
                 
             
             #mw.cut_manager.on_markClear_clicked()   # auch den video editor restetten       
@@ -1745,11 +1777,16 @@ class GPXControlWidget(QWidget):
                 mw.mini_chart_widget.set_gpx_data(gpx_data)
             route_geojson = mw._build_route_geojson_from_gpx(gpx_data)
             mw.map_widget.loadRoute(route_geojson, do_fit=False)
-    
+            
+            
+            if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+                mw.cut_manager.on_markClear_clicked()    
+                
             QMessageBox.information(
-                self, "OK",
+                self, "Done",
                 f"Elevation of Point {row} changed to {new_ele:.2f} m."
             )
+            
             
     #################################################################    
     
@@ -1840,11 +1877,16 @@ class GPXControlWidget(QWidget):
                 if mw.mini_chart_widget:
                     mw.mini_chart_widget.set_gpx_data(gpx_data)
     
+    
+                if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+                    mw.cut_manager.on_markClear_clicked()       
+                    
                 QMessageBox.information(
                     self, "Done",
                     f"All GPX points after index 0 have been shifted by {abs(shift_val):.3f} seconds."
                 )   
-                return
+                
+                
 
             ###
             
@@ -1922,13 +1964,20 @@ class GPXControlWidget(QWidget):
             mw.chart.set_gpx_data(gpx_data)
             if mw.mini_chart_widget:
                 mw.mini_chart_widget.set_gpx_data(gpx_data)
+                
+            mw.gpx_widget.gpx_list.clear_marked_range()
+            mw.map_widget.clear_marked_range()
+            
+            if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+                mw.cut_manager.on_markClear_clicked()
+                
     
             QMessageBox.information(
                 self, "Done",
                 f"Row {row} step changed by {delta_s:+.3f} s.\n"
                 "All subsequent points shifted accordingly."
             )
-            return
+            
     
         # --- CASE B: Range B..E ---
         else:
@@ -2008,6 +2057,14 @@ class GPXControlWidget(QWidget):
             mw.chart.set_gpx_data(gpx_data)
             if mw.mini_chart_widget:
                 mw.mini_chart_widget.set_gpx_data(gpx_data)
+                
+                
+            mw.gpx_widget.gpx_list.clear_marked_range()
+            mw.map_widget.clear_marked_range()
+            ### nur range in editor llschen wenn autocut is enabled
+            
+            if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+                mw.cut_manager.on_markClear_clicked()
     
             QMessageBox.information(
                 self, "Done",
@@ -2015,8 +2072,7 @@ class GPXControlWidget(QWidget):
                 f"Old duration was {old_total_s:.3f} s, new duration is {new_total_s:.3f} s.\n"
                 f"Subsequent points have been shifted by {diff_s:+.3f} s."
             )
-            mw.gpx_widget.gpx_list.clear_marked_range()
-            mw.map_widget.clear_marked_range()
+            
     
         
         
@@ -2160,6 +2216,15 @@ class GPXControlWidget(QWidget):
             # Map
             #route_geojson = mw._build_route_geojson_from_gpx(gpx_data)
             #mw.map_widget.loadRoute(route_geojson, do_fit=False)
+            
+            mw.gpx_widget.gpx_list.clear_marked_range()
+            mw.map_widget.clear_marked_range()
+            
+            ### nur range in editor llschen wenn autocut is enabled
+            
+            if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+                mw.cut_manager.on_markClear_clicked()
+                
 
             diff_val = new_slope - old_slope
             QMessageBox.information(
@@ -2289,14 +2354,21 @@ class GPXControlWidget(QWidget):
     
             #route_geojson = mw._build_route_geojson_from_gpx(gpx_data)
             #mw.map_widget.loadRoute(route_geojson, do_fit=False)
+            mw.gpx_widget.gpx_list.clear_marked_range()
+            mw.map_widget.clear_marked_range()
+            
+            ### nur range in editor llschen wenn autocut is enabled
+            
+            if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+                mw.cut_manager.on_markClear_clicked()
+                
 
             QMessageBox.information(
                 self, "Done",
                 f"Average slope in {b_idx}..{e_idx} changed from {old_slope:.2f}% to {new_slope:.2f}%.\n"
                 f"Subsequent points have been shifted by {shift_dz:+.2f} m in elevation."
             )
-            mw.gpx_widget.gpx_list.clear_marked_range()
-            mw.map_widget.clear_marked_range()
+           
     
     def on_close_gaps_clicked(self):
         mw = self._mainwindow
@@ -2340,6 +2412,7 @@ class GPXControlWidget(QWidget):
         if not mw._directions_enabled:
             # => Altes Verhalten
             self._close_gaps_local_interpolation(b_idx, e_idx, dt)
+            
         else:
             # => Directions=True => zeige Profil-Auswahl (QDialog)
             #    Dann rufe _close_gaps_mapbox(..., profile)
@@ -2853,14 +2926,21 @@ class GPXControlWidget(QWidget):
             mw.mini_chart_widget.set_gpx_data(gpx_data)
         route_geojson = mw._build_route_geojson_from_gpx(gpx_data)
         mw.map_widget.loadRoute(route_geojson, do_fit=False)
+        
+        mw.gpx_widget.gpx_list.clear_marked_range()
+        mw.map_widget.clear_marked_range()
+            
+        ### nur range in editor llschen wenn autocut is enabled
+        
+        if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+            mw.cut_manager.on_markClear_clicked()
+                
 
         #from PySide6.QtWidgets import QMessageBox
         QMessageBox.information(self, "Close Gaps",
             f"Inserted {len(new_points)} new point(s)\n(time-based local interpolation).")
 
-        # 6) Markierungen zurücksetzen
-        mw.gpx_widget.gpx_list.clear_marked_range()
-        mw.map_widget.clear_marked_range()
+        
     
     
     def _close_gaps_mapbox(self, b_idx: int, e_idx: int, dt: float, profile: str):
@@ -3036,14 +3116,20 @@ class GPXControlWidget(QWidget):
             mw.mini_chart_widget.set_gpx_data(gpx_data)
         route_geojson = mw._build_route_geojson_from_gpx(gpx_data)
         mw.map_widget.loadRoute(route_geojson, do_fit=False)
+        
+        mw.gpx_widget.gpx_list.clear_marked_range()
+        mw.map_widget.clear_marked_range()
+            
+        ### nur range in editor llschen wenn autocut is enabled
+        
+        if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+            mw.cut_manager.on_markClear_clicked()        
 
         QMessageBox.information(self, "Close Gaps (Mapbox)",
             f"Inserted {len(new_points)-1} new point(s)\n"
             f"via Directions={profile}, total time {dt:.2f}s kept.")
 
-        mw.gpx_widget.gpx_list.clear_marked_range()
-        mw.map_widget.clear_marked_range()
-
+        
         
 
     def register_gpx_undo_snapshot(self):
