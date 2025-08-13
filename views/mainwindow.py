@@ -809,7 +809,8 @@ class MainWindow(QMainWindow):
         self.video_control.set_beginClicked.connect(self.on_set_begin_clicked)
         
         edit_on = is_edit_video_enabled()
-        self.video_control.set_editing_mode(edit_on)
+        cut_on = edit_on and (not self.gpx_widget.gpx_list._gpx_data or is_gpx_video_shift_set())
+        self.video_control.set_editing_mode(edit_on,cut_on)
         self.map_widget.view.loadFinished.connect(self._on_map_page_loaded)
         self.video_editor.set_final_time_callback(self._compute_final_time)
         
@@ -1395,7 +1396,7 @@ class MainWindow(QMainWindow):
             self._on_auto_sync_video_toggled(False)
         if new_mode == "off":
             self.video_editor.edit_status_label.setText("")
-            self.video_control.set_editing_mode(False)
+            self.video_control.set_editing_mode(False, False)
             print("[DEBUG] => OFF")
             self.encoder_setup_action.setEnabled(False)
             self.video_control.show_ovl_button(False)
@@ -1409,7 +1410,8 @@ class MainWindow(QMainWindow):
                 "font-weight: bold;"
                 "padding: 2px;"
             )
-            self.video_control.set_editing_mode(True)
+            cut_on= not self.gpx_widget.gpx_list._gpx_data or is_gpx_video_shift_set()
+            self.video_control.set_editing_mode(True,cut_on)
             print("[DEBUG] => COPY")
             self.encoder_setup_action.setEnabled(False)
             self.video_control.show_ovl_button(False)
@@ -1424,8 +1426,8 @@ class MainWindow(QMainWindow):
                 "padding: 2px;"
             )
 
-
-            self.video_control.set_editing_mode(True)
+            cut_on= not self.gpx_widget.gpx_list._gpx_data or is_gpx_video_shift_set()
+            self.video_control.set_editing_mode(True,cut_on)
             print("[DEBUG] => ENCODE")
             self.encoder_setup_action.setEnabled(True)
             self.video_control.show_ovl_button(True)
@@ -1530,43 +1532,45 @@ class MainWindow(QMainWindow):
         # 3) GPX => rel_s_marked
         gpx_data = self.gpx_widget.gpx_list._gpx_data
         final_time = self.get_final_time_for_global(global_video_s)
-        gpx_cut_time = gpx_data[0].get("time", 0.0) + timedelta(seconds = final_time - get_gpx_video_shift())
-        
-        # => Undo-Snapshot => wir ändern definitiv was
-        self.register_gpx_undo_snapshot()
-        self.register_video_undo_snapshot(True)
-    
-        i0 = -1
-        while i0 < len(gpx_data) - 1:
-            if gpx_data[i0+1].get("time", 0.0) > gpx_cut_time:
-                break
-            i0 += 1
-    
-        new_gpx_video_shift=0
-        if i0 >= 0:
-            gpx_delta = (gpx_data[i0+1].get("time", 0.0) - gpx_data[0].get("time", 0.0)).total_seconds()
-            self.gpx_widget.gpx_list.set_markB_row(0)
-            self.gpx_widget.gpx_list.set_markE_row(i0)
-            self.gpx_widget.gpx_list.delete_selected_range()
-            print(f"[DEBUG] on_set_begin_clicked => gpx_delta={gpx_delta:.2f}s")
-            new_gpx_video_shift = gpx_delta - final_time
-        else: #first gpx is after video cut, reducing time between gpx and video
-            new_gpx_video_shift = get_gpx_video_shift() - final_time
 
-        set_gpx_video_shift(new_gpx_video_shift) 
+        if gpx_data:
+            gpx_cut_time = gpx_data[0].get("time", 0.0) + timedelta(seconds = final_time - get_gpx_video_shift())
+        
+            # => Undo-Snapshot => wir ändern definitiv was
+            self.register_gpx_undo_snapshot()
     
-        new_data = self.gpx_widget.gpx_list._gpx_data
-        if new_data:
-            recalc_gpx_data(new_data)
-            self.gpx_widget.set_gpx_data(new_data)
+            i0 = -1
+            while i0 < len(gpx_data) - 1:
+                if gpx_data[i0+1].get("time", 0.0) > gpx_cut_time:
+                    break
+                i0 += 1
+        
+            new_gpx_video_shift=0
+            if i0 >= 0:
+                gpx_delta = (gpx_data[i0+1].get("time", 0.0) - gpx_data[0].get("time", 0.0)).total_seconds()
+                self.gpx_widget.gpx_list.set_markB_row(0)
+                self.gpx_widget.gpx_list.set_markE_row(i0)
+                self.gpx_widget.gpx_list.delete_selected_range()
+                print(f"[DEBUG] on_set_begin_clicked => gpx_delta={gpx_delta:.2f}s")
+                new_gpx_video_shift = gpx_delta - final_time
+            else: #first gpx is after video cut, reducing time between gpx and video
+                new_gpx_video_shift = get_gpx_video_shift() - final_time
+
+            set_gpx_video_shift(new_gpx_video_shift) 
+        
+            new_data = self.gpx_widget.gpx_list._gpx_data
+            if new_data:
+                recalc_gpx_data(new_data)
+                self.gpx_widget.set_gpx_data(new_data)
     
+        self.register_video_undo_snapshot(gpx_data) #append undo video if gpx available, else just undo video
         # => Video => cut 0..global_video_s
         if global_video_s <= 0.01:
             QMessageBox.information(
                 self, "Set Begin (ON)",
                 "Video near 0s => no cut.\n"
                 "GPX cut at the point.\n"
-                "Undo in GPX-list + Video possible."
+                "Undo possible."
             )
             
         else:
@@ -1576,10 +1580,13 @@ class MainWindow(QMainWindow):
             self.timeline.set_markE_time(global_video_s)
             self.cut_manager.on_cut_clicked()
 
+            msg="Video"
+            if gpx_data:
+                msg += " and GPX"
             QMessageBox.information(
                 self, "Set Begin (ON)",
-                f"Video and gpx cut at {global_video_s:.2f}s.\n"
-                "Undo in GPX-list + Video possible."
+                f"{msg} cut at {global_video_s:.2f}s.\n"
+                "Undo possible."
             )
     
         # -------------------------------------------
@@ -2846,7 +2853,7 @@ class MainWindow(QMainWindow):
             clicked = msg_box.clickedButton()
             if clicked == yes_btn:
                 set_gpx_video_shift(0)
-                self.enableVideoGpxSync(True)
+                self.enableVideoGpxSync(True,True)
                 if self._edit_mode != "off":
                     self.video_control.set_editing_mode(True) #to refresh the button state
             else:
@@ -3762,7 +3769,7 @@ class MainWindow(QMainWindow):
                 route_geojson = self._build_route_geojson_from_gpx(self._gpx_data)
                 self.map_widget.loadRoute(route_geojson, do_fit=False)
             if self._edit_mode != "off":
-                self.video_control.set_editing_mode(True) #to refresh the button state
+                self.video_control.set_editing_mode(True,True) #to refresh the button state
         
     def on_sync_clicked(self):
         """
