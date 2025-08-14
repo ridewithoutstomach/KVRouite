@@ -1552,7 +1552,7 @@ class MainWindow(QMainWindow):
                 self.gpx_widget.gpx_list.set_markE_row(i0)
                 self.gpx_widget.gpx_list.delete_selected_range()
                 print(f"[DEBUG] on_set_begin_clicked => gpx_delta={gpx_delta:.2f}s")
-                new_gpx_video_shift = gpx_delta - final_time
+                new_gpx_video_shift = gpx_delta - final_time + get_gpx_video_shift()
             else: #first gpx is after video cut, reducing time between gpx and video
                 new_gpx_video_shift = get_gpx_video_shift() - final_time
 
@@ -2787,6 +2787,7 @@ class MainWindow(QMainWindow):
     def process_open_mp4(self, files):
      # 1) Alle ausgewählten Dateien in die Playlist hängen,
         #    ohne zwischendurch den Player zu starten:
+        first_load= self.playlist_counter == 0
         for file_path in files:
             self.add_to_playlist(file_path)
 
@@ -2799,41 +2800,42 @@ class MainWindow(QMainWindow):
 
         if self.playlist_counter > 1:
             QMessageBox.information(self, "Loaded", f"{len(files)} video(s) added to the playlist.")
-        
-        dlg = QDialog(self)
-        dlg.setWindowTitle(f"Edit video")
 
-        vbox = QVBoxLayout(dlg)
-        lbl = QLabel("Select video edition mode")
-        vbox.addWidget(lbl)
+        if first_load:
+            dlg = QDialog(self)
+            dlg.setWindowTitle(f"Edit video")
 
-        # Button Box
-        btns = QDialogButtonBox()
+            vbox = QVBoxLayout(dlg)
+            lbl = QLabel("Select video edition mode")
+            vbox.addWidget(lbl)
 
-        # Add "Copy" button
-        btn_copy = QPushButton("Copy")
-        btns.addButton(btn_copy, QDialogButtonBox.YesRole)
-        btn_copy.clicked.connect(lambda: dlg.done(1))
+            # Button Box
+            btns = QDialogButtonBox()
 
-        # Add "Encode" button
-        btn_encode = QPushButton("Encode")
-        btns.addButton(btn_encode, QDialogButtonBox.ActionRole)
-        btn_encode.clicked.connect(lambda: dlg.done(2) )
+            # Add "Copy" button
+            btn_copy = QPushButton("Copy")
+            btns.addButton(btn_copy, QDialogButtonBox.YesRole)
+            btn_copy.clicked.connect(lambda: dlg.done(1))
 
-        # Add "No Edit" button (acts like Cancel)
-        btn_cancel = QPushButton("No Edit")
-        btns.addButton(btn_cancel, QDialogButtonBox.RejectRole)
-        btn_cancel.clicked.connect(lambda: dlg.reject())
+            # Add "Encode" button
+            btn_encode = QPushButton("Encode")
+            btns.addButton(btn_encode, QDialogButtonBox.ActionRole)
+            btn_encode.clicked.connect(lambda: dlg.done(2) )
 
-        vbox.addWidget(btns)
+            # Add "No Edit" button (acts like Cancel)
+            btn_cancel = QPushButton("No Edit")
+            btns.addButton(btn_cancel, QDialogButtonBox.RejectRole)
+            btn_cancel.clicked.connect(lambda: dlg.reject())
 
-        result = dlg.exec()
-        if result == 1:
-            self._set_edit_mode("copy")
-        elif result == 2:
-            self._set_edit_mode("encode")
+            vbox.addWidget(btns)
 
-        self.proposeVideoGpxSync()
+            result = dlg.exec()
+            if result == 1:
+                self._set_edit_mode("copy")
+            elif result == 2:
+                self._set_edit_mode("encode")
+
+            self.proposeVideoGpxSync()
 
     def proposeVideoGpxSync(self):
         if self._gpx_data and self.playlist_counter > 0:
@@ -5002,7 +5004,7 @@ class MainWindow(QMainWindow):
         stdev = statistics.stdev(deltas)
 
         # Nur wenn der Mittelwert signifikant von 1.0 abweicht (> ±0.05)
-        if abs(mean - 1.0) > 0.05:
+        if mean < 0.95:
             ret = QMessageBox.question(
                 self,
                 "Resample to 1s?",
