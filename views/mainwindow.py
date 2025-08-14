@@ -2853,9 +2853,9 @@ class MainWindow(QMainWindow):
             clicked = msg_box.clickedButton()
             if clicked == yes_btn:
                 set_gpx_video_shift(0)
-                self.enableVideoGpxSync(True,True)
+                self.enableVideoGpxSync(True)
                 if self._edit_mode != "off":
-                    self.video_control.set_editing_mode(True) #to refresh the button state
+                    self.video_control.set_editing_mode(True,True) #to refresh the button state
             else:
                 QMessageBox.information(self, "Video & GPX Sync", 
                                         "In this case it is advised to define the sync point.\n " \
