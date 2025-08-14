@@ -1507,14 +1507,25 @@ class MainWindow(QMainWindow):
     def on_set_begin_clicked(self):
         current_local_s = self.video_editor.get_current_position_s()
         
-        ret = QMessageBox.question(
-            self,
-            "Confirm Cut Begin",
-            f"Cut gpx and video before {current_local_s}s?\n"
-            "Press Yes to proceed, No to abort.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
+        if self._autoSyncVideoEnabled:
+            ret = QMessageBox.question(
+                self,
+                "Confirm Cut Begin",
+                f"Cut gpx and video before {current_local_s}s?\n"
+                "Press Yes to proceed, No to abort.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+        else:
+            ret = QMessageBox.question(
+                self,
+                "Confirm Cut Begin",
+                f"Cut video before {current_local_s}s?\n"
+                "Press Yes to proceed, No to abort.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            
         if ret != QMessageBox.Yes:
             # => Abbrechen
             return
