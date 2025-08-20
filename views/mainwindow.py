@@ -2787,7 +2787,7 @@ class MainWindow(QMainWindow):
             self,
             "Load MP4 files",
             "",
-            "Video Files (*.mp4 *.mov *.mkv *.avi)",
+            "Video Files (*.mp4 *.MP4 *.mov *.mkv *.avi)",
         )
         if not files:
             return
@@ -4868,7 +4868,7 @@ class MainWindow(QMainWindow):
             return
         if(path.endswith(".gpx")):
             self.process_open_gpx(path)
-        elif(path.endswith(".mp4")):
+        elif(path.endswith(".mp4") or path.endswith(".MP4")):
             self.process_open_mp4([path])
         elif(path.endswith(".vgsyncproj")):
             self.process_open_project(path)
