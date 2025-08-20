@@ -736,7 +736,7 @@ class GPXListWidget(QWidget):
                 if rel_s < 0:
                     self._set_row_foreground(row_idx, Qt.gray)
         finally:
-            # Tömeges frissítés vége: állapotok visszaállítása
+            # End of bulk update: restore widget state
             self._end_table_update()
 
     # ---------------------------------------------------
@@ -794,8 +794,8 @@ class GPXListWidget(QWidget):
 
     def _set_cell(self, row, col, text):
         """
-        Hatékony cellafrissítés: ahol lehet, nem hozunk létre új QTableWidgetItem-et,
-        csak a meglévő szövegét frissítjük. Csak a 0. oszlop szerkeszthető.
+        Efficient cell update: reuse an existing QTableWidgetItem when possible,
+        only update its text. Only column 0 is editable.
         """
         item = self.table.item(row, col)
         if item is None:
@@ -823,33 +823,33 @@ class GPXListWidget(QWidget):
         return None
 
     # ---------------------------------------------------
-    # Belső: tábla fagyasztása/kiolvasztása tömeges frissítéshez
+    # Internal: freeze/unfreeze table for bulk updates
     # ---------------------------------------------------
     def _begin_table_update(self):
         if self._updating_table:
             return
         self._updating_table = True
-        # Signalok és rajzolás tiltása a gyors feltöltéshez
+        # Disable signals and repaints to speed up bulk filling
         self.table.blockSignals(True)
         self.table.setUpdatesEnabled(False)
-        # Sorting kikapcsolása, mert cella beszúrásnál nagyon drága lehet
+        # Disable sorting because it can be very expensive during cell insert/update
         self._prev_sorting_enabled = self.table.isSortingEnabled()
         self.table.setSortingEnabled(False)
-        # Oszlopszélesség módok ideiglenes rögzítése, hogy ne legyen
-        # soronkénti újraméretezés (különösen ResizeToContents mellett)
+        # Temporarily fix header resize modes to avoid per-row recalculation
+        # (especially when using ResizeToContents)
         header = self.table.horizontalHeader()
         self._prev_resize_modes = [header.sectionResizeMode(i) for i in range(self.table.columnCount())]
         for i in range(self.table.columnCount()):
             header.setSectionResizeMode(i, QHeaderView.Fixed)
 
     def _end_table_update(self):
-        # Eredeti oszlopszélesség módok visszaállítása
+        # Restore original header resize modes
         header = self.table.horizontalHeader()
         if self._prev_resize_modes is not None:
             for i, mode in enumerate(self._prev_resize_modes):
                 header.setSectionResizeMode(i, mode)
         self._prev_resize_modes = None
-        # Sorting és rajzolás vissza
+        # Restore sorting and repaints
         if self._prev_sorting_enabled is not None:
             self.table.setSortingEnabled(self._prev_sorting_enabled)
         self._prev_sorting_enabled = None
