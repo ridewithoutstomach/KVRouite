@@ -2059,11 +2059,11 @@ class MainWindow(QMainWindow):
             )
         self._update_set_gpx2video_enabled()    
         
-        if self.gpx_control:
-            self.gpx_control.update_set_gpx2video_state(
-                video_edit_on=self.action_toggle_video.isChecked(),
-                auto_sync_on=checked
-            )
+        #if self.gpx_control:
+        #    self.gpx_control.update_set_gpx2video_state(
+        #        video_edit_on=self.action_toggle_video.isChecked(),
+        #        auto_sync_on=checked
+        #    )
             #self.gpx_control.setEnabled(not checked)  # <--- HIER: komplett ausgrauen/eingrauen
 
         
