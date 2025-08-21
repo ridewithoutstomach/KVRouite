@@ -123,6 +123,10 @@ class GPXListWidget(QWidget):
         self._gpx_times = []
         self._last_video_row = None
         self._video_is_playing = False
+        # Bulk update guards and previous state holders
+        self._updating_table = False
+        self._prev_resize_modes = None
+        self._prev_sorting_enabled = None
 
         # Wenn die Auswahl (Selektion) geändert wird
         self.table.itemSelectionChanged.connect(self._on_table_selection_changed)
@@ -670,64 +674,70 @@ class GPXListWidget(QWidget):
     # 4) GPX-Daten
     # ---------------------------------------------------
     def set_gpx_data(self, data):
-        self._updating_table = True
-        self._gpx_data = data
-        
-        n = len(data)
-        self.table.setRowCount(n)
-        self._gpx_times = [0.0]*n
-        self._last_video_row = None
+        self._begin_table_update()
+        try:
+            self._gpx_data = data
 
-        if n == 0:
-            return
+            n = len(data)
+            self.table.clearContents()
+            self.table.setRowCount(n)
+            self._gpx_times = [0.0] * n
+            self._last_video_row = None
 
-        base_dt = data[0].get("time", None)
-        base_ts = base_dt.timestamp() if base_dt else None
-        prev_dt = None
+            if n == 0:
+                return
 
-        from core.gpx_parser import get_gpx_video_shift
+            base_dt = data[0].get("time", None)
+            prev_dt = None
+            video_shift = get_gpx_video_shift()
 
-        for row_idx, pt in enumerate(data):
-            dt = pt.get("time", None)
-            if dt and base_dt is not None:
-                rel_s = dt.timestamp() - base_ts + get_gpx_video_shift()
-            else:
-                rel_s = 0.0
-            
-            if(abs(rel_s) < 0.001):
-                rel_s = 0.0
+            for row_idx, pt in enumerate(data):
+                dt = pt.get("time", None)
+                if dt and base_dt is not None:
+                    # Faster than timestamp(): use timedelta-based difference
+                    rel_s = (dt - base_dt).total_seconds() + video_shift
+                else:
+                    rel_s = 0.0
 
-            self._gpx_times[row_idx] = rel_s
+                if abs(rel_s) < 0.001:
+                    rel_s = 0.0
 
-            time_str = self._format_hhmmss_milli(rel_s)
-            self._set_cell(row_idx, 0, time_str)
+                self._gpx_times[row_idx] = rel_s
 
-            lat_val = pt.get("lat", 0.0)
-            lon_val = pt.get("lon", 0.0)
-            self._set_cell(row_idx, 1, f"{lat_val:.6f}")
-            self._set_cell(row_idx, 2, f"{lon_val:.6f}")
+                # Column 0: time
+                time_str = self._format_hhmmss_milli(rel_s)
+                self._set_cell(row_idx, 0, time_str)
 
-            if row_idx == 0 or not dt or not prev_dt:
-                step_s = 0.0
-            else:
-                diff_s = (dt - prev_dt).total_seconds()
-                step_s = diff_s if diff_s > 0 else 0.0
-            self._set_cell(row_idx, 3, f"{step_s:.3f}")
-            prev_dt = dt
+                # Columns 1-2: lat/lon
+                lat_val = pt.get("lat", 0.0)
+                lon_val = pt.get("lon", 0.0)
+                self._set_cell(row_idx, 1, f"{lat_val:.6f}")
+                self._set_cell(row_idx, 2, f"{lon_val:.6f}")
 
-            dist_val = pt.get("delta_m", 0.0)
-            self._set_cell(row_idx, 4, f"{dist_val:.2f}")
-            spd_val = pt.get("speed_kmh", 0.0)
-            self._set_cell(row_idx, 5, f"{spd_val:.2f}")
-            ele_val = pt.get("ele", 0.0)
-            self._set_cell(row_idx, 6, f"{ele_val:.2f}")
-            grd_val = pt.get("gradient", 0.0)
-            self._set_cell(row_idx, 7, f"{grd_val:.1f}")
-            self._set_cell(row_idx, 8, "")
-            if rel_s < 0 : 
-                self._set_row_foreground(row_idx,Qt.gray)
+                # Column 3: step (s)
+                if row_idx == 0 or not dt or not prev_dt:
+                    step_s = 0.0
+                else:
+                    diff_s = (dt - prev_dt).total_seconds()
+                    step_s = diff_s if diff_s > 0 else 0.0
+                self._set_cell(row_idx, 3, f"{step_s:.3f}")
+                prev_dt = dt
 
-        self._updating_table = False
+                # Columns 4-8: metrics
+                dist_val = pt.get("delta_m", 0.0)
+                self._set_cell(row_idx, 4, f"{dist_val:.2f}")
+                spd_val = pt.get("speed_kmh", 0.0)
+                self._set_cell(row_idx, 5, f"{spd_val:.2f}")
+                ele_val = pt.get("ele", 0.0)
+                self._set_cell(row_idx, 6, f"{ele_val:.2f}")
+                grd_val = pt.get("gradient", 0.0)
+                self._set_cell(row_idx, 7, f"{grd_val:.1f}")
+                self._set_cell(row_idx, 8, "")
+                if rel_s < 0:
+                    self._set_row_foreground(row_idx, Qt.gray)
+        finally:
+            # End of bulk update: restore widget state
+            self._end_table_update()
 
     # ---------------------------------------------------
     # 5) get_closest_index_for_time
@@ -783,9 +793,20 @@ class GPXListWidget(QWidget):
         return h * 3600 + m * 60 + s + ms / 1000.0
 
     def _set_cell(self, row, col, text):
-        item = QTableWidgetItem(text)
-        item.setFlags(item.flags() | Qt.ItemIsEditable if col==0 else item.flags() & ~Qt.ItemIsEditable)
-        self.table.setItem(row, col, item)
+        """
+        Efficient cell update: reuse an existing QTableWidgetItem when possible,
+        only update its text. Only column 0 is editable.
+        """
+        item = self.table.item(row, col)
+        if item is None:
+            item = QTableWidgetItem()
+            flags = item.flags()
+            if col == 0:
+                item.setFlags(flags | Qt.ItemIsEditable)
+            else:
+                item.setFlags(flags & ~Qt.ItemIsEditable)
+            self.table.setItem(row, col, item)
+        item.setText(text)
 
     def _get_mainwindow(self):
         """
@@ -800,6 +821,41 @@ class GPXListWidget(QWidget):
                 return w
             w = w.parentWidget()
         return None
+
+    # ---------------------------------------------------
+    # Internal: freeze/unfreeze table for bulk updates
+    # ---------------------------------------------------
+    def _begin_table_update(self):
+        if self._updating_table:
+            return
+        self._updating_table = True
+        # Disable signals and repaints to speed up bulk filling
+        self.table.blockSignals(True)
+        self.table.setUpdatesEnabled(False)
+        # Disable sorting because it can be very expensive during cell insert/update
+        self._prev_sorting_enabled = self.table.isSortingEnabled()
+        self.table.setSortingEnabled(False)
+        # Temporarily fix header resize modes to avoid per-row recalculation
+        # (especially when using ResizeToContents)
+        header = self.table.horizontalHeader()
+        self._prev_resize_modes = [header.sectionResizeMode(i) for i in range(self.table.columnCount())]
+        for i in range(self.table.columnCount()):
+            header.setSectionResizeMode(i, QHeaderView.Fixed)
+
+    def _end_table_update(self):
+        # Restore original header resize modes
+        header = self.table.horizontalHeader()
+        if self._prev_resize_modes is not None:
+            for i, mode in enumerate(self._prev_resize_modes):
+                header.setSectionResizeMode(i, mode)
+        self._prev_resize_modes = None
+        # Restore sorting and repaints
+        if self._prev_sorting_enabled is not None:
+            self.table.setSortingEnabled(self._prev_sorting_enabled)
+        self._prev_sorting_enabled = None
+        self.table.blockSignals(False)
+        self.table.setUpdatesEnabled(True)
+        self._updating_table = False
         
     def _get_time_of_row(self, row_idx: int):
         """
