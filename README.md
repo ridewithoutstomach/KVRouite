@@ -1,7 +1,7 @@
 VGSync
 ======
 
-VGSync is a Python-based desktop application designed to synchronize GPX data with video footage. Its a Videoa and GPX synchronising tool. It uses "mpv" for high-precision video playback and "ffmpeg" for media processing.
+VGSync is a Python-based desktop application designed to synchronize GPX data with video footage. Its a Video and GPX synchronising tool. It uses "mpv" for high-precision video playback and "ffmpeg" for media processing.
 
 ![VGSync Main Window](./screenshots/mainwindow.png)
 
