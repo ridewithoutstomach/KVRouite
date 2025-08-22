@@ -195,7 +195,7 @@ class MapWidget(QWidget):
 
             if playing:
                 # alten blauen Marker entfernen
-                if self._blue_idx is not None:
+                if self._blue_idx is not None and self._blue_idx < len(self._mainwindow._gpx_data):
                     delta_ts = (
                         self._mainwindow._gpx_data[self._blue_idx].get("time", 0.0) -
                         self._mainwindow._gpx_data[0].get("time", 0.0)
@@ -336,10 +336,27 @@ class MapWidget(QWidget):
             if i == self._markE_idx:
                 return "red"
 
-        rel_s= (self._mainwindow._gpx_data[i].get("time",0.0) - self._mainwindow._gpx_data[0].get("time",0.0)).total_seconds() + get_gpx_video_shift()
-        return "black" if  rel_s >= 0 else "gray"
-        
-        
+        # Sicherer Zugriff auf GPX-Daten
+        gpx_data = getattr(self._mainwindow, "_gpx_data", None)
+        if not isinstance(gpx_data, list) or len(gpx_data) == 0:
+            # Keine Daten => neutrales Schwarz
+            return "black"
+        if i < 0 or i >= len(gpx_data):
+            # Out-of-range gegenüber _gpx_data => neutrales Schwarz
+            return "black"
+
+        try:
+            t_i = gpx_data[i].get("time", 0.0)
+            t_0 = gpx_data[0].get("time", 0.0)
+            # We count if both date-like
+            if hasattr(t_i, "total_seconds") and hasattr(t_0, "total_seconds"):
+                rel_s = (t_i - t_0).total_seconds() + get_gpx_video_shift()
+                return "black" if rel_s >= 0 else "gray"
+        except Exception:
+            # On any unexpected case black
+            pass
+
+        return "black"
 
     def get_default_size_for_color(self, color: str) -> int:
         s = QSettings("VGSync", "VGSync")

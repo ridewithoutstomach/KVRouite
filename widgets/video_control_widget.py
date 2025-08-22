@@ -177,21 +177,21 @@ class VideoControlWidget(QWidget):
         
         
                 
-        self.set_begin_button = QPushButton()
-        self.set_begin_button.setIcon(QIcon("icon/cut_begin.png")) 
-        self.set_begin_button.setIconSize(QSize(20, 20))
-        self.set_begin_button.setToolTip("Cut the Begin of the Video and/or the GPX")
-        self.set_begin_button.clicked.connect(self.set_beginClicked.emit)
-        layout.addWidget(self.set_begin_button)
+        self.cut_begin_button = QPushButton()
+        self.cut_begin_button.setIcon(QIcon("icon/cut_begin.png")) 
+        self.cut_begin_button.setIconSize(QSize(20, 20))
+        self.cut_begin_button.setToolTip("Cut the Begin of the Video and the GPX")
+        self.cut_begin_button.clicked.connect(self.set_beginClicked.emit)
+        layout.addWidget(self.cut_begin_button)
         
         
-        self.go_to_end_button = QPushButton()
-        self.go_to_end_button.setIcon(QIcon("icon/cut_end.png")) 
-        self.go_to_end_button.setIconSize(QSize(20, 20))
-        self.go_to_end_button.setToolTip("Cut the End of the Video and the GPX")
+        self.cut_end_button = QPushButton()
+        self.cut_end_button.setIcon(QIcon("icon/cut_end.png")) 
+        self.cut_end_button.setIconSize(QSize(20, 20))
+        self.cut_end_button.setToolTip("Cut the End of the Video and the GPX")
         
-        self.go_to_end_button.clicked.connect(self.goToEndClicked.emit)
-        layout.addWidget(self.go_to_end_button)
+        self.cut_end_button.clicked.connect(self.goToEndClicked.emit)
+        layout.addWidget(self.cut_end_button)
 
         self.set_sync_button = QPushButton()
         self.set_sync_button.setIcon(QIcon("icon/video_gpx_sync.png")) 
@@ -282,18 +282,18 @@ class VideoControlWidget(QWidget):
             }}
         """)
     
-    def set_editing_mode(self, enabled: bool):
+    def set_editing_mode(self, edit: bool, cut: bool):
         """
         Schaltet Buttons wie MarkB, MarkE, Clear, Cut, etc. an oder aus.
         """
-        self.markB_button.setVisible(enabled)
-        self.markE_button.setVisible(enabled)
-        self.clear_button.setVisible(enabled)
-        self.cut_button.setVisible(enabled)
+        self.markB_button.setVisible(edit)
+        self.markE_button.setVisible(edit)
+        self.clear_button.setVisible(edit)
+        self.cut_button.setVisible(edit)
         
-        self.go_to_end_button.setVisible(enabled and is_gpx_video_shift_set())
-        self.set_begin_button.setVisible(enabled and is_gpx_video_shift_set())
-        self.autocut_button.setVisible(enabled and is_gpx_video_shift_set())
+        self.cut_end_button.setVisible(cut)
+        self.cut_begin_button.setVisible(cut)
+        self.autocut_button.setVisible(edit and is_gpx_video_shift_set())
         self._update_autocut_icon()
         
     def show_ovl_button(self, show: bool):

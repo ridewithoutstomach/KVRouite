@@ -79,6 +79,7 @@ class GPXControlWidget(QWidget):
         
         self._mainwindow = None
         
+        
 
 
         # SORGT DAFÜR, DASS DAS WIDGET NICHT ENDLOS IN DIE HÖHE WÄCHST
@@ -446,6 +447,16 @@ class GPXControlWidget(QWidget):
             mw.chart.set_gpx_data(gpx_data)
             if mw.mini_chart_widget:
                 mw.mini_chart_widget.set_gpx_data(gpx_data)
+                
+                
+            mw.gpx_widget.gpx_list.clear_marked_range()
+            mw.map_widget.clear_marked_range()
+            
+            ### nur range in editor llschen wenn autocut is enabled
+            
+            if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+                mw.cut_manager.on_markClear_clicked()        
+            
 
             QMessageBox.information(
                 self, "Done",
@@ -472,170 +483,8 @@ class GPXControlWidget(QWidget):
         btn_ok.clicked.connect(on_ok_dialog)
         btn_cancel.clicked.connect(on_cancel_dialog)
         dlg.exec()
-    """
     
-    def update_from_open_elevation(self,latlon_list):
-        mw = self._mainwindow
-        gpx_data = mw.gpx_widget.gpx_list._gpx_data
-
-        # => Rate Limits => Aufteilung in Blöcke
-        CHUNK_SIZE = 200
-        total_points = len(latlon_list)
-        idx_start = 0
-
-        while idx_start < total_points:
-            idx_end = min(idx_start+CHUNK_SIZE, total_points)
-            subset = latlon_list[idx_start:idx_end]
-
-            # Open-Elevation erwartet: POST /api/v1/lookup => json={"locations":[{"latitude":..,"longitude":..},..]}
-            locations_payload = []
-            for (gpx_i, la, lo) in subset:
-                locations_payload.append({"latitude": la, "longitude": lo})
-            payload = {"locations": locations_payload}
-            
-
-            # => In JSON-Bytes wandeln
-            data_bytes = json.dumps(payload).encode("utf-8")
-            url = "https://api.open-elevation.com/api/v1/lookup"
-        
-            # Request-Objekt vorbereiten:
-            req = urllib.request.Request(
-                url=url,
-                data=data_bytes,
-                method="POST",
-                headers={"Content-Type": "application/json"},
-            )
-        
-            try:
-                with urllib.request.urlopen(req, timeout=20) as resp:
-                    # Antwort lesen:
-                    body = resp.read().decode("utf-8", errors="replace")
-            
-                result_json = json.loads(body)
-                results_arr = result_json.get("results", [])
-                if len(results_arr) != len(subset):
-                    QMessageBox.warning(self, "Mismatch", 
-                        f"Open-Elevation returned {len(results_arr)} results instead of {len(subset)}.\n"
-                        "Maybe partial data or an error.")
-                    return
-
-                # => In gpx_data eintragen
-                for idx_in_block, item in enumerate(results_arr):
-                    elev = item.get("elevation", 0.0)
-                    (gpx_i, lat_, lon_) = subset[idx_in_block]
-                    gpx_data[gpx_i]["ele"] = float(elev)
-
-            except urllib.error.HTTPError as http_err:
-                QMessageBox.critical(
-                    self, 
-                    "Open-Elevation Error",
-                    f"HTTP Error: {http_err.code}\n{http_err.reason}\n\nTry smaller ranges."
-                )
-                return
-            except urllib.error.URLError as url_err:
-                QMessageBox.critical(
-                    self,
-                    "Open-Elevation Error",
-                    f"URL Error: {url_err}\nCheck your connection or try smaller ranges."
-                )
-                return
-            except Exception as err:
-                QMessageBox.critical(
-                    self, 
-                    "Open-Elevation Error",
-                    f"Request failed:\n{err}\n\nPlease try smaller ranges."
-                )
-                return
-
-            idx_start = idx_end
-
-      
-    """
-    """        
-    def _on_get_ele_open_elevation(self):
-       
-        
-
-        mw = self._mainwindow
-        if not mw:
-            return
     
-        gpx_data = mw.gpx_widget.gpx_list._gpx_data
-        if not gpx_data:
-            QMessageBox.warning(self, "No GPX Data", "No GPX data available.")
-            return
-    
-        b_idx = mw.gpx_widget.gpx_list._markB_idx
-        e_idx = mw.gpx_widget.gpx_list._markE_idx
-
-        if b_idx is None or e_idx is None or b_idx < 0 or e_idx < 0:
-            QMessageBox.warning(self, "No Range", 
-                "Please mark a GPX range (B..E) first.")
-            return
-        if b_idx > e_idx:
-            b_idx, e_idx = e_idx, b_idx
-        if (e_idx - b_idx) < 1:
-            QMessageBox.information(self, "Invalid Range", 
-                "At least 2 points needed in B..E range.")
-            return
-    
-        # 1) Warnhinweis (englisch)
-        warn_text = (
-            "Open-Elevation is a free service with limited requests.\n"
-            "If you have many points, the service might reject or fail.\n"
-            "It is recommended to do it in smaller chunks if an error occurs.\n\n"
-            "Do you want to proceed?"
-        )
-        reply = QMessageBox.question(
-            self,
-            "Open-Elevation Warning",
-            warn_text,
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-        if reply != QMessageBox.Yes:
-            return
-    
-        # 2) Undo-Snapshot
-        self.register_gpx_undo_snapshot()
-        
-        # 3) Alle lat/lon im Bereich B..E sammeln
-        latlon_list = []
-        for i in range(b_idx, e_idx+1):
-            pt = gpx_data[i]
-            lat = pt.get("lat", 0.0)
-            lon = pt.get("lon", 0.0)
-            latlon_list.append((i, lat, lon))  # index, lat, lon
-    
-
-        # 4) Schleife über Blöcke
-        self.update_from_open_elevation(latlon_list)
-
-        # 5) recalc + set
-        recalc_gpx_data(gpx_data)
-        mw.gpx_widget.set_gpx_data(gpx_data)
-        mw._gpx_data = gpx_data
-        mw._update_gpx_overview()
-
-        # 6) chart, mini_chart
-        mw.chart.set_gpx_data(gpx_data)
-        if mw.mini_chart_widget:
-            mw.mini_chart_widget.set_gpx_data(gpx_data)
-
-        mw.gpx_widget.gpx_list.clear_marked_range()
-        mw.map_widget.clear_marked_range()
-
-        # 7) Map => reload
-        #route_geojson = mw._build_route_geojson_from_gpx(gpx_data)
-        #mw.map_widget.loadRoute(route_geojson, do_fit=False)
-
-        QMessageBox.information(
-            self,
-            "Done",
-            f"Elevation updated for {e_idx-b_idx+1} points via Open-Elevation!"
-        )
-    
-    """    
     def update_elevation_from_mapbox(self, latlon_list):
         """
         Holt Elevation für latlon_list via Mapbox Terrain-RGB Tiles.
@@ -804,6 +653,15 @@ class GPXControlWidget(QWidget):
             mw.mini_chart_widget.set_gpx_data(gpx_data)
         mw.map_widget.clear_marked_range()
         mw.gpx_widget.gpx_list.clear_marked_range()
+        
+        
+        
+            
+        ### nur range in editor llschen wenn autocut is enabled
+        
+        if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+            mw.cut_manager.on_markClear_clicked()
+                
     
         QMessageBox.information(
             self, "Done",
@@ -871,24 +729,30 @@ class GPXControlWidget(QWidget):
 
         # Start/End als Sekunden
         if b_idx is not None and 0 <= b_idx < len(gpx_data):
-            gpx_b_sec = gpx_data[b_idx].get("time", -1)
+            gpx_b_dt = gpx_data[b_idx].get("time", None)
         else:
-            gpx_b_sec = -1
+            gpx_b_dt = None
     
         if e_idx is not None and 0 <= e_idx < len(gpx_data):
-            gpx_e_sec = gpx_data[e_idx].get("time", -1)
+            gpx_e_dt = gpx_data[e_idx].get("time", None)
         else:
-            gpx_e_sec = -1
+            gpx_e_dt = None
 
-        if gpx_b_sec < 0 or gpx_e_sec < 0 or gpx_e_sec <= gpx_b_sec:
+        if not gpx_b_dt or not gpx_e_dt or gpx_e_dt <= gpx_b_dt:
             gpx_len_sec = -1
         else:
-            gpx_len_sec = (gpx_e_sec - gpx_b_sec)
+            gpx_len_sec = (gpx_e_dt - gpx_b_dt).total_seconds()
 
-        gpx_rel_start = gpx_data[0].get("time",-1) + timedelta(seconds = get_gpx_video_shift())
-        gpx_start_str = _format_duration(gpx_b_sec-gpx_rel_start)
-        gpx_end_str   = _format_duration(gpx_e_sec-gpx_rel_start)
-        gpx_len_str   = _format_duration(gpx_len_sec)
+        # relative Anzeige: Sekunden relativ zu (GPX[0].time + video_shift)
+        rel0 = gpx_data[0].get("time", None)
+        if rel0:
+            gpx_rel0 = rel0 + timedelta(seconds=get_gpx_video_shift())
+            gpx_start_str = _format_duration((gpx_b_dt - gpx_rel0).total_seconds() if gpx_b_dt else -1)
+            gpx_end_str   = _format_duration((gpx_e_dt - gpx_rel0).total_seconds() if gpx_e_dt else -1)
+        else:
+            gpx_start_str = "(not set)"
+            gpx_end_str   = "(not set)"
+        gpx_len_str = _format_duration(gpx_len_sec)
     
         # --------------------------------------------------------------------
         # 4) Info an den User (Anzeigen der Bereiche)
@@ -948,13 +812,11 @@ class GPXControlWidget(QWidget):
             QMessageBox.warning(self, "Error", "GPX range is effectively 0s => cannot scale.")
             return
 
-        for i in range(b_idx+1, e_idx+1):
-            old_ti = gpx_data[i]["time"]
-            # fraction
-            fraction = (gpx_data[i]["time"] - gpx_b_sec) / old_duration
-            # z. B. 0.0..1.0
+        for i in range(b_idx + 1, e_idx + 1):
+            # Sekunden seit t_b0 im Originalbereich
+            rel_i = (gpx_data[i]["time"] - t_b0).total_seconds()
+            fraction = rel_i / old_duration
             new_rel = fraction * new_duration
-            # => new_abstime = t_b0 + new_rel sek
             gpx_data[i]["time"] = t_b0 + timedelta(seconds=new_rel)
     
         # (B) Shift aller Punkte nach e_idx um diff_s
@@ -986,7 +848,18 @@ class GPXControlWidget(QWidget):
             "Subsequent points were shifted accordingly."
         )
     
+        mw.gpx_widget.gpx_list.clear_marked_range()
+        mw.map_widget.clear_marked_range()
 
+        # Video-Markierungen entfernen
+        if hasattr(mw, "cut_manager"):
+            mw.cut_manager.on_markClear_clicked()
+
+        # Buttons zurücksetzen
+        self.markB_button.setStyleSheet("")
+        self.markE_button.setStyleSheet("")
+        mw.gpx_widget.gpx_list._markB_idx = None
+        mw.gpx_widget.gpx_list._markE_idx = None
      
      
     
@@ -996,6 +869,7 @@ class GPXControlWidget(QWidget):
         Schaltet den Menüpunkt "SetGPX2VideoTime" an/aus.
         - Nur aktiv, wenn video_edit_on == True und auto_sync_on == False
         """
+        
         enable_it = (video_edit_on and (not auto_sync_on))
         self._action_set_gpx2video.setEnabled(enable_it)    
         
@@ -1056,6 +930,10 @@ class GPXControlWidget(QWidget):
         Zeigt oder versteckt den MarkE-Button.
         """
         self.markE_button.setVisible(visible)    
+        self.markB_button.setVisible(visible)   # auch markB vestecken 
+        self.deselect_button.setVisible(visible) # auch deselect verstecken
+        self.cut_button.setVisible(visible)  
+        
     
     def _process_delete_points(self,shift_next: bool = True):
         
@@ -1080,6 +958,10 @@ class GPXControlWidget(QWidget):
             mw.mini_chart_widget.set_gpx_data(mw._gpx_data)
         
         mw.map_widget.view.page().runJavaScript("hideLoading();")
+            
+        if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+            mw.cut_manager.on_markClear_clicked()
+            
 
     def on_cut_range_clicked(self):
        self._process_delete_points(True)
@@ -1259,14 +1141,21 @@ class GPXControlWidget(QWidget):
     
         #route_geojson = mw._build_route_geojson_from_gpx(gpx_data)
         #mw.map_widget.loadRoute(route_geojson, do_fit=False)
+        
+        mw.gpx_widget.gpx_list.clear_marked_range()
+        mw.map_widget.clear_marked_range()
+            
+        ### nur range in editor llschen wenn autocut is enabled
+        if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+            mw.cut_manager.on_markClear_clicked()
 
         QMessageBox.information(
             self, "Flatten done",
             "All subsegments in this range now share the same local speed.\n"
             "Total time remained unchanged."
         )
-        mw.gpx_widget.gpx_list.clear_marked_range()
-        mw.map_widget.clear_marked_range()
+        
+        
 
     def on_show_average_speed_info(self):
         mw = self._mainwindow
@@ -1646,13 +1535,23 @@ class GPXControlWidget(QWidget):
                 mw.mini_chart_widget.set_gpx_data(gpx_data)
             route_geojson = mw._build_route_geojson_from_gpx(gpx_data)
             mw.map_widget.loadRoute(route_geojson, do_fit=False)
+            
+            mw.gpx_widget.gpx_list.clear_marked_range()
+            mw.map_widget.clear_marked_range()
+            
+            ### nur range in editor llschen wenn autocut is enabled
+            if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+                mw.cut_manager.on_markClear_clicked()    
+            
     
             QMessageBox.information(
                 self, "Done",
                 f"Elevation of all Points in {b_idx}..{e_idx} chamged by {offset_val:+.2f} m."
             )
-            mw.gpx_widget.gpx_list.clear_marked_range()
-            mw.map_widget.clear_marked_range()
+            
+                
+            
+            #mw.cut_manager.on_markClear_clicked()   # auch den video editor restetten       
     
         else:
             # -----------------------------------------------
@@ -1732,11 +1631,16 @@ class GPXControlWidget(QWidget):
                 mw.mini_chart_widget.set_gpx_data(gpx_data)
             route_geojson = mw._build_route_geojson_from_gpx(gpx_data)
             mw.map_widget.loadRoute(route_geojson, do_fit=False)
-    
+            
+            
+            if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+                mw.cut_manager.on_markClear_clicked()    
+                
             QMessageBox.information(
-                self, "OK",
+                self, "Done",
                 f"Elevation of Point {row} changed to {new_ele:.2f} m."
             )
+            
             
     #################################################################    
     
@@ -1827,11 +1731,16 @@ class GPXControlWidget(QWidget):
                 if mw.mini_chart_widget:
                     mw.mini_chart_widget.set_gpx_data(gpx_data)
     
+    
+                if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+                    mw.cut_manager.on_markClear_clicked()       
+                    
                 QMessageBox.information(
                     self, "Done",
                     f"All GPX points after index 0 have been shifted by {abs(shift_val):.3f} seconds."
                 )   
-                return
+                
+                
 
             ###
             
@@ -1909,13 +1818,20 @@ class GPXControlWidget(QWidget):
             mw.chart.set_gpx_data(gpx_data)
             if mw.mini_chart_widget:
                 mw.mini_chart_widget.set_gpx_data(gpx_data)
+                
+            mw.gpx_widget.gpx_list.clear_marked_range()
+            mw.map_widget.clear_marked_range()
+            
+            if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+                mw.cut_manager.on_markClear_clicked()
+                
     
             QMessageBox.information(
                 self, "Done",
                 f"Row {row} step changed by {delta_s:+.3f} s.\n"
                 "All subsequent points shifted accordingly."
             )
-            return
+            
     
         # --- CASE B: Range B..E ---
         else:
@@ -1995,6 +1911,14 @@ class GPXControlWidget(QWidget):
             mw.chart.set_gpx_data(gpx_data)
             if mw.mini_chart_widget:
                 mw.mini_chart_widget.set_gpx_data(gpx_data)
+                
+                
+            mw.gpx_widget.gpx_list.clear_marked_range()
+            mw.map_widget.clear_marked_range()
+            ### nur range in editor llschen wenn autocut is enabled
+            
+            if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+                mw.cut_manager.on_markClear_clicked()
     
             QMessageBox.information(
                 self, "Done",
@@ -2002,8 +1926,7 @@ class GPXControlWidget(QWidget):
                 f"Old duration was {old_total_s:.3f} s, new duration is {new_total_s:.3f} s.\n"
                 f"Subsequent points have been shifted by {diff_s:+.3f} s."
             )
-            mw.gpx_widget.gpx_list.clear_marked_range()
-            mw.map_widget.clear_marked_range()
+            
     
         
         
@@ -2147,6 +2070,15 @@ class GPXControlWidget(QWidget):
             # Map
             #route_geojson = mw._build_route_geojson_from_gpx(gpx_data)
             #mw.map_widget.loadRoute(route_geojson, do_fit=False)
+            
+            mw.gpx_widget.gpx_list.clear_marked_range()
+            mw.map_widget.clear_marked_range()
+            
+            ### nur range in editor llschen wenn autocut is enabled
+            
+            if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+                mw.cut_manager.on_markClear_clicked()
+                
 
             diff_val = new_slope - old_slope
             QMessageBox.information(
@@ -2276,14 +2208,21 @@ class GPXControlWidget(QWidget):
     
             #route_geojson = mw._build_route_geojson_from_gpx(gpx_data)
             #mw.map_widget.loadRoute(route_geojson, do_fit=False)
+            mw.gpx_widget.gpx_list.clear_marked_range()
+            mw.map_widget.clear_marked_range()
+            
+            ### nur range in editor llschen wenn autocut is enabled
+            
+            if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+                mw.cut_manager.on_markClear_clicked()
+                
 
             QMessageBox.information(
                 self, "Done",
                 f"Average slope in {b_idx}..{e_idx} changed from {old_slope:.2f}% to {new_slope:.2f}%.\n"
                 f"Subsequent points have been shifted by {shift_dz:+.2f} m in elevation."
             )
-            mw.gpx_widget.gpx_list.clear_marked_range()
-            mw.map_widget.clear_marked_range()
+           
     
     def on_close_gaps_clicked(self):
         mw = self._mainwindow
@@ -2327,6 +2266,7 @@ class GPXControlWidget(QWidget):
         if not mw._directions_enabled:
             # => Altes Verhalten
             self._close_gaps_local_interpolation(b_idx, e_idx, dt)
+            
         else:
             # => Directions=True => zeige Profil-Auswahl (QDialog)
             #    Dann rufe _close_gaps_mapbox(..., profile)
@@ -2840,14 +2780,21 @@ class GPXControlWidget(QWidget):
             mw.mini_chart_widget.set_gpx_data(gpx_data)
         route_geojson = mw._build_route_geojson_from_gpx(gpx_data)
         mw.map_widget.loadRoute(route_geojson, do_fit=False)
+        
+        mw.gpx_widget.gpx_list.clear_marked_range()
+        mw.map_widget.clear_marked_range()
+            
+        ### nur range in editor llschen wenn autocut is enabled
+        
+        if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+            mw.cut_manager.on_markClear_clicked()
+                
 
         #from PySide6.QtWidgets import QMessageBox
         QMessageBox.information(self, "Close Gaps",
             f"Inserted {len(new_points)} new point(s)\n(time-based local interpolation).")
 
-        # 6) Markierungen zurücksetzen
-        mw.gpx_widget.gpx_list.clear_marked_range()
-        mw.map_widget.clear_marked_range()
+        
     
     
     def _close_gaps_mapbox(self, b_idx: int, e_idx: int, dt: float, profile: str):
@@ -3023,14 +2970,20 @@ class GPXControlWidget(QWidget):
             mw.mini_chart_widget.set_gpx_data(gpx_data)
         route_geojson = mw._build_route_geojson_from_gpx(gpx_data)
         mw.map_widget.loadRoute(route_geojson, do_fit=False)
+        
+        mw.gpx_widget.gpx_list.clear_marked_range()
+        mw.map_widget.clear_marked_range()
+            
+        ### nur range in editor llschen wenn autocut is enabled
+        
+        if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+            mw.cut_manager.on_markClear_clicked()        
 
         QMessageBox.information(self, "Close Gaps (Mapbox)",
             f"Inserted {len(new_points)-1} new point(s)\n"
             f"via Directions={profile}, total time {dt:.2f}s kept.")
 
-        mw.gpx_widget.gpx_list.clear_marked_range()
-        mw.map_widget.clear_marked_range()
-
+        
         
 
     def register_gpx_undo_snapshot(self):
