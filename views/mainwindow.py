@@ -3939,7 +3939,7 @@ class MainWindow(QMainWindow):
                     dt = datetime.datetime.now()
                 time_str = _format_dt(dt)
     
-                f.write(f'      <trkpt lat="{lat:.6f}" lon="{lon:.6f}">\n')
+                f.write(f'      <trkpt lat="{lat:.8f}" lon="{lon:.8f}">\n')
                 f.write(f'        <ele>{ele:.2f}</ele>\n')
                 f.write(f'        <time>{time_str}</time>\n')
                 f.write('      </trkpt>\n')
