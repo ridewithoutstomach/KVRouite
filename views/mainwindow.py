@@ -2544,7 +2544,7 @@ class MainWindow(QMainWindow):
             self.gpx_widget.gpx_list.select_row_in_pause(index)
             self.chart.highlight_gpx_index(index)
 
-
+    """
     def _show_copyright_dialog(self):
         
         counts = self._fetch_counters_from_server()
@@ -2593,14 +2593,90 @@ class MainWindow(QMainWindow):
             "<b>By clicking 'I Accept', you acknowledge that you have read and "
             "understood the GNU General Public License terms.</b><br><br>"
             f"V: {vcount}  G: {gcount}"
-)
+        )
+        msg.exec()
+    """
+    
+    def _show_copyright_dialog(self):
+        from PySide6.QtGui import QPixmap
+        from PySide6.QtWidgets import QMessageBox
+        from PySide6.QtCore import Qt
+        import os
+        import base64
+
+        counts = self._fetch_counters_from_server()
+        if counts:
+            vcount = counts.get("video", 0)
+            gcount = counts.get("gpx", 0)
+        else:
+            vcount, gcount = 0, 0
+    
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Copyright")
+    
+        # Korrekter Logo-Pfad
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        project_dir = os.path.dirname(base_dir)
+        logo_path = os.path.join(project_dir, "doc", "Kinomap_Logo.png")
+    
+        # Logo als Base64 kodieren für direkte Einbettung in HTML
+        logo_base64 = ""
+        if os.path.exists(logo_path):
+            with open(logo_path, "rb") as img_file:
+                logo_base64 = base64.b64encode(img_file.read()).decode('utf-8')
+        
+        # Text mit Logo am Ende
+        message_text = f"""
+        <div>
+            <h3>VGSync - Video and GPX Sync Tool</h3>
+            Version: {APP_VERSION}<br><br>
+            
+            Copyright (C) 2025 Bernd Eller<br>
+            This program is free software: you can redistribute it and/or modify 
+            it under the terms of the GNU General Public License as published by 
+            the Free Software Foundation, either version 3 of the License, or 
+            (at your option) any later version.<br><br>
+        
+            This program is distributed in the hope that it will be useful, 
+            but WITHOUT ANY WARRANTY; without even the implied warranty of 
+            MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+            See the GNU General Public License for more details.<br><br>
+            
+            You should have received a copy of the GNU General Public License 
+            along with this program. If not, see 
+            <a href='https://www.gnu.org/licenses/'>https://www.gnu.org/licenses/</a>.<br><br>
+            
+            <h3>Third-Party Libraries & Patent Notice</h3>
+            This application includes and distributes open-source libraries:<br>
+            <b>1. FFmpeg</b> - <a href='https://ffmpeg.org'>ffmpeg.org</a> (GPL build)<br>
+            <b>2. mpv</b> - <a href='https://mpv.io'>mpv.io</a> (GPL build)<br><br>
+            Full license texts for these libraries are located in the <br>
+            "<code>_internal/ffmpeg</code> and <code>_internal/mpv</code> folders.<br>"            
+            The complete source code for these libraries as used in this software 
+            is available at 
+            <a href='http://vgsync.casa-eller.de'>http://vgsync.casa-eller.de</a>.<br><br>
+            
+            <b>Patent Encumbrance Notice:</b><br>
+            Some codecs (such as x265) may be patent-encumbered in certain jurisdictions. 
+            It is the user's responsibility to ensure compliance with all applicable 
+            laws and regulations, and to obtain any necessary patent licenses.<br><br>
+            
+            <b>By clicking 'I Accept', you acknowledge that you have read and 
+            understood the GNU General Public License terms.</b><br><br>
+            V: {vcount}  G: {gcount}
+            
+            <div style='text-align: center; margin-top: 20px;'>
+                <img src='data:image/png;base64,{logo_base64}' width='200' style='max-width: 200px;'>
+            </div>
+        </div>
+        """
+    
+        msg.setText(message_text)
         msg.exec()
     
-   
-
+    
     
         
-
     def _on_timer_mode_changed(self):
         if self.action_global_time.isChecked():
             self._time_mode = "global"
