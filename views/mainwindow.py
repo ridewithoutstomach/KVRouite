@@ -2090,8 +2090,35 @@ class MainWindow(QMainWindow):
             return
 
         # 1) Länge in km
-        total_dist_m = sum(pt.get("delta_m", 0.0) for pt in data)
+        #total_dist_m = sum(pt.get("delta_m", 0.0) for pt in data)
+        #length_km = total_dist_m / 1000.0
+        ####
+        # 1) Länge in km (ggf. ab "grauem" Start trimmen)
+        try:
+            shift = get_gpx_video_shift()
+        except Exception:
+            shift = 0
+
+        effective_start_t = data[0].get("time")
+        if shift is not None and shift < 0 and effective_start_t:
+            # Alles vor Video-Beginn (grau) ausblenden
+            from datetime import timedelta
+            effective_start_t = effective_start_t + timedelta(seconds=abs(shift))
+
+        # Summiere delta_m nur für Punkte, deren "aktueller" Punkt ab effective_start_t liegt.
+        total_dist_m = 0.0
+        for i in range(1, len(data)):
+            t_i = data[i].get("time")
+            if not t_i:
+                continue
+            if effective_start_t and t_i < effective_start_t:
+                continue  # gehört zum grauen Vorlauf -> nicht mitzählen
+            total_dist_m += data[i].get("delta_m", 0.0)
+
         length_km = total_dist_m / 1000.0
+
+        
+        ####
     
         # 2) Höhengewinn
         elev_gain = 0.0
@@ -2101,7 +2128,7 @@ class MainWindow(QMainWindow):
                 elev_gain += dh
 
         # 3) GPX-Dauer berechnen (time[-1] - time[0])
-       
+        """
         start_t = data[0].get("time")
         end_t   = data[-1].get("time")
         if start_t and end_t:
@@ -2110,7 +2137,34 @@ class MainWindow(QMainWindow):
             total_sec = 0.0
         if total_sec < 0:
             total_sec = 0.0
-    
+        """
+        
+        # 3) GPX-Dauer berechnen (ggf. ab "grauem" Start)
+        start_t = data[0].get("time")
+        end_t   = data[-1].get("time")
+
+        # Standard: originaler Beginn
+        effective_start_t_dur = start_t
+
+        # Bei negativem Shift: effektiven Beginn verschieben
+        try:
+            shift = get_gpx_video_shift()
+        except Exception:
+            shift = 0
+
+        if shift is not None and shift < 0 and start_t:
+            from datetime import timedelta
+            effective_start_t_dur = start_t + timedelta(seconds=abs(shift))
+
+        if end_t and effective_start_t_dur:
+            total_sec = (end_t - effective_start_t_dur).total_seconds()
+        else:
+            total_sec = 0.0
+        
+        if total_sec < 0:
+            total_sec = 0.0
+
+        
         # => In h:mm:ss formatieren
         gpx_hh = int(total_sec // 3600)
         gpx_mm = int((total_sec % 3600) // 60)
@@ -3873,7 +3927,8 @@ class MainWindow(QMainWindow):
                 self.map_widget.loadRoute(route_geojson, do_fit=False)
             if self._edit_mode != "off":
                 self.video_control.set_editing_mode(True,True) #to refresh the button state
-        
+            self._update_gpx_overview()
+            
     def on_sync_clicked(self):
         """
         Sync-Button aus VideoControlWidget: 
