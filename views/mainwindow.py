@@ -3203,9 +3203,10 @@ class MainWindow(QMainWindow):
             
             # STATT rebuild_vlc_playlist():
             self.video_editor.set_playlist(self.playlist)
-            self.video_control.activate_controls(
-                True if self.playlist.length() > 0 else False)
+            #self.video_control.activate_controls(
+            #    True if self.playlist.length() > 0 else False)
             # Timeline anpassen:
+            self.video_control.activate_controls(len(self.playlist) > 0)
             self.rebuild_timeline()
     
     
