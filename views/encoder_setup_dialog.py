@@ -11,13 +11,12 @@
 #
 # VGSync is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-# See the GNU General Public License for more details.
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with VGSync. If not, see <https://www.gnu.org/licenses/>.
+# along with VGSync.  If not, see <https://www.gnu.org/licenses/>.
 #
-
 
 import subprocess
 import json
@@ -28,6 +27,7 @@ from PySide6.QtWidgets import (
     QProgressDialog
 )
 from PySide6.QtCore import QSettings, Qt
+
 
 # Hilfsfunktion: kurzer Test, ob ein FFmpeg-Encoder läuft
 def can_encode_with(ffmpeg_enc_name, ffmpeg_path="ffmpeg", test_duration=0.5):
@@ -102,6 +102,7 @@ class EncoderSetupDialog(QDialog):
         for p in cpu_presets:
             self.preset_combo.addItem(p)
         form_layout.addRow("Preset:", self.preset_combo)
+
         # (H) Bitrate (Mbit/s)
         self.bitrate_spin = QSpinBox()
         self.bitrate_spin.setRange(1, 200)
@@ -111,15 +112,11 @@ class EncoderSetupDialog(QDialog):
         self.fps_spin = QSpinBox()
         self.fps_spin.setRange(1, 120)
         form_layout.addRow("FPS:", self.fps_spin)
-        
-        
 
         # (G) Xfade
         self.xfade_spin = QSpinBox()
         self.xfade_spin.setRange(0, 30)
         form_layout.addRow("X-Fade (s):", self.xfade_spin)
-        
-        
 
         # Buttons (OK/Cancel + "Detect HW")
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
@@ -128,7 +125,7 @@ class EncoderSetupDialog(QDialog):
         self.btn_detect_hw = QPushButton("Detect HW", self)
         main_layout.addWidget(self.btn_detect_hw, alignment=Qt.AlignLeft)
 
-        # Connect-Signale
+        # Connect-Signale (grundsätzlich)
         btns.accepted.connect(self.on_ok_clicked)
         btns.rejected.connect(self.reject)
         self.btn_detect_hw.clicked.connect(self.on_detect_hw_clicked)
@@ -139,6 +136,51 @@ class EncoderSetupDialog(QDialog):
         # Dann HW-Combo aktualisieren
         self.update_hw_options()
 
+        # ----- WICHTIG: Signale, die Widgets im Dialog live ändern, erst ganz am Ende verbinden.
+        # Dadurch verhindern wir, dass Slots feuern bevor Widgets existieren.
+        self.resolution_combo.currentIndexChanged.connect(self.on_resolution_changed)
+
+
+    # ---------------------------
+    # Neue / geordnete Hilfsfunktionen
+    # ---------------------------
+    def _default_bitrate_for(self, res_wh: tuple[int, int]) -> int:
+        """Gibt die Default-Bitrate (Mbit/s) für eine Auflösung zurück."""
+        mapping = {
+            (640, 360): 2,
+            (854, 480): 5,
+            (1280, 720): 10,
+            (1920, 1080): 20,
+            (2560, 1440): 35,
+            (3840, 2160): 50,
+        }
+        return mapping.get(res_wh, 20)
+
+    def on_resolution_changed(self, _idx: int):
+        """
+        Slot: wird aufgerufen, wenn der User die Resolution im Dialog ändert.
+        Setzt die Bitrate auf den Default-Wert für die gewählte Resolution.
+        """
+        # fallback: falls in einer geänderten Version die Spinbox anders heißt,
+        # versuchen wir alternative Attribute (robust gegen Versions-Unterschiede)
+        spin = getattr(self, "bitrate_spin", None) or getattr(self, "bitrate_mbps_spin", None)
+        if spin is None:
+            # Defensive: Spin nicht gefunden -> nichts tun (kein Crash)
+            print("[WARN] Bitrate spinbox not found; skip auto-update.")
+            return
+
+        w, h = self.resolution_combo.currentData()
+        default_bitrate = self._default_bitrate_for((w, h))
+
+        # Blockiere Signale temporär, damit kein weiteres Feedback ausgelöst wird.
+        spin.blockSignals(True)
+        spin.setValue(default_bitrate)
+        spin.blockSignals(False)
+
+
+    # ---------------------------
+    # load / save
+    # ---------------------------
     def load_from_settings(self):
         """Liest QSettings und setzt die GUI-Felder."""
 
@@ -151,6 +193,7 @@ class EncoderSetupDialog(QDialog):
             if wh == stored_res:
                 found_idx = i
                 break
+        # setCurrentIndex hier: Signal NOT connected yet (wir verbinden es erst am Ende)
         self.resolution_combo.setCurrentIndex(found_idx)
 
         # 2) Container
@@ -182,16 +225,11 @@ class EncoderSetupDialog(QDialog):
         # 7) Bitrate (Standardwerte nach Auflösung)
         bitrate_val = self.settings.value("encoder/bitrate_mbps", None)
         if bitrate_val is None:
-            if stored_res == (1920, 1080):
-                bitrate_val = 20
-            elif stored_res == (2560, 1440):
-                bitrate_val = 35
-            else:
-                bitrate_val = 20
+            bitrate_val = self._default_bitrate_for(stored_res)
         self.bitrate_spin.setValue(int(bitrate_val))
         
 
-        # 7) Detected HW laden (wenn vorhanden)
+        # 8) Detected HW laden (wenn vorhanden)
         hw_json = self.settings.value("encoder/detected_hw_list", "")
         if hw_json:
             try:
@@ -201,6 +239,10 @@ class EncoderSetupDialog(QDialog):
             except:
                 self._cached_detected_hw = None
 
+
+    # ---------------------------
+    # Hardware detection / UI update
+    # ---------------------------
     def update_hw_options(self):
         """
         Befüllt das hw_combo je nach Container (x264/x265) und:
@@ -251,6 +293,7 @@ class EncoderSetupDialog(QDialog):
             idx_hw = 0
         self.hw_combo.setCurrentIndex(idx_hw)
 
+
     def on_detect_hw_clicked(self):
         """
         Zeigt ein "Bitte warten..."-Fenster,
@@ -300,6 +343,7 @@ class EncoderSetupDialog(QDialog):
 
         # 7) Combo aktualisieren
         self.update_hw_options()
+
 
     def on_ok_clicked(self):
         """Speichert die Werte in QSettings und schließt."""
