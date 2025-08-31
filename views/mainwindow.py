@@ -3853,7 +3853,19 @@ class MainWindow(QMainWindow):
             #recalc_gpx_data(self._gpx_data) #to refresh list
             self.gpx_widget.gpx_list.set_gpx_data(self._gpx_data)
             self.video_control.activate_controls()
-            self.enableVideoGpxSync()
+            #self.enableVideoGpxSync()
+            if hasattr(self, "action_auto_sync_video"):
+                if not self.action_auto_sync_video.isChecked():
+                    self.action_auto_sync_video.setChecked(True)
+                self._on_auto_sync_video_toggled(True)
+                if hasattr(self, "video_control"):
+                    self.video_control._update_autocut_icon()
+
+            if hasattr(self, "action_new_pts_video_time"):
+                if not self.action_new_pts_video_time.isChecked():
+                    self.action_new_pts_video_time.setChecked(True)
+                self._on_sync_point_video_time_toggled(True)
+            
             if(get_gpx_video_shift() < 0): # color negative points in grey
                 route_geojson = self._build_route_geojson_from_gpx(self._gpx_data)
                 self.map_widget.loadRoute(route_geojson, do_fit=False)
