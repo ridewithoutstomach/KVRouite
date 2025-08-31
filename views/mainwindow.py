@@ -2088,57 +2088,52 @@ class MainWindow(QMainWindow):
                 elev_gain=0.0
             )
             return
-
-        # 1) Länge in km
-        #total_dist_m = sum(pt.get("delta_m", 0.0) for pt in data)
-        #length_km = total_dist_m / 1000.0
-        ####
-        # 1) Länge in km (ggf. ab "grauem" Start trimmen)
+        
+                # --- Trim-Setup: effektiven Start und Index ermitteln (bei grauem Vorlauf) ---
         try:
-            shift = get_gpx_video_shift()
+            _shift = get_gpx_video_shift()
         except Exception:
-            shift = 0
+            _shift = 0
 
         effective_start_t = data[0].get("time")
-        if shift is not None and shift < 0 and effective_start_t:
-            # Alles vor Video-Beginn (grau) ausblenden
+        if _shift is not None and _shift < 0 and effective_start_t:
             from datetime import timedelta
-            effective_start_t = effective_start_t + timedelta(seconds=abs(shift))
+            effective_start_t = effective_start_t + timedelta(seconds=abs(_shift))
 
-        # Summiere delta_m nur für Punkte, deren "aktueller" Punkt ab effective_start_t liegt.
+        # Index des ersten Punkts, der im "sichtbaren" (nicht-grauen) Bereich liegt
+        start_idx = 0
+        if effective_start_t:
+            for _i, _pt in enumerate(data):
+                _ti = _pt.get("time")
+                if _ti and _ti >= effective_start_t:
+                    start_idx = _i
+                    break
+
+        
+
+        # 1) Länge in km (ggf. ab "grauem" Start trimmen)
+        
         total_dist_m = 0.0
-        for i in range(1, len(data)):
-            t_i = data[i].get("time")
-            if not t_i:
-                continue
-            if effective_start_t and t_i < effective_start_t:
-                continue  # gehört zum grauen Vorlauf -> nicht mitzählen
+        for i in range(max(1, start_idx + 1), len(data)):
             total_dist_m += data[i].get("delta_m", 0.0)
-
         length_km = total_dist_m / 1000.0
+
 
         
         ####
     
         # 2) Höhengewinn
+        
         elev_gain = 0.0
-        for i in range(1, len(data)):
-            dh = data[i]["ele"] - data[i-1]["ele"]
+        for i in range(max(1, start_idx + 1), len(data)):
+            dh = data[i].get("ele", 0.0) - data[i-1].get("ele", 0.0)
             if dh > 0:
                 elev_gain += dh
 
-        # 3) GPX-Dauer berechnen (time[-1] - time[0])
-        """
-        start_t = data[0].get("time")
-        end_t   = data[-1].get("time")
-        if start_t and end_t:
-            total_sec = (end_t - start_t).total_seconds()
-        else:
-            total_sec = 0.0
-        if total_sec < 0:
-            total_sec = 0.0
-        """
+
         
+
+                
         # 3) GPX-Dauer berechnen (ggf. ab "grauem" Start)
         start_t = data[0].get("time")
         end_t   = data[-1].get("time")
@@ -2183,25 +2178,33 @@ class MainWindow(QMainWindow):
         video_time_str = f"{vid_hh:02d}:{vid_mm:02d}:{vid_ss:02d}"
     
         # 5) Weitere Werte wie slope_max/min etc.
-        slope_vals = [pt.get("gradient", 0.0) for pt in data]
+        # 5) Slope/Gradient (ab start_idx)
+        slope_vals = [pt.get("gradient", 0.0) for pt in data[start_idx:]]
         slope_max = max(slope_vals) if slope_vals else 0.0
         slope_min = min(slope_vals) if slope_vals else 0.0
+
     
         zero_thr = self.chart.zero_speed_threshold()
-        zero_speed_count = sum(
-            1
-            for i, pt in enumerate(data)
-            if i > 0 and pt.get("speed_kmh", 0.0) < zero_thr
-        )
+        zero_speed_count = 0
+        for i in range(max(1, start_idx + 1), len(data)):
+            if data[i].get("speed_kmh", 0.0) < zero_thr:
+                zero_speed_count += 1
+
     
+        # Pausen/Lücken (ab start_idx)
         paused_count = 0
-        if data[0]["time"]:
-            for i in range(1, len(data)):
-                dt = (data[i]["time"] - data[i-1]["time"]).total_seconds()
-                if dt > 1.0:
-                    paused_count += 1
+        t0 = data[start_idx].get("time")
+        if t0:
+            for i in range(max(1, start_idx + 1), len(data)):
+                t_prev = data[i-1].get("time")
+                t_cur  = data[i].get("time")
+                if t_prev and t_cur:
+                    dt = (t_cur - t_prev).total_seconds()
+                    if dt > 1.0:
+                        paused_count += 1
         else:
-            paused_count = len(data)
+            paused_count = len(data) - start_idx
+
     
         # 6) An Dein gpx_control_widget übergeben
         self.gpx_control.update_info_line(
