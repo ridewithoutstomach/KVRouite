@@ -4953,6 +4953,19 @@ class MainWindow(QMainWindow):
             return
 
     def on_save_gpx_clicked(self):
+        reply = QMessageBox.question(
+            self,
+            "Save GPX",
+            "Have you smoothed the GPX data?\n\n"
+            "It is highly recommended to smooth your GPX before saving.\n"
+            "Do you want to continue saving?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+    
+        if reply == QMessageBox.No:
+            # User declined saving
+            return
         
         """
         Wird aufgerufen, wenn man im GPXControlWidget den Safe-Button drückt.
@@ -5014,7 +5027,7 @@ class MainWindow(QMainWindow):
             print("[WARN] Konnte GPX-Zähler nicht hochsetzen.")
     
         QMessageBox.information(self, "Done", 
-            f"GPX-Daten wurden als '{out_path}' gespeichert.")
+            f"GPX safed as '{out_path}'.")
         
     def _on_show_temp_dir(self):
         """
