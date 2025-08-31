@@ -5242,3 +5242,74 @@ class MainWindow(QMainWindow):
             is_edit_mode = self._edit_mode != "off"
             autocut = self.action_auto_sync_video.isChecked()
             self.gpx_control._action_set_gpx2video.setEnabled(is_edit_mode and not autocut)
+
+
+
+
+    def _current_mark_overlaps_grey(self) -> bool:
+        """
+        True, wenn die aktuell markierte GPX-Range (markB..markE)
+        den grauen Vorbereich (durch negativen gpx-video-shift) berührt.
+        """
+        try:
+            shift = get_gpx_video_shift()
+        except Exception:
+            shift = 0
+        if shift >= 0:
+            return False  # kein grauer Bereich aktiv
+
+        data = getattr(self, "_gpx_data", None)
+        if not data:
+            return False
+
+        # markierte Range aus deinem GPX-Widget lesen
+        b = getattr(self.gpx_widget.gpx_list, "_markB_idx", None)
+        e = getattr(self.gpx_widget.gpx_list, "_markE_idx", None)
+        if b is None or e is None:
+            return False
+        if b > e:
+            b, e = e, b
+    
+        positive_time = data[0]["time"] + timedelta(seconds=abs(shift))
+        # Range berührt grau, wenn der Startpunkt der Range vor positive_time liegt
+        return data[b]["time"] < positive_time
+
+
+    def _discard_sync_and_maybe_resync(self):
+        """
+        Sync verwerfen (Shift=0), Route neu laden, Anzeige refreshen,
+        und den User fragen, ob er jetzt sofort neu syncen will.
+        """
+        try:
+            cur_shift = get_gpx_video_shift()
+        except Exception:
+            cur_shift = 0
+        if cur_shift == 0:
+            return  # nichts zu tun
+    
+        reply = QMessageBox.question(
+            self,
+            "Sync may be invalid",
+            f"You manually cut inside the pre-video (grey) section.\n"
+            f"The current GPX–video shift ({cur_shift:+.1f}s) will be cleared.\n\n"
+            f"Do you want to set a new sync now?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+    
+        # Sync verwerfen
+        set_gpx_video_shift(0)
+
+        # Route IMMER neu laden, damit grau sofort verschwindet
+        route_geojson = self._build_route_geojson_from_gpx(self._gpx_data)
+        self.map_widget.loadRoute(route_geojson, do_fit=False)
+    
+        # GPX-Liste & Controls refreshen
+        self.gpx_widget.gpx_list.set_gpx_data(self._gpx_data)
+        self.video_control.activate_controls()
+        if hasattr(self.video_control, "update_set_sync_highlight"):
+            self.video_control.update_set_sync_highlight()
+    
+        # Optional: sofort neu syncen lassen
+        if reply == QMessageBox.Yes:
+            self.on_set_video_gpx_sync_clicked()
