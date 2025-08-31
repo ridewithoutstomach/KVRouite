@@ -3208,6 +3208,7 @@ class MainWindow(QMainWindow):
             # Timeline anpassen:
             self.video_control.activate_controls(len(self.playlist) > 0)
             self.rebuild_timeline()
+            self._rebuild_playlist_menu()    
     
     
     def rebuild_timeline(self):
