@@ -30,7 +30,7 @@ from PySide6.QtCore import QSettings
 # 1) Versions-Konfiguration & Modus
 ##############################################################################
 
-APP_VERSION = "3.34"
+APP_VERSION = "3.35"
 
 
 #SERVER_VERSION_CHECK_ONLY = False
