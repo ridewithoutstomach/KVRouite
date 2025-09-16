@@ -1656,16 +1656,18 @@ class MainWindow(QMainWindow):
             final_s = self.get_final_time_for_global(video_time)
             insert_pos = self.ordered_insert_new_point(lat,lon,final_s)
 
-            if(insert_pos > 0 and self._directions_enabled):
-                t1 = gpx_data[insert_pos-1]["time"]
-                t2 = gpx_data[insert_pos]["time"]
+            if(self._directions_enabled):
+                pt1idx = insert_pos-1 if insert_pos>0 else insert_pos
+                pt2idx = insert_pos if insert_pos>0 else insert_pos+1 
+                t1 = gpx_data[pt1idx]["time"]
+                t2 = gpx_data[pt2idx]["time"]
                 dt = (t2 - t1).total_seconds()
                 if dt > 2 :
                     prof = self.map_widget._curr_mapbox_profile
                     if not prof:
                         prof = self.gpx_control._ask_profile_mode()
                     if prof:
-                        self.gpx_control._close_gaps_mapbox(insert_pos-1, insert_pos, dt, prof)
+                        self.gpx_control._close_gaps_mapbox(pt1idx, pt2idx, dt, prof)
 
         else: #insert with shift
             if idx == -3:
