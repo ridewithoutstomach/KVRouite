@@ -1652,6 +1652,9 @@ class MainWindow(QMainWindow):
 
         insert_pos = -1
         if self._autoSyncNewPointsWithVideoTime and self.playlist_counter > 0: #if video loaded, insert a new point at current video time without shift
+            # Undo-Snapshot
+            self.register_gpx_undo_snapshot()
+            
             video_time = self.video_editor.get_current_position_s()
             final_s = self.get_final_time_for_global(video_time)
             insert_pos = self.ordered_insert_new_point(lat,lon,final_s)
@@ -1698,7 +1701,7 @@ class MainWindow(QMainWindow):
         
             # --- Nun das "alte" Einfüge-Verhalten ---
             # Undo-Snapshot
-            self.append_gpx_history(gpx_data)
+            self.register_gpx_undo_snapshot()
 
             now = datetime.now()  # Fallback, falls Zeit gar nicht existiert
 
