@@ -1659,7 +1659,7 @@ class MainWindow(QMainWindow):
             final_s = self.get_final_time_for_global(video_time)
             insert_pos = self.ordered_insert_new_point(lat,lon,final_s)
 
-            if(self._directions_enabled):
+            if(self._directions_enabled and len(gpx_data) > 1):
                 pt1idx = insert_pos-1 if insert_pos>0 else insert_pos
                 pt2idx = insert_pos if insert_pos>0 else insert_pos+1 
                 t1 = gpx_data[pt1idx]["time"]
