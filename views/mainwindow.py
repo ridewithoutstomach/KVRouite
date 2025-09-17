@@ -2312,8 +2312,7 @@ class MainWindow(QMainWindow):
     
         # 1) Undo-Snapshot (gesamte GPX-Daten kopieren)
         
-        old_data = copy.deepcopy(gpx_data)
-        self.gpx_widget.gpx_list._history_stack.append(old_data)
+        self.register_gpx_undo_snapshot()
         
         """
         Wird aufgerufen, wenn der User in der Karte einen GPX-Punkt verschoben hat.
