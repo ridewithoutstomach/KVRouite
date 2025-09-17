@@ -4837,11 +4837,10 @@ class MainWindow(QMainWindow):
                 "markB_idx": self.gpx_widget.gpx_list._markB_idx,
                 "markE_idx": self.gpx_widget.gpx_list._markE_idx
             },
-            "overlays": self._overlay_manager.get_all_overlays(),
-            "gpx_video_shift": get_gpx_video_shift(),
+            "overlays": self._overlay_manager.get_all_overlays()
         }
-
-    
+        if is_gpx_video_shift_set():
+            project_data["gpx_video_shift"]= get_gpx_video_shift() 
     
         try:
             with open(filename, "w", encoding="utf-8") as f:
@@ -4913,7 +4912,9 @@ class MainWindow(QMainWindow):
             self.gpx_widget.gpx_list._markE_idx = gpx_markers.get("markE_idx", None)
 
             # GPX/Video shift (s)
-            set_gpx_video_shift(project_data.get("gpx_video_shift", 0.0))
+            set_gpx_video_shift(project_data.get("gpx_video_shift", None))
+            if(is_gpx_video_shift_set()):
+                self.enableVideoGpxSync(True)
 
             # 5. Overlays laden
             overlays = project_data.get("overlays", [])
