@@ -129,9 +129,16 @@ def check_ffmpeg_and_vlc_or_exit():
 
 def main():
     # Workaround bei manchen Grafikkarten
+    verbose_mode = "-verbose" in sys.argv or "-v" in sys.argv or "--v" in sys.argv or "--verbose" in sys.argv
+    
     if config.is_soft_opengl_enabled():
         QGuiApplication.setAttribute(Qt.AA_UseSoftwareOpenGL)
-
+    
+    if not verbose_mode and platform.system() == "Windows":
+        import ctypes
+        # Verstecke die Konsole
+        ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
+        
     app = QApplication(sys.argv)
     
     
