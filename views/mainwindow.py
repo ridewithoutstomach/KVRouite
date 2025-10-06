@@ -1652,20 +1652,25 @@ class MainWindow(QMainWindow):
 
         insert_pos = -1
         if self._autoSyncNewPointsWithVideoTime and self.playlist_counter > 0: #if video loaded, insert a new point at current video time without shift
+            # Undo-Snapshot
+            self.register_gpx_undo_snapshot()
+            
             video_time = self.video_editor.get_current_position_s()
             final_s = self.get_final_time_for_global(video_time)
             insert_pos = self.ordered_insert_new_point(lat,lon,final_s)
 
-            if(insert_pos > 0 and self._directions_enabled):
-                t1 = gpx_data[insert_pos-1]["time"]
-                t2 = gpx_data[insert_pos]["time"]
+            if(self._directions_enabled and len(gpx_data) > 1):
+                pt1idx = insert_pos-1 if insert_pos>0 else insert_pos
+                pt2idx = insert_pos if insert_pos>0 else insert_pos+1 
+                t1 = gpx_data[pt1idx]["time"]
+                t2 = gpx_data[pt2idx]["time"]
                 dt = (t2 - t1).total_seconds()
                 if dt > 2 :
                     prof = self.map_widget._curr_mapbox_profile
                     if not prof:
                         prof = self.gpx_control._ask_profile_mode()
                     if prof:
-                        self.gpx_control._close_gaps_mapbox(insert_pos-1, insert_pos, dt, prof)
+                        self.gpx_control._close_gaps_mapbox(pt1idx, pt2idx, dt, prof)
 
         else: #insert with shift
             if idx == -3:
@@ -1696,7 +1701,7 @@ class MainWindow(QMainWindow):
         
             # --- Nun das "alte" Einfüge-Verhalten ---
             # Undo-Snapshot
-            self.append_gpx_history(gpx_data)
+            self.register_gpx_undo_snapshot()
 
             now = datetime.now()  # Fallback, falls Zeit gar nicht existiert
 
@@ -2307,8 +2312,7 @@ class MainWindow(QMainWindow):
     
         # 1) Undo-Snapshot (gesamte GPX-Daten kopieren)
         
-        old_data = copy.deepcopy(gpx_data)
-        self.gpx_widget.gpx_list._history_stack.append(old_data)
+        self.register_gpx_undo_snapshot()
         
         """
         Wird aufgerufen, wenn der User in der Karte einen GPX-Punkt verschoben hat.
@@ -4832,11 +4836,10 @@ class MainWindow(QMainWindow):
                 "markB_idx": self.gpx_widget.gpx_list._markB_idx,
                 "markE_idx": self.gpx_widget.gpx_list._markE_idx
             },
-            "overlays": self._overlay_manager.get_all_overlays(),
-            "gpx_video_shift": get_gpx_video_shift(),
+            "overlays": self._overlay_manager.get_all_overlays()
         }
-
-    
+        if is_gpx_video_shift_set():
+            project_data["gpx_video_shift"]= get_gpx_video_shift() 
     
         try:
             with open(filename, "w", encoding="utf-8") as f:
@@ -4908,7 +4911,9 @@ class MainWindow(QMainWindow):
             self.gpx_widget.gpx_list._markE_idx = gpx_markers.get("markE_idx", None)
 
             # GPX/Video shift (s)
-            set_gpx_video_shift(project_data.get("gpx_video_shift", 0.0))
+            set_gpx_video_shift(project_data.get("gpx_video_shift", None))
+            if(is_gpx_video_shift_set()):
+                self.enableVideoGpxSync(True)
 
             # 5. Overlays laden
             overlays = project_data.get("overlays", [])
