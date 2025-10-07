@@ -2083,6 +2083,7 @@ class MainWindow(QMainWindow):
    #     config.set_soft_opengl_enabled(checked)
    #     QMessageBox.information(self,"Restart needed","Please restart the application to apply the changes.")   
 
+
     def _update_gpx_overview(self):
         data = self.gpx_widget.gpx_list._gpx_data
         if not data:
@@ -5081,16 +5082,71 @@ class MainWindow(QMainWindow):
         # 4) Kürzen => alle Punkte, deren rel_s <= final_duration_s
         
         truncated = []
-        first_gpx_video_time=  gpx_data[0].get("time", 0.0) - timedelta(seconds = get_gpx_video_shift())
-        for pt in gpx_data:
+        first_gpx_video_time = gpx_data[0].get("time", 0.0) - timedelta(seconds=get_gpx_video_shift())
+    
+        # Finde den letzten Punkt, der innerhalb der Videolänge liegt
+        last_valid_index = -1
+        for i, pt in enumerate(gpx_data):
             rel_s = (pt.get("time", 0.0) - first_gpx_video_time).total_seconds()
-            if rel_s >=0 and rel_s <= final_duration_s:
-                truncated.append(pt)
+            if rel_s <= final_duration_s:
+                last_valid_index = i
+            else:
+                break
 
+        if last_valid_index < 0:
+            QMessageBox.warning(self, "Truncation", 
+                "After shortening to the video length, no meaningful GPX remains!")
+            return
+
+        # Nimm alle Punkte bis zum letzten vollständigen Punkt
+        truncated = gpx_data[:last_valid_index + 1]
+    
+        # Prüfe ob wir den letzten Punkt anpassen müssen
+        if last_valid_index < len(gpx_data) - 1:
+            last_pt = truncated[-1]
+            next_pt = gpx_data[last_valid_index + 1]
+        
+            # Berechne die genaue Zeit des letzten Punktes
+            last_pt_time = (last_pt.get("time", 0.0) - first_gpx_video_time).total_seconds()
+            next_pt_time = (next_pt.get("time", 0.0) - first_gpx_video_time).total_seconds()
+        
+            # Nur anpassen wenn next_pt_time > final_duration_s
+            if next_pt_time > final_duration_s:
+                # Faktor für lineare Interpolation
+                if next_pt_time - last_pt_time > 0:
+                    factor = (final_duration_s - last_pt_time) / (next_pt_time - last_pt_time)
+                else:
+                    factor = 0
+                    
+                # Lineare Interpolation für Position und Höhe
+                interpolated_lat = last_pt["lat"] + factor * (next_pt["lat"] - last_pt["lat"])
+                interpolated_lon = last_pt["lon"] + factor * (next_pt["lon"] - last_pt["lon"])
+                interpolated_ele = last_pt.get("ele", 0.0) + factor * (next_pt.get("ele", 0.0) - last_pt.get("ele", 0.0))
+                
+                # Erstelle angepassten letzten Punkt
+                adjusted_pt = {
+                    "lat": interpolated_lat,
+                    "lon": interpolated_lon,
+                    "ele": interpolated_ele,
+                    "time": first_gpx_video_time + timedelta(seconds=final_duration_s),
+            
+    
+        "delta_m": 0.0,
+                    "speed_kmh": 0.0,
+                    "gradient": 0.0
+                }
+                
+                # Ersetze den letzten Punkt durch den angepassten Punkt
+                truncated[-1] = adjusted_pt
+    
         if len(truncated) < 2:
             QMessageBox.warning(self, "Truncation", 
                 "After shortening to the video length, no meaningful GPX remains!")
             return
+    
+    
+
+
         
         # 5) => Speichern
         self._save_gpx_to_file(truncated, out_path)
