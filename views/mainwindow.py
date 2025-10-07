@@ -3430,11 +3430,120 @@ class MainWindow(QMainWindow):
     
     def on_stop(self):
         self.video_editor.stop()
-        
+    """
     def on_goto_video_end_clicked(self):
-        total = sum(self.video_durations)
-        self.video_editor._jump_to_global_time(total)
+        # Calculate the actual end time after all cuts
+        total_duration = self.real_total_duration
+        sum_cuts = self.cut_manager.get_total_cuts()
+        final_duration = total_duration - sum_cuts
+    
+        # Ensure we don't go below 0
+        if final_duration < 0:
+            final_duration = 0
         
+        # For multiple videos, we need to ensure we jump to the correct video
+        if hasattr(self.video_editor, 'videos') and len(self.video_editor.videos) > 1:
+            # Find which video contains the end position
+            current_time = 0
+            for i, video in enumerate(self.video_editor.videos):
+                video_duration = video.duration / 1000.0  # Convert ms to seconds
+                if current_time <= final_duration <= current_time + video_duration:
+                    # This video contains the end position
+                    # First, make sure we're in the correct video
+                    self.video_editor.show_first_frame_at_index(i)
+                    # Then jump to the correct position within this video
+                    video_offset = final_duration - current_time
+                    self.video_editor._jump_to_global_time(final_duration)
+                    break
+                current_time += video_duration
+        else:
+            # Single video case
+            self.video_editor._jump_to_global_time(final_duration)
+    
+    """
+    """
+    def on_goto_video_end_clicked(self):
+        # Calculate the actual end time after all cuts
+        total_duration = self.real_total_duration
+        sum_cuts = self.cut_manager.get_total_cuts()
+        final_duration = total_duration - sum_cuts
+    
+        # Ensure we don't go below 0
+        if final_duration < 0:
+            final_duration = 0
+        
+        # Always jump to the calculated end position
+        self.video_editor._jump_to_global_time(final_duration)
+    
+        # If we have multiple videos, make sure we're in the last video
+        if hasattr(self.video_editor, 'videos') and len(self.video_editor.videos) > 1:
+            # Small delay to ensure the jump is processed, then switch to last video
+            QTimer.singleShot(100, lambda: self.video_editor.show_first_frame_at_index(len(self.video_editor.videos) - 1))
+    
+    """
+    """
+    def on_goto_video_end_clicked(self):
+        # Calculate the actual end time after all cuts
+        total_duration = self.real_total_duration
+        sum_cuts = self.cut_manager.get_total_cuts()
+        final_duration = total_duration - sum_cuts
+    
+        # Ensure we don't go below 0
+        if final_duration < 0:
+            final_duration = 0
+
+        # For multiple videos, we need to handle the end of the last video specifically
+        if hasattr(self.video_editor, 'videos') and len(self.video_editor.videos) > 1:
+            # We want to go to the actual end position in the correct video
+            current_time = 0
+            for i, video in enumerate(self.video_editor.videos):
+                video_duration = self.video_editor.multi_durations[i]
+                if current_time <= final_duration <= current_time + video_duration:
+                    # This video contains the end position
+                    # Calculate local time within this video
+                    local_time = final_duration - current_time
+                    # Ensure we don't seek beyond the video duration
+                    if local_time >= video_duration:
+                        local_time = video_duration - 0.001
+                
+                    # Switch to this video and seek to the local time
+                    self.video_editor.show_first_frame_at_index(i)
+                    # Use a timer to ensure the video is loaded before seeking
+                    QTimer.singleShot(100, lambda: self.video_editor._player.command("seek", f"{local_time}", "absolute", "exact"))
+                    break
+                current_time += video_duration
+        else:
+            # Single video case
+            self.video_editor._jump_to_global_time(final_duration)
+    """
+    def on_goto_video_end_clicked(self):
+        """
+        Gehe zum tatsächlichen Ende des Videos nach allen Schnitten.
+        Berücksichtigt alle Schnitte am Anfang, in der Mitte und am Ende.
+        """
+        if not hasattr(self, 'cut_manager') or not hasattr(self, 'real_total_duration'):
+            return
+    
+        # Berechne die kumulierte geschnittene Zeit
+        total_duration = self.real_total_duration
+    
+        # Finde alle Schnitte die das Ende betreffen
+        remaining_duration = total_duration
+        for cut_start, cut_end in sorted(self.cut_manager._cut_intervals, reverse=True):
+            if cut_end >= remaining_duration:
+                # Dieser Schnitt betrifft das Ende
+                remaining_duration = cut_start
+            else:
+                # Dieser Schnitt ist vor dem Ende
+                break
+    
+        final_duration = remaining_duration
+        
+        print(f"[DEBUG] Goto End: total_duration={total_duration}, final_duration={final_duration}")
+    
+        # Springe zur berechneten Position
+        self.video_editor._jump_to_global_time(final_duration)
+    
     def on_play_ended(self):
         self.video_editor.media_player
         self.video_control.update_play_pause_icon(False)

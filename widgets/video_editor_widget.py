@@ -345,23 +345,24 @@ class VideoEditorWidget(QWidget):
         self.is_playing = False
 
         self.playlist = video_list
-
+    """
     def _jump_to_global_time(self, wanted_s: float):
-        """
-        'wanted_s' ist die globale Zeit über alle Clips.
-        Wir ermitteln clipIndex + local_s.
-        Nur wenn der clipIndex sich tatsächlich ändert, machen wir
-        playlist-play-index + 80ms Delay. Sonst: direkt seek.
-        """
+        print(f"DEBUG: Jumping to global time: {wanted_s}")
+        print(f"DEBUG: Boundaries: {self.boundaries}")
+        print(f"DEBUG: Playlist count: {self._player.playlist_count}")
+        
         if not self.boundaries:
             return
 
         total = self.boundaries[-1]
+        print(f"DEBUG: Total duration: {total}")
+        
         if wanted_s < 0:
             wanted_s = 0.0
         elif wanted_s > total:
             wanted_s = total
-
+            print(f"DEBUG: Adjusted wanted_s to total: {wanted_s}")
+            
         # ClipIndex suchen
         clip_idx = 0
         offset_prev = 0.0
@@ -406,8 +407,64 @@ class VideoEditorWidget(QWidget):
             QTimer.singleShot(80, do_seek)
 
 
-    
+    """
+    def _jump_to_global_time(self, wanted_s: float):
+        """
+        'wanted_s' ist die globale Zeit über alle Clips.
+        Wir ermitteln clipIndex + local_s.
+        """
+        if not self.boundaries:
+            return
 
+        total = self.boundaries[-1]
+        if wanted_s < 0:
+            wanted_s = 0.0
+        elif wanted_s >= total:
+            # Wenn wir ans Ende oder darüber hinaus wollen, gehen wir zum Ende des letzten Videos
+            wanted_s = total
+            clip_idx = len(self.boundaries) - 1
+            offset_prev = self.boundaries[clip_idx-1] if clip_idx > 0 else 0.0
+            local_s = self.multi_durations[clip_idx] - 0.001  # Kurz vor das Ende setzen
+        else:
+            # Normaler Fall: finde den Clip-Index
+            clip_idx = 0
+            offset_prev = 0.0
+            for i, bound_val in enumerate(self.boundaries):
+                if wanted_s < bound_val:
+                    clip_idx = i
+                    break
+                offset_prev = bound_val
+            local_s = wanted_s - offset_prev
+    
+        # Aktueller mpv-Playlist-Index:
+        current_idx = self._player.playlist_pos
+
+        if current_idx == clip_idx:
+            # Gleicher Clip => direkt seek
+            try:
+                self._player.command("seek", f"{local_s}", "absolute", "exact")
+                self._player.pause = True
+                self.is_playing = False
+            except SystemError as e:
+                print(f"[WARN] _jump_to_global_time: mpv refused to seek => {e}")
+        else:
+            # Clip-Wechsel => playlist-play-index + Delay
+            self._player.command("playlist-play-index", str(clip_idx))
+    
+            def do_seek():
+                if self._player.playlist_count == 0:
+                    return
+                if self._player.playlist_pos is None or self._player.playlist_pos < 0:
+                    return
+                try:
+                    self._player.command("seek", f"{local_s}", "absolute", "exact")
+                    self._player.pause = True
+                    self.is_playing = False
+                except SystemError as e:
+                    print(f"[WARN] _jump_to_global_time: mpv refused to seek => {e}")
+    
+            QTimer.singleShot(100, do_seek)
+            
     # -----------------------------------------
     # mpv Event-Handling
     # -----------------------------------------
