@@ -2082,15 +2082,29 @@ class MainWindow(QMainWindow):
    # def _on_enable_soft_opengl_toggled(self, checked: bool):
    #     config.set_soft_opengl_enabled(checked)
    #     QMessageBox.information(self,"Restart needed","Please restart the application to apply the changes.")   
-
+    
+    def _format_duration_with_ms(self, total_seconds: float) -> str:
+        """
+        Formatiert Sekunden in HH:MM:SS.mmm Format mit Millisekunden.
+        """
+        if total_seconds < 0:
+            return "00:00:00.000"
+    
+        total_ms = int(round(total_seconds * 1000))
+        hours = total_ms // (3600 * 1000)
+        minutes = (total_ms % (3600 * 1000)) // (60 * 1000)
+        seconds = (total_ms % (60 * 1000)) // 1000
+        milliseconds = total_ms % 1000
+    
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
 
     def _update_gpx_overview(self):
         data = self.gpx_widget.gpx_list._gpx_data
         if not data:
             self.gpx_control.update_info_line(
-                video_time_str="00:00:00",
+                video_time_str="00:00:00.000",  # Mit Millisekunden
                 length_km=0.0,
-                duration_str="00:00:00",
+                duration_str="00:00:00.000",    # Mit Millisekunden
                 elev_gain=0.0
             )
             return
@@ -2167,10 +2181,7 @@ class MainWindow(QMainWindow):
 
         
         # => In h:mm:ss formatieren
-        gpx_hh = int(total_sec // 3600)
-        gpx_mm = int((total_sec % 3600) // 60)
-        gpx_ss = int(total_sec % 60)
-        gpx_duration_str = f"{gpx_hh:02d}:{gpx_mm:02d}:{gpx_ss:02d}"
+        gpx_duration_str = self._format_duration_with_ms(total_sec)
     
         # 4) Videolänge (z.B. final nach Cuts)
         total_dur = self.real_total_duration        # Roh-Gesamtlänge aller Videos
@@ -2178,11 +2189,11 @@ class MainWindow(QMainWindow):
         final_dur = total_dur - sum_cuts
         if final_dur < 0:
             final_dur = 0
-        vid_hh = int(final_dur // 3600)
-        vid_mm = int((final_dur % 3600) // 60)
-        vid_ss = int(final_dur % 60)
-        video_time_str = f"{vid_hh:02d}:{vid_mm:02d}:{vid_ss:02d}"
-    
+        #vid_hh = int(final_dur // 3600)
+        #vid_mm = int((final_dur % 3600) // 60)
+        #vid_ss = int(final_dur % 60)
+        #video_time_str = f"{vid_hh:02d}:{vid_mm:02d}:{vid_ss:02d}"
+        video_time_str = self._format_duration_with_ms(final_dur)
         # 5) Weitere Werte wie slope_max/min etc.
         # 5) Slope/Gradient (ab start_idx)
         slope_vals = [pt.get("gradient", 0.0) for pt in data[start_idx:]]

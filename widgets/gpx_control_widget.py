@@ -3126,7 +3126,21 @@ class GPXControlWidget(QWidget):
             mw.map_widget.loadRoute(route_geojson, do_fit=False) 
         mw._undo_stack.append(undo)
         
+    def _format_duration_with_ms(self, total_seconds: float) -> str:
+        """
+        Formatiert Sekunden in HH:MM:SS.mmm Format mit Millisekunden.
+        """
+        if total_seconds < 0:
+            return "00:00:00.000"
+    
+        total_ms = int(round(total_seconds * 1000))
+        hours = total_ms // (3600 * 1000)
+        minutes = (total_ms % (3600 * 1000)) // (60 * 1000)
+        seconds = (total_ms % (60 * 1000)) // 1000
+        milliseconds = total_ms % 1000
         
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
+
     def on_show_gpx_summary(self):
         mw = self._mainwindow
         if not mw:
@@ -3141,7 +3155,9 @@ class GPXControlWidget(QWidget):
         t_start = gpx_data[0]["time"]
         t_end = gpx_data[-1]["time"]
         duration_s = (t_end - t_start).total_seconds()
-        duration_str = str(t_end - t_start)
+    
+        # Verwende die neue Formatierung mit Millisekunden
+        duration_str = self._format_duration_with_ms(duration_s)
 
         dist_m = sum(
             self._haversine_m(
@@ -3150,14 +3166,15 @@ class GPXControlWidget(QWidget):
             )
             for i in range(n_points - 1)
         )
-        #dist_km = dist_m / 1000.0
+        
+        # Distanz aus dem Label lesen (wie bisher)
         label_text = self.label_length.text()  # z.B. "Length(GPX): 66.12 km"
         try:
             dist_km = float(label_text.split(":")[1].replace("km", "").strip())
         except Exception:
             dist_km = 0.0
-
-            
+    
+        # Höhendaten
         ele_start = gpx_data[0].get("ele", 0.0)
         ele_end   = gpx_data[-1].get("ele", 0.0)
         elev_text = self.label_elev.text()
@@ -3165,16 +3182,28 @@ class GPXControlWidget(QWidget):
             elev_gain = float(elev_text.split(":")[1].replace("m", "").strip())
         except Exception:
             elev_gain = 0.0
-
+    
+        # Geschwindigkeiten
         speeds = [pt.get("speed_kmh", 0.0) for pt in gpx_data if "speed_kmh" in pt]
         max_speed = max(speeds) if speeds else 0.0
         min_speed = min(speeds) if speeds else 0.0
-
+    
+        # Video-Dauer berechnen (mit Millisekunden)
+        if mw and hasattr(mw, 'real_total_duration') and hasattr(mw.cut_manager, 'get_total_cuts'):
+            total_dur = mw.real_total_duration
+            sum_cuts = mw.cut_manager.get_total_cuts()
+            final_dur = total_dur - sum_cuts
+            if final_dur < 0:
+                final_dur = 0
+            video_duration_str = self._format_duration_with_ms(final_dur)
+        else:
+            video_duration_str = "00:00:00.000"
+    
         # -- Neuen Dialog bauen
         dlg = QDialog(self)
         dlg.setWindowTitle("GPX Summary")
-        dlg.setMinimumWidth(350)
-
+        dlg.setMinimumWidth(400)  # Etwas breiter für die längeren Zeitangaben
+    
         layout = QVBoxLayout(dlg)
         label = QLabel(dlg)
         label.setTextFormat(Qt.RichText)
@@ -3183,7 +3212,8 @@ class GPXControlWidget(QWidget):
             f"<b>GPX Summary</b><br><br>"
             f"<table>"
             f"<tr><td><b>Total Points:</b></td><td>{n_points}</td></tr>"
-            f"<tr><td><b>Duration:</b></td><td>{duration_str} ({int(duration_s)} sec)</td></tr>"
+            f"<tr><td><b>GPX Duration:</b></td><td>{duration_str}</td></tr>"
+            f"<tr><td><b>Video Duration:</b></td><td>{video_duration_str}</td></tr>"
             f"<tr><td><b>Distance:</b></td><td>{dist_km:.2f} km</td></tr>"
             f"<tr><td><b>Start Elevation:</b></td><td>{ele_start:.1f} m</td></tr>"
             f"<tr><td><b>End Elevation:</b></td><td>{ele_end:.1f} m</td></tr>"
@@ -3193,12 +3223,13 @@ class GPXControlWidget(QWidget):
             f"</table>"
         )
         layout.addWidget(label)
-
+    
         btn = QPushButton("OK", dlg)
         btn.clicked.connect(dlg.accept)
         layout.addWidget(btn, alignment=Qt.AlignRight)
-
-        dlg.exec()
+    
+        dlg.exec()    
+        
         
         
     def _on_resample_to_1s_clicked(self):
