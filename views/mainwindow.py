@@ -1961,17 +1961,9 @@ class MainWindow(QMainWindow):
             )
     
         
-   
+    """
     def on_cut_clicked_video(self):
-        """
-        Neuer, genauer Cut-Workflow:
-        - Liest MarkB/MarkE (global) VOR dem Video-Cut aus.
-        - Rechnet global -> final -> GPX datetime.
-        - Fügt (falls nötig) interpolierte GPX-Grenzpunkte ein,
-        entfernt exakt den Zeitbereich und verschiebt alle folgenden
-        GPX-Zeiten um genau die gelöschte Dauer.
-        - Aktualisiert UI / Map / Chart und erstellt Undo-Snapshots.
-        """
+        
         from datetime import timedelta
         import copy
         try:
@@ -2049,8 +2041,12 @@ class MainWindow(QMainWindow):
             return
     
         # gewünschte absolute GPX-Datetimes (vor dem Cut)
-        desired_start_dt = base_dt + timedelta(seconds=(final_start - video_shift))
-        desired_end_dt   = base_dt + timedelta(seconds=(final_end - video_shift))
+        #desired_start_dt = base_dt + timedelta(seconds=(final_start - video_shift))
+        #desired_end_dt   = base_dt + timedelta(seconds=(final_end - video_shift))
+        video_start_gpx = base_dt + timedelta(seconds=-video_shift)
+        desired_start_dt = video_start_gpx + timedelta(seconds=final_start)
+        desired_end_dt = video_start_gpx + timedelta(seconds=final_end)
+        
         if desired_end_dt <= desired_start_dt:
             print("[DEBUG] on_cut_clicked_video: invalid desired GPX interval, skipping.")
             return
@@ -2186,9 +2182,325 @@ class MainWindow(QMainWindow):
         print("[DEBUG] on_cut_clicked_video => GPX trimmed and UI updated.")
 
    
+    """
     
+    def on_cut_clicked_video(self):
+        """
+        Neuer, genauer Cut-Workflow mit End-Cut Erkennung
+        """
+        from datetime import timedelta
+        import copy
+        try:
+            from core.gpx_parser import recalc_gpx_data
+        except Exception:
+            recalc_gpx_data = None
     
+        do_gpx_edit = (self._autoSyncVideoEnabled and self._edit_mode in ("copy", "encode"))
+        
+        # --- 0) Wenn GPX-Edit gewünscht: Zeiten VOR dem Video-Cut speichern ---
+        final_start = None
+        final_end = None
+        if do_gpx_edit:
+            # Mark-Zeiten aus cut_manager (global)
+            if not hasattr(self.cut_manager, "markB_time_s") or not hasattr(self.cut_manager, "markE_time_s"):
+                print("[WARN] on_cut_clicked_video: cut_manager missing mark times, skipping GPX cut.")
+                # trotzdem Video-Cut ausführen (kein GPX)
+                self.register_video_undo_snapshot(False)
+                self.cut_manager.on_cut_clicked()
+                return
+
+            if self.cut_manager.markB_time_s < 0 or self.cut_manager.markE_time_s < 0:
+                print("[WARN] on_cut_clicked_video: mark times missing, skipping GPX cut.")
+                # Video-Cut trotzdem ausführen
+                self.register_video_undo_snapshot(False)
+                self.cut_manager.on_cut_clicked()
+                return
     
+            start_global = min(self.cut_manager.markB_time_s, self.cut_manager.markE_time_s)
+            end_global = max(self.cut_manager.markB_time_s, self.cut_manager.markE_time_s)
+    
+            total_dur = sum(self.video_durations) if self.video_durations else getattr(self, "real_total_duration", 0.0)
+            start_global = max(0.0, start_global)
+            end_global = min(end_global, total_dur)
+            if (end_global - start_global) < 0.01:
+                print("[DEBUG] Cut-Bereich zu klein, Abbruch. Start:", start_global, "Ende:", end_global)
+                return
+
+            # final times (vor dem Anlegen des Cuts!!) -> damit das Mapping korrekt ist
+            final_start = self.get_final_time_for_global(start_global)
+            final_end = self.get_final_time_for_global(end_global)
+            
+            # 🔥 END-CUT ERKENNUNG
+            is_end_cut = abs(end_global - total_dur) < 0.1  # Toleranz 0.1 Sekunden
+            print(f"[DEBUG] on_cut_clicked_video => captured marks: global [{start_global:.3f}..{end_global:.3f}] -> final [{final_start:.3f}..{final_end:.3f}], is_end_cut={is_end_cut}")
+        
+            # Undo-Snapshots (GPX + Video)
+            self.register_gpx_undo_snapshot()
+            self.register_video_undo_snapshot(True)
+        else:
+            # nur Video-Undo
+            self.register_video_undo_snapshot(False)
+        
+        # --- 1) Video-Cut anlegen (macht auch timeline update, reset MarkB/E intern) ---
+        self.cut_manager.on_cut_clicked()
+        
+        # --- 2) Wenn kein GPX-Edit erwünscht -> fertig ---
+        if not do_gpx_edit:
+            return
+        
+        # --- 3) GPX bearbeiten ---
+        gpx_data = self.gpx_widget.gpx_list._gpx_data
+        if not gpx_data or len(gpx_data) < 2:
+            print("[DEBUG] on_cut_clicked_video: no GPX data or too few points, skipping GPX cut.")
+            return
+        
+        # Basis-Datetime + Video-Shift
+        base_dt = gpx_data[0].get("time", None)
+        try:
+            video_shift = get_gpx_video_shift()
+            if video_shift is None:
+                video_shift = 0.0
+        except Exception:
+            video_shift = 0.0
+        
+        if base_dt is None:
+            print("[DEBUG] on_cut_clicked_video: GPX base time missing, skipping GPX cut.")
+            return
+        
+        # 🔥 END-CUT BEHANDLUNG
+        ####
+        
+        if is_end_cut:
+            print("[DEBUG] End-Cut Behandlung: Schneide GPX komplett ab Startpunkt")
+    
+            # 🔥 MILLISEKUNDENGENAUE BERECHNUNG
+            # Basis-Datetime des GPX
+            base_dt = gpx_data[0].get("time", None)
+        
+            # Video-Start in GPX-Zeit berechnen (unter Berücksichtigung des Sync)
+            video_start_gpx = base_dt + timedelta(seconds=-video_shift)
+    
+            # Gewünschte GPX-Zeit für den Schnitt berechnen
+            # Hier müssen wir die genaue Position im Video in GPX-Zeit umrechnen
+            desired_cut_dt = video_start_gpx + timedelta(seconds=final_start)
+    
+            # Stelle sicher, dass wir nicht vor dem ersten GPX-Punkt schneiden
+            desired_cut_dt = max(desired_cut_dt, base_dt)
+        
+            print(f"[DEBUG] End-Cut: Schneide GPX ab {desired_cut_dt}")
+            print(f"[DEBUG] Berechnung: video_start_gpx={video_start_gpx}, final_start={final_start}, video_shift={video_shift}")
+    
+            # 🔥 INTERPOLATION FÜR MILLISEKUNDENGENAUEN SCHNITT
+            # Hilfsfunktion: lineare Interpolation zwischen zwei Punkten
+            def _interp_point(pt1, pt2, new_time):
+                t1 = pt1.get("time")
+                t2 = pt2.get("time")
+                if t1 is None or t2 is None or t2 == t1:
+                    ratio = 0.0
+                else:
+                    ratio = (new_time - t1).total_seconds() / (t2 - t1).total_seconds()
+        
+                def _val(k):
+                    return pt1.get(k, 0.0) + ratio * (pt2.get(k, 0.0) - pt1.get(k, 0.0))
+        
+                new_pt = {
+                    "lat": _val("lat"),
+                    "lon": _val("lon"),
+                    "ele": _val("ele"),
+                    "time": new_time,
+                    "delta_m": 0.0,
+                    "speed_kmh": 0.0,
+                    "gradient": 0.0
+                }
+                return new_pt
+                
+            # Neuen GPX-Track erstellen mit millisekundengenauer Interpolation
+            new_gpx = []
+            n = len(gpx_data)
+            
+            # Finde den Punkt, an dem wir schneiden müssen
+            cut_index = -1
+            for i in range(n-1):
+                if gpx_data[i].get("time") <= desired_cut_dt <= gpx_data[i+1].get("time"):
+                    cut_index = i
+                    break
+    
+            if cut_index >= 0:
+                # Interpoliere einen exakten Punkt am Schnittzeitpunkt
+                interpolated_point = _interp_point(
+                    gpx_data[cut_index], 
+                    gpx_data[cut_index+1], 
+                    desired_cut_dt
+                )
+                
+                # Übernehme alle Punkte bis zum Schnitt + den interpolierten Punkt
+                for i in range(cut_index + 1):
+                    new_gpx.append(copy.deepcopy(gpx_data[i]))
+            
+                new_gpx.append(interpolated_point)
+                print(f"[DEBUG] Millisekundengenauer Schnitt: interpoliert zwischen Index {cut_index} und {cut_index+1}")
+            else:
+                # Fallback: Einfach alle Punkte bis zum gewünschten Zeitpunkt übernehmen
+                for pt in gpx_data:
+                    if pt.get("time") <= desired_cut_dt:
+                        new_gpx.append(copy.deepcopy(pt))
+                
+                # Wenn wir keinen Punkt gefunden haben, der genau passt, nimm den letzten Punkt vor desired_cut_dt
+                if not new_gpx:
+                    for i in range(n):
+                        if gpx_data[i].get("time") <= desired_cut_dt:
+                            new_gpx.append(copy.deepcopy(gpx_data[i]))
+                
+                print(f"[DEBUG] Einfacher Schnitt: {len(new_gpx)} Punkte übernommen")
+    
+            if len(new_gpx) < 2:
+                QMessageBox.warning(self, "Truncation", 
+                    "After shortening to the video length, no meaningful GPX remains!")
+                return
+    
+            # Metriken neu berechnen
+            if recalc_gpx_data is not None:
+                recalc_gpx_data(new_gpx)
+            else:
+                print("[WARN] recalc_gpx_data nicht verfügbar")
+            
+            self.gpx_widget.set_gpx_data(new_gpx)
+            self._gpx_data = new_gpx
+            
+            # UI updates
+            self._update_gpx_overview()
+            self.chart.set_gpx_data(new_gpx)
+            if self.mini_chart_widget:
+                self.mini_chart_widget.set_gpx_data(new_gpx)
+            
+            route_geojson = self._build_route_geojson_from_gpx(new_gpx)
+            self.map_widget.loadRoute(route_geojson, do_fit=False)
+    
+            print(f"[DEBUG] End-Cut abgeschlossen: GPX von {len(gpx_data)} auf {len(new_gpx)} Punkte gekürzt")
+        ###    
+        else:
+            # --- NORMALE MIDDLE-CUT LOGIK (existierender Code) ---
+            print("[DEBUG] Normaler Middle-Cut")
+            
+            # Gewünschte absolute GPX-Datetimes (vor dem Cut)
+            desired_start_dt = base_dt + timedelta(seconds=(final_start - video_shift))
+            desired_end_dt   = base_dt + timedelta(seconds=(final_end - video_shift))
+            
+            if desired_end_dt <= desired_start_dt:
+                print("[DEBUG] on_cut_clicked_video: invalid desired GPX interval, skipping.")
+                return
+            
+            delta_to_remove = (desired_end_dt - desired_start_dt).total_seconds()
+            if delta_to_remove <= 0.0:
+                print("[DEBUG] on_cut_clicked_video: zero removal interval, skipping.")
+                return
+            
+            print(f"[DEBUG] on_cut_clicked_video => trimming GPX times from {desired_start_dt} to {desired_end_dt} (delta {delta_to_remove:.3f}s)")
+            
+            # Hilfsfunktion: lineare Interpolation zwischen zwei Punkten
+            def _interp_point(pt1, pt2, new_time):
+                t1 = pt1.get("time")
+                t2 = pt2.get("time")
+                if t1 is None or t2 is None or t2 == t1:
+                    ratio = 0.0
+                else:
+                    ratio = (new_time - t1).total_seconds() / (t2 - t1).total_seconds()
+                def _val(k):
+                    return pt1.get(k, 0.0) + ratio * (pt2.get(k, 0.0) - pt1.get(k, 0.0))
+                new_pt = {
+                    "lat": _val("lat"),
+                    "lon": _val("lon"),
+                    "ele": _val("ele"),
+                    "time": new_time,
+                    "delta_m": 0.0,
+                    "speed_kmh": 0.0,
+                    "gradient": 0.0
+                }
+                return new_pt
+            
+            # Build new GPX: keep everything before desired_start_dt (incl. interpolated start),
+            # skip region [desired_start_dt .. desired_end_dt], then append remainder with times shifted by delta_to_remove.
+            new_gpx = []
+            n = len(gpx_data)
+            i = 0
+            
+            # copy points strictly before desired_start_dt
+            while i < n and gpx_data[i].get("time") < desired_start_dt:
+                new_gpx.append(copy.deepcopy(gpx_data[i]))
+                i += 1
+            
+            # if the next point is after desired_start_dt and we have a previous point -> insert interpolated start
+            if i < n and gpx_data[i].get("time") != desired_start_dt:
+                if new_gpx:
+                    prev_pt = new_gpx[-1]
+                    next_pt = gpx_data[i]
+                    if prev_pt.get("time") < desired_start_dt < next_pt.get("time"):
+                        new_start_pt = _interp_point(prev_pt, next_pt, desired_start_dt)
+                        new_gpx.append(new_start_pt)
+                else:
+                    # There is no prev_pt: desired_start before first point -> nothing to interpolate, we simply start from later points
+                    pass
+            elif i < n and gpx_data[i].get("time") == desired_start_dt:
+                # exact match: include that exact point (but we consider it as the "last kept" and will remove it if desired)
+                new_gpx.append(copy.deepcopy(gpx_data[i]))
+                i += 1
+            
+            # skip all points up to and including desired_end_dt
+            while i < n and gpx_data[i].get("time") <= desired_end_dt:
+                i += 1
+            
+            # now append remaining points shifted backward by delta_to_remove
+            for j in range(i, n):
+                pt = copy.deepcopy(gpx_data[j])
+                pt_time = pt.get("time")
+                if pt_time is not None:
+                    pt["time"] = pt_time - timedelta(seconds=delta_to_remove)
+                new_gpx.append(pt)
+            
+            # Edge-case: if the point immediately after the removed region started before desired_start_dt
+            # we may end up with the last point being duplicated or out-of-order; enforce ordering & sanity:
+            if len(new_gpx) >= 2:
+                # ensure strictly increasing times (small eps tolerance)
+                cleaned = [new_gpx[0]]
+                for k in range(1, len(new_gpx)):
+                    if new_gpx[k].get("time") is None or cleaned[-1].get("time") is None:
+                        cleaned.append(new_gpx[k])
+                    else:
+                        if new_gpx[k]["time"] > cleaned[-1]["time"]:
+                            cleaned.append(new_gpx[k])
+                        else:
+                            # skip point that would violate ordering
+                            pass
+                new_gpx = cleaned
+            
+            if len(new_gpx) < 2:
+                QMessageBox.warning(self, "Truncation", "After shortening to the video length, no meaningful GPX remains!")
+                print("[WARN] on_cut_clicked_video: truncation removed too much GPX.")
+                return
+            
+            # 4) Recalc metrics & set new GPX data
+            if recalc_gpx_data is not None:
+                recalc_gpx_data(new_gpx)
+            else:
+                print("[WARN] on_cut_clicked_video: recalc_gpx_data not available; times changed but metrics not recalculated.")
+            
+            self.gpx_widget.set_gpx_data(new_gpx)
+            self._gpx_data = new_gpx
+            
+            # UI updates
+            self._update_gpx_overview()
+            self.chart.set_gpx_data(new_gpx)
+            if self.mini_chart_widget:
+                self.mini_chart_widget.set_gpx_data(new_gpx)
+            
+            route_geojson = self._build_route_geojson_from_gpx(new_gpx)
+            self.map_widget.loadRoute(route_geojson, do_fit=False)
+        
+        # Clear any red-marked range in GPX list (we've applied the change)
+        self.gpx_widget.gpx_list.clear_marked_range()
+        
+        print("[DEBUG] on_cut_clicked_video => GPX trimmed and UI updated.")
+        
     def _on_auto_sync_video_toggled(self, checked: bool):
         """
         Wird aufgerufen, wenn der Menüpunkt "AutoSyncVideo" an-/abgehakt wird.
