@@ -2967,13 +2967,9 @@ class MainWindow(QMainWindow):
 
     
     """
-    
+    """
     def on_markB_clicked_video(self):
-        """
-        Setzt MarkB aus dem VideoControl.
-        - Falls AutoSync=OFF: benutze aktuelle GPX-Row (kein +1).
-        - Falls AutoSync=ON: berechne final_s und markiere den besten GPX-Index (closest).
-        """
+
         # Kein Video/GPX -> Abbruch
         row = self.gpx_widget.gpx_list.table.currentRow()
         # Wenn AutoSync off, verhalten wie bisher: benutze selektierte Zeile (falls vorhanden)
@@ -3017,7 +3013,51 @@ class MainWindow(QMainWindow):
         self.cut_manager.markB_time_s = global_s
         self.timeline.set_markB_time(global_s)
     
+    """
     
+    def on_markB_clicked_video(self):
+        """
+        Setzt MarkB aus dem VideoControl.
+        - Falls AutoSync=OFF: Nur Video-Markierung setzen, keine GPX-Markierung
+        - Falls AutoSync=ON: berechne final_s und markiere den besten GPX-Index (closest).
+        """
+        # Kein Video/GPX -> Abbruch
+        if not self._autoSyncVideoEnabled:
+            # Nur Video-Markierung setzen, keine GPX-Markierung
+            global_s = self.video_editor.get_current_position_s()
+            self.cut_manager.markB_time_s = global_s
+            self.timeline.set_markB_time(global_s)
+            return
+
+        # AutoSync = ON: determine the closest GPX entry to the current final video time
+        global_s = self.video_editor.get_current_position_s()
+        final_s = self.get_final_time_for_global(global_s)
+        best_idx = self.gpx_widget.get_closest_index_for_time(final_s)
+    
+        # clamp
+        maxrow = len(self.gpx_widget.gpx_list._gpx_data) - 1
+        if best_idx < 0:
+            return
+        if best_idx > maxrow:
+            best_idx = maxrow
+
+        # Validity check: cannot set B behind existing E
+        E_s = self.cut_manager.markE_time_s
+        if E_s >= 0 and global_s >= E_s:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self,
+                "Invalid MarkB",
+                f"You cannot set MarkB ({global_s:.2f}s) behind MarkE ({E_s:.2f}s)!"
+            )
+            return
+    
+        # Set GPX Mark and timeline/cut_manager
+        self.gpx_widget.gpx_list.set_markB_row(best_idx)
+        self.map_widget.set_markB_point(best_idx)
+        self.cut_manager.markB_time_s = global_s
+        self.timeline.set_markB_time(global_s)
+        
     def on_markE_clicked(self):
         print("[DEBUG] Alter markE")
         return
