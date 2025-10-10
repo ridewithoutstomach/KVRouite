@@ -467,12 +467,7 @@ class MainWindow(QMainWindow):
         action_size_yellow.triggered.connect(lambda: self._on_set_map_point_size("yellow"))
         pts_size_menu.addAction(action_size_yellow)
         
-        # OpenGL Menu:
-        #self.action_enable_soft_opengl = QAction("Use sofware OpenGL", self)
-        #self.action_enable_soft_opengl.setCheckable(True)
-        #self.action_enable_soft_opengl.setChecked(config.is_soft_opengl_enabled())  
-        #self.action_enable_soft_opengl.triggered.connect(self._on_enable_soft_opengl_toggled)
-        #setup_menu.addAction(self.action_enable_soft_opengl)
+        
         
         
         reset_config_action = QAction("Reset Config", self)
@@ -697,12 +692,8 @@ class MainWindow(QMainWindow):
         
         self.gpx_control.cutClicked.connect(self.gpx_control.on_cut_range_clicked)
         self.gpx_control.removeClicked.connect(self.gpx_control.on_remove_range_clicked)
-        #self.gpx_control.undoClicked.connect(self.gpx_control.on_undo_range_clicked)
         
         
-        
-        
-        #self.gpx_control.saveClicked.connect(self.gpx_control.on_save_gpx_clicked)
             
         
         
@@ -765,8 +756,7 @@ class MainWindow(QMainWindow):
         self.video_control.markBClicked.connect(self.cut_manager.on_markB_clicked)
         self.video_control.markEClicked.connect(self.cut_manager.on_markE_clicked)
         self.video_control.cutClicked.connect(self.on_cut_clicked_video)
-        #self.video_control.undoClicked.connect(self.on_undo_clicked_video)
-        #self.video_control.undoClicked.connect(self.on_global_undo)
+        
         
         self.video_control.markClearClicked.connect(self.cut_manager.on_markClear_clicked)
         self.cut_manager.cutsChanged.connect(self._on_cuts_changed)
@@ -1500,127 +1490,7 @@ class MainWindow(QMainWindow):
         )    
         
             
-        
-        
     
-    """
-    def on_set_begin_clicked(self):
-        current_local_s = self.video_editor.get_current_position_s()
-        
-        if self._autoSyncVideoEnabled:
-            ret = QMessageBox.question(
-                self,
-                "Confirm Cut Begin",
-                f"Cut gpx and video before {current_local_s}s?\n"
-                "Press Yes to proceed, No to abort.",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
-            )
-        else:
-            ret = QMessageBox.question(
-                self,
-                "Confirm Cut Begin",
-                f"Cut video before {current_local_s}s?\n"
-                "Press Yes to proceed, No to abort.",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
-            )
-            
-        if ret != QMessageBox.Yes:
-            # => Abbrechen
-            return
-        
-
-        # 2) Videozeit => global_video_s
-        
-        if current_local_s < 0:
-            current_local_s = 0.0
-        vid_idx = self.video_editor.get_current_index()
-        offset_s = sum(self.video_durations[:vid_idx])
-        global_video_s = offset_s + current_local_s
-        print(f"[DEBUG] set_begin => global_video_s={global_video_s:.2f}")
-    
-        # 3) GPX => rel_s_marked
-        gpx_data = self.gpx_widget.gpx_list._gpx_data
-        final_time = self.get_final_time_for_global(global_video_s)
-
-        if gpx_data:
-            gpx_cut_time = gpx_data[0].get("time", 0.0) + timedelta(seconds = final_time - get_gpx_video_shift())
-        
-            # => Undo-Snapshot => wir ändern definitiv was
-            self.register_gpx_undo_snapshot()
-    
-            i0 = -1
-            while i0 < len(gpx_data) - 1:
-                if gpx_data[i0+1].get("time", 0.0) > gpx_cut_time:
-                    break
-                i0 += 1
-        
-            new_gpx_video_shift=0
-            if i0 >= 0:
-                gpx_delta = (gpx_data[i0+1].get("time", 0.0) - gpx_data[0].get("time", 0.0)).total_seconds()
-                self.gpx_widget.gpx_list.set_markB_row(0)
-                self.gpx_widget.gpx_list.set_markE_row(i0)
-                self.gpx_widget.gpx_list.delete_selected_range()
-                print(f"[DEBUG] on_set_begin_clicked => gpx_delta={gpx_delta:.2f}s")
-                new_gpx_video_shift = gpx_delta - final_time + get_gpx_video_shift()
-            else: #first gpx is after video cut, reducing time between gpx and video
-                new_gpx_video_shift = get_gpx_video_shift() - final_time
-
-            set_gpx_video_shift(new_gpx_video_shift) 
-        
-            new_data = self.gpx_widget.gpx_list._gpx_data
-            if new_data:
-                recalc_gpx_data(new_data)
-                self.gpx_widget.set_gpx_data(new_data)
-    
-        self.register_video_undo_snapshot(gpx_data) #append undo video if gpx available, else just undo video
-        # => Video => cut 0..global_video_s
-        if global_video_s <= 0.01:
-            QMessageBox.information(
-                self, "Set Begin (ON)",
-                "Video near 0s => no cut.\n"
-                "GPX cut at the point.\n"
-                "Undo possible."
-            )
-            
-        else:
-            self.cut_manager.markB_time_s = 0.0
-            self.cut_manager.markE_time_s = global_video_s
-            self.timeline.set_markB_time(0.0)
-            self.timeline.set_markE_time(global_video_s)
-            self.cut_manager.on_cut_clicked()
-
-            msg="Video"
-            if gpx_data:
-                msg += " and GPX"
-            QMessageBox.information(
-                self, "Set Begin (ON)",
-                f"{msg} cut at {global_video_s:.2f}s.\n"
-                "Undo possible."
-            )
-    
-        # -------------------------------------------
-        #  (3) Chart / Map / MiniChart aktualisieren
-        # -------------------------------------------
-        final_data = self.gpx_widget.gpx_list._gpx_data
-        if final_data:
-            # chart
-            self.chart.set_gpx_data(final_data)
-            # mini chart
-            if self.mini_chart_widget:
-                self.mini_chart_widget.set_gpx_data(final_data)
-            # map
-            route_geojson = self._build_route_geojson_from_gpx(final_data)
-            self.map_widget.loadRoute(route_geojson, do_fit=False)
-        else:
-            self.chart.set_gpx_data([])
-            if self.mini_chart_widget:
-                self.mini_chart_widget.set_gpx_data([])
-            self.map_widget.loadRoute(None, do_fit=False)
-    
-        print("[DEBUG] on_set_begin_clicked => done.")
-    """
     
     def on_set_begin_clicked(self):
         current_local_s = self.video_editor.get_current_position_s()
@@ -1806,7 +1676,7 @@ class MainWindow(QMainWindow):
         print("[DEBUG] on_set_begin_clicked => done.")
         
     
-    ### 
+    
     
                 
     def on_new_gpx_point_inserted(self, lat: float, lon: float, idx: int):
@@ -2091,59 +1961,7 @@ class MainWindow(QMainWindow):
             )
     
         
-    """    
-    
-    def on_cut_clicked_video(self):
-        if self._autoSyncVideoEnabled and self._edit_mode in ("copy", "encode"):
-            self.register_gpx_undo_snapshot()  # ❗ Vor dem Cut!
-            self.register_video_undo_snapshot(True)
-
-            # ➕ Vor dem Cut: MarkB um +1 verschieben (aber nur intern!)
-            current_B = self.gpx_widget.gpx_list._markB_idx
-            current_E = self.gpx_widget.gpx_list._markE_idx
-
-            if current_B is not None and current_E is not None:
-                
-                if current_B == 0:
-                    new_B = 0
-                else:    
-                    new_B = current_B + 1   
-    
-                # Klemme: darf nicht hinter E liegen
-                if new_B >= current_E:
-                    from PySide6.QtWidgets import QMessageBox
-                    QMessageBox.warning(
-                        self,
-                        "Invalid GPX Range",
-                        f"Cannot shift start of range from {current_B} to {new_B} because it would be >= E={current_E}!"
-                    )
-                    return
-    
-                print(f"[DEBUG] Shift MarkB: {current_B} → {new_B}")
-                self.gpx_widget.gpx_list.set_markB_row(new_B)
-                self.map_widget.set_markB_point(new_B)
-
-        else:
-            self.register_video_undo_snapshot(False)
-
-        # 1) Video-Cut
-        self.cut_manager.on_cut_clicked()
-
-        # 2) autoSyncVideo?
-        if self._autoSyncVideoEnabled and self._edit_mode in ("copy", "encode"):
-            self.map_widget.view.page().runJavaScript("showLoading('Deleting GPX-Range...');")
-            print("[DEBUG] autoSyncVideo=ON => rufe gpx_list.delete_selected_range()")
-            self.gpx_widget.gpx_list.delete_selected_range()
-            self.map_widget.clear_marked_range()
-
-            self._update_gpx_overview()
-            self._gpx_data = self.gpx_widget.gpx_list._gpx_data
-            route_geojson = self._build_route_geojson_from_gpx(self._gpx_data)
-            self.map_widget.loadRoute(route_geojson, do_fit=False)
-            self.chart.set_gpx_data(self._gpx_data)
-            self.map_widget.view.page().runJavaScript("hideLoading();")
-
-    """
+   
     def on_cut_clicked_video(self):
         """
         Neuer, genauer Cut-Workflow:
@@ -2369,130 +2187,7 @@ class MainWindow(QMainWindow):
 
    
     
-    """    
-    def _cut_gpx_segment(self, gpx_points: list, start_s: float, end_s: float) -> list:
-        
-        from datetime import timedelta
-        from core.gpx_parser import get_gpx_video_shift, recalc_gpx_data
-
-        if not gpx_points or start_s is None or end_s is None:
-            return []
-
-        # Normalisieren: start <= end
-        if start_s > end_s:
-            start_s, end_s = end_s, start_s
-
-        # Video shift in Sekunden (kann None sein)
-        try:
-            shift = get_gpx_video_shift()
-            if shift is None:
-                shift = 0.0
-        except Exception:
-            shift = 0.0
-
-        # Zeitbasis: GPX[0].time minus shift => rel_s = (pt.time - base_dt).total_seconds()
-        base_dt = gpx_points[0].get("time")
-        if base_dt is None:
-            # kein Zeitstempel => keine sinnvolle Operation
-            return []
-
-        def rel_seconds(dt):
-            return (dt - base_dt).total_seconds() + (shift or 0.0)
-
-        def make_time_for_rel(rel_s):
-            # Erzeuge datetime für rel_s
-            return base_dt + timedelta(seconds=(rel_s - (shift or 0.0)))
     
-        def interp(p1, p2, target_rel_s):
-            
-            t1 = rel_seconds(p1["time"])
-            t2 = rel_seconds(p2["time"])
-            if t2 == t1:
-                f = 0.0
-            else:
-                f = (target_rel_s - t1) / (t2 - t1)
-                if f < 0.0:
-                    f = 0.0
-                elif f > 1.0:
-                    f = 1.0
-    
-            new = dict(p1)  # Start mit p1, überschreibe Felder
-            new["time"] = make_time_for_rel(target_rel_s)
-    
-            for key in ("lat", "lon", "ele", "delta_m", "speed_kmh", "gradient"):
-                v1 = p1.get(key)
-                v2 = p2.get(key)
-                if v1 is not None and v2 is not None:
-                    try:
-                        new[key] = v1 + f * (v2 - v1)
-                    except Exception:
-                        new[key] = p1.get(key)
-            return new
-
-        n = len(gpx_points)
-        # --- Interpolated start point ---
-        start_pt = None
-        for i in range(n - 1):
-            t1 = rel_seconds(gpx_points[i]["time"])
-            t2 = rel_seconds(gpx_points[i+1]["time"])
-            if t1 <= start_s <= t2:
-                start_pt = interp(gpx_points[i], gpx_points[i+1], start_s)
-                break
-        if start_pt is None:
-            # Falls start vor erstem Punkt oder nach letztem Punkt
-            if start_s <= rel_seconds(gpx_points[0]["time"]):
-                start_pt = dict(gpx_points[0])
-                start_pt["time"] = make_time_for_rel(start_s)
-            else:
-                start_pt = dict(gpx_points[-1])
-                start_pt["time"] = make_time_for_rel(start_s)
-    
-        # --- Interpolated end point ---
-        end_pt = None
-        for i in range(n - 1):
-            t1 = rel_seconds(gpx_points[i]["time"])
-            t2 = rel_seconds(gpx_points[i+1]["time"])
-            if t1 <= end_s <= t2:
-                end_pt = interp(gpx_points[i], gpx_points[i+1], end_s)
-                break
-        if end_pt is None:
-            if end_s >= rel_seconds(gpx_points[-1]["time"]):
-                end_pt = dict(gpx_points[-1])
-                end_pt["time"] = make_time_for_rel(end_s)
-            else:
-                end_pt = dict(gpx_points[0])
-                end_pt["time"] = make_time_for_rel(end_s)
-    
-        # --- Mittlere Punkte (strictly between start_s and end_s) ---
-        middle = []
-        for p in gpx_points:
-            t = rel_seconds(p["time"])
-            if start_s < t < end_s:
-                middle.append(dict(p))
-    
-        # Result zusammenbauen: start_pt + middle + end_pt
-        result = [start_pt] + middle
-        # Wenn end_pt zeitlich gleich oder vor last added, replace; sonst append
-        if result:
-            last_rel = (result[-1]["time"] - base_dt).total_seconds() + (shift or 0.0)
-            if end_s <= last_rel:
-                # Ersetze letzter durch end_pt
-                result[-1] = end_pt
-            else:
-                result.append(end_pt)
-        else:
-            result = [start_pt, end_pt]
-    
-        # Recalculate GPX-derived fields (delta_m, speed, gradient...) wenn möglich
-        try:
-            recalc_gpx_data(result)
-        except Exception:
-            # Wenn recalc fehlt / Fehler: trotzdem zurückgeben
-            pass
-    
-        return result
-
-    """
     
     def _on_auto_sync_video_toggled(self, checked: bool):
         """
@@ -2909,111 +2604,7 @@ class MainWindow(QMainWindow):
         s = (s_rounded % 60)
         return (h, m, s)
     
-    """    
-  
-    def on_markB_clicked_video(self):
-        
-        #Wird     aufgerufen, wenn man im VideoControlWidget den Button '[-' klickt.
-        
-        # 1) Falls AutoSync=OFF => verhalte dich wie bisher (ohne +1).
-        # 2) Falls AutoSync=ON  => *erst* Video/GPS syncen, dann +1 in der GPX-Liste.
-        #
-        if not self._autoSyncVideoEnabled:
-            # => KEIN +1
-            row = self.gpx_widget.gpx_list.table.currentRow()
-            if row < 0:
-                return
-            #self.gpx_widget.gpx_list.set_markB_row(row)
-            self.map_widget.set_markB_point(row)
-        
-            # cut_manager, timeline
-            global_s = self.video_editor.get_current_position_s()  # = globale Sekunde
-            self.cut_manager.markB_time_s = global_s
-            self.timeline.set_markB_time(global_s)
-            
-            
-        
-        else:
-            # => AutoCutVideo+GPX = ON
-            #    typischerweise machen wir 'Sync': wir holen uns die globale Zeit
-            global_s = self.video_editor.get_current_position_s()
-            final_s = self.get_final_time_for_global(global_s)  # falls du final<->global rechnest
-            best_idx = self.gpx_widget.get_closest_index_for_time(final_s)
-        
-            # Das +1:
-            row = best_idx
-        
-            # Klemme, falls row jenseits der letzten Zeile liegt
-            maxrow = len(self.gpx_widget.gpx_list._gpx_data) - 1
-            if row > maxrow:
-                row = maxrow
-        
-            E_s = self.cut_manager.markE_time_s
-            if E_s >= 0 and global_s >= E_s:
-                from PySide6.QtWidgets import QMessageBox
-                QMessageBox.warning(
-                    self,
-                    "Invalid MarkB",
-                    f"You cannot set MarkB ({global_s:.2f}s) behind MarkE ({E_s:.2f}s)!"
-                )
-                return  # => Abbruch, nichts weiter setzen
-        
-            self.gpx_widget.gpx_list.set_markB_row(row)
-            self.map_widget.set_markB_point(row)
-            
-            # Und analog ins cut_manager
-            self.cut_manager.markB_time_s = global_s
-            self.timeline.set_markB_time(global_s)
-
     
-    """
-    """
-    def on_markB_clicked_video(self):
-
-        # Kein Video/GPX -> Abbruch
-        row = self.gpx_widget.gpx_list.table.currentRow()
-        # Wenn AutoSync off, verhalten wie bisher: benutze selektierte Zeile (falls vorhanden)
-        if not self._autoSyncVideoEnabled:
-            if row < 0:
-                return
-            # Set mark in GPX list (keine +1!): user expects exact selected row
-            self.gpx_widget.gpx_list.set_markB_row(row)
-            self.map_widget.set_markB_point(row)
-            global_s = self.video_editor.get_current_position_s()
-            self.cut_manager.markB_time_s = global_s
-            self.timeline.set_markB_time(global_s)
-            return
-
-        # AutoSync = ON: determine the closest GPX entry to the current final video time
-        global_s = self.video_editor.get_current_position_s()
-        final_s = self.get_final_time_for_global(global_s)
-        best_idx = self.gpx_widget.get_closest_index_for_time(final_s)
-
-        # clamp
-        maxrow = len(self.gpx_widget.gpx_list._gpx_data) - 1
-        if best_idx < 0:
-            return
-        if best_idx > maxrow:
-            best_idx = maxrow
-    
-        # Validity check: cannot set B behind existing E
-        E_s = self.cut_manager.markE_time_s
-        if E_s >= 0 and global_s >= E_s:
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.warning(
-                self,
-                "Invalid MarkB",
-                f"You cannot set MarkB ({global_s:.2f}s) behind MarkE ({E_s:.2f}s)!"
-            )
-            return
-    
-        # Set GPX Mark and timeline/cut_manager
-        self.gpx_widget.gpx_list.set_markB_row(best_idx)
-        self.map_widget.set_markB_point(best_idx)
-        self.cut_manager.markB_time_s = global_s
-        self.timeline.set_markB_time(global_s)
-    
-    """
     
     def on_markB_clicked_video(self):
         """
@@ -3157,7 +2748,7 @@ class MainWindow(QMainWindow):
     
     
     
-    #neu2
+    
     def _on_gpx_list_pause_clicked(self, row_idx: int):
         if not self.video_editor.is_playing:
             # Statt select_point_in_pause => show_blue
@@ -3177,58 +2768,7 @@ class MainWindow(QMainWindow):
             self.gpx_widget.gpx_list.select_row_in_pause(index)
             self.chart.highlight_gpx_index(index)
 
-    """
-    def _show_copyright_dialog(self):
-        
-        counts = self._fetch_counters_from_server()
-        if counts:
-            vcount = counts.get("video", 0)
-            gcount = counts.get("gpx", 0)
-        else:
-            vcount, gcount = 0, 0
-        
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Copyright")
-        msg.setText(
-            "<h3>VGSync - Video and GPX Sync Tool</h3>"
-            f"Version: {APP_VERSION}<br><br>"
-            
-            "Copyright (C) 2025 Bernd Eller<br>"
-            "This program is free software: you can redistribute it and/or modify "
-            "it under the terms of the GNU General Public License as published by "
-            "the Free Software Foundation, either version 3 of the License, or "
-            "(at your option) any later version.<br><br>"
-        
-            "This program is distributed in the hope that it will be useful, "
-            "but WITHOUT ANY WARRANTY; without even the implied warranty of "
-            "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. "
-            "See the GNU General Public License for more details.<br><br>"
-            
-            "You should have received a copy of the GNU General Public License "
-            "along with this program. If not, see "
-            "<a href='https://www.gnu.org/licenses/'>https://www.gnu.org/licenses/</a>.<br><br>"
-            
-            "<h3>Third-Party Libraries & Patent Notice</h3>"
-            "This application includes and distributes open-source libraries:<br>"
-            "<b>1. FFmpeg</b> - <a href='https://ffmpeg.org'>ffmpeg.org</a> (GPL build)<br>"
-            "<b>2. mpv</b> - <a href='https://mpv.io'>mpv.io</a> (GPL build)<br><br>"
-             "Full license texts for these libraries are located in the <br>"
-             "<code>_internal/ffmpeg</code> and <code>_internal/mpv</code> folders.<br>"            
-            "The complete source code for these libraries as used in this software "
-            "is available at "
-            "<a href='http://vgsync.casa-eller.de'>http://vgsync.casa-eller.de</a>.<br><br>"
-            
-            "<b>Patent Encumbrance Notice:</b><br>"
-            "Some codecs (such as x265) may be patent-encumbered in certain jurisdictions. "
-            "It is the user's responsibility to ensure compliance with all applicable "
-            "laws and regulations, and to obtain any necessary patent licenses.<br><br>"
-            
-            "<b>By clicking 'I Accept', you acknowledge that you have read and "
-            "understood the GNU General Public License terms.</b><br><br>"
-            f"V: {vcount}  G: {gcount}"
-        )
-        msg.exec()
-    """
+   
     
     def _show_copyright_dialog(self):
         from PySide6.QtGui import QPixmap
@@ -3990,92 +3530,7 @@ class MainWindow(QMainWindow):
     
     def on_stop(self):
         self.video_editor.stop()
-    """
-    def on_goto_video_end_clicked(self):
-        # Calculate the actual end time after all cuts
-        total_duration = self.real_total_duration
-        sum_cuts = self.cut_manager.get_total_cuts()
-        final_duration = total_duration - sum_cuts
-    
-        # Ensure we don't go below 0
-        if final_duration < 0:
-            final_duration = 0
-        
-        # For multiple videos, we need to ensure we jump to the correct video
-        if hasattr(self.video_editor, 'videos') and len(self.video_editor.videos) > 1:
-            # Find which video contains the end position
-            current_time = 0
-            for i, video in enumerate(self.video_editor.videos):
-                video_duration = video.duration / 1000.0  # Convert ms to seconds
-                if current_time <= final_duration <= current_time + video_duration:
-                    # This video contains the end position
-                    # First, make sure we're in the correct video
-                    self.video_editor.show_first_frame_at_index(i)
-                    # Then jump to the correct position within this video
-                    video_offset = final_duration - current_time
-                    self.video_editor._jump_to_global_time(final_duration)
-                    break
-                current_time += video_duration
-        else:
-            # Single video case
-            self.video_editor._jump_to_global_time(final_duration)
-    
-    """
-    """
-    def on_goto_video_end_clicked(self):
-        # Calculate the actual end time after all cuts
-        total_duration = self.real_total_duration
-        sum_cuts = self.cut_manager.get_total_cuts()
-        final_duration = total_duration - sum_cuts
-    
-        # Ensure we don't go below 0
-        if final_duration < 0:
-            final_duration = 0
-        
-        # Always jump to the calculated end position
-        self.video_editor._jump_to_global_time(final_duration)
-    
-        # If we have multiple videos, make sure we're in the last video
-        if hasattr(self.video_editor, 'videos') and len(self.video_editor.videos) > 1:
-            # Small delay to ensure the jump is processed, then switch to last video
-            QTimer.singleShot(100, lambda: self.video_editor.show_first_frame_at_index(len(self.video_editor.videos) - 1))
-    
-    """
-    """
-    def on_goto_video_end_clicked(self):
-        # Calculate the actual end time after all cuts
-        total_duration = self.real_total_duration
-        sum_cuts = self.cut_manager.get_total_cuts()
-        final_duration = total_duration - sum_cuts
-    
-        # Ensure we don't go below 0
-        if final_duration < 0:
-            final_duration = 0
-
-        # For multiple videos, we need to handle the end of the last video specifically
-        if hasattr(self.video_editor, 'videos') and len(self.video_editor.videos) > 1:
-            # We want to go to the actual end position in the correct video
-            current_time = 0
-            for i, video in enumerate(self.video_editor.videos):
-                video_duration = self.video_editor.multi_durations[i]
-                if current_time <= final_duration <= current_time + video_duration:
-                    # This video contains the end position
-                    # Calculate local time within this video
-                    local_time = final_duration - current_time
-                    # Ensure we don't seek beyond the video duration
-                    if local_time >= video_duration:
-                        local_time = video_duration - 0.001
-                
-                    # Switch to this video and seek to the local time
-                    self.video_editor.show_first_frame_at_index(i)
-                    # Use a timer to ensure the video is loaded before seeking
-                    QTimer.singleShot(100, lambda: self.video_editor._player.command("seek", f"{local_time}", "absolute", "exact"))
-                    break
-                current_time += video_duration
-        else:
-            # Single video case
-            self.video_editor._jump_to_global_time(final_duration)
-    """
+   
     def on_goto_video_end_clicked(self):
         """
         Gehe zum tatsächlichen Ende des Videos nach allen Schnitten.
@@ -5931,56 +5386,7 @@ class MainWindow(QMainWindow):
         return False
     
         
-    """    
-    def _resample_to_1s(self, gpx_data: list[dict]) -> list[dict]:
-        from datetime import timedelta
-
-        if not gpx_data or len(gpx_data) < 2:
-            return gpx_data
-
-        new_data = []
-        start_time = gpx_data[0]["time"]
-        end_time = gpx_data[-1]["time"]
-        current_time = start_time
-
-        i = 0
-        while current_time <= end_time and i < len(gpx_data) - 1:
-            # Finde das Intervall [i]..[i+1], das current_time einschließt
-            while i < len(gpx_data) - 2 and gpx_data[i + 1]["time"] < current_time:
-                i += 1
-
-            pt1 = gpx_data[i]
-            pt2 = gpx_data[i + 1]
-
-            t1 = pt1["time"]
-            t2 = pt2["time"]
-
-            if t1 == t2:
-                ratio = 0
-            else:
-                ratio = (current_time - t1).total_seconds() / (t2 - t1).total_seconds()
-
-            # Interpolation aller Werte
-            lat = pt1["lat"] + ratio * (pt2["lat"] - pt1["lat"])
-            lon = pt1["lon"] + ratio * (pt2["lon"] - pt1["lon"])
-            ele = pt1.get("ele", 0.0) + ratio * (pt2.get("ele", 0.0) - pt1.get("ele", 0.0))
-
-            new_pt = {
-                "lat": lat,
-                "lon": lon,
-                "ele": ele,
-                "time": current_time,
-                "delta_m": 0.0,        # wird durch recalc gesetzt
-                "speed_kmh": 0.0,      # wird durch recalc gesetzt
-                "gradient": 0.0        # wird durch recalc gesetzt
-            }
-            new_data.append(new_pt)
-            current_time += timedelta(seconds=1)
-
-        # Rechne Distanz, Höhenmeter, Geschwindigkeit usw. neu
-        recalc_gpx_data(new_data)
-        return new_data
-    """
+    
     
     def _resample_to_1s(self, gpx_data: list[dict]) -> list[dict]:
         
