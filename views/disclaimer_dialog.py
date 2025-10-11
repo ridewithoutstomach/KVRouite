@@ -1,21 +1,21 @@
 # -*- coding: utf-8 -*-
 #
-# This file is part of VGSync.
+# This file is part of KVRouite.
 #
 # Copyright (C) 2025 by Bernd Eller
 #
-# VGSync is free software: you can redistribute it and/or modify
+# KVRouite is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# VGSync is distributed in the hope that it will be useful,
+# KVRouite is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 # See the GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with VGSync. If not, see <https://www.gnu.org/licenses/>.
+# along with KVRouite. If not, see <https://www.gnu.org/licenses/>.
 #
 
 # views/disclaimer_dialog.py
@@ -74,7 +74,7 @@ class DisclaimerDialog(QDialog):
             "Full license texts for these libraries are located in the <br>"
             "<code>_internal/ffmpeg</code> and <code>_internal/mpv</code> folders.<br>"
             "Corresponding source code for FFmpeg and mpv, as used in this distribution, is available at<br> "
-            "<a href='http://vgsync.casa-eller.de'>http://vgsync.casa-eller.de</a>.<br><br>"
+            "<a href='http://KVRouite.casa-eller.de'>http://KVRouite.casa-eller.de</a>.<br><br>"
             
             
             "</p>"

@@ -1,21 +1,21 @@
 # -*- coding: utf-8 -*-
 #
-# This file is part of VGSync.
+# This file is part of KVRouite.
 #
 # Copyright (C) 2025 by Bernd Eller
 #
-# VGSync is free software: you can redistribute it and/or modify
+# KVRouite is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# VGSync is distributed in the hope that it will be useful,
+# KVRouite is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 # See the GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with VGSync. If not, see <https://www.gnu.org/licenses/>.
+# along with KVRouite. If not, see <https://www.gnu.org/licenses/>.
 #
 
 import os
@@ -92,8 +92,8 @@ def build_windows():
     app_version = load_app_version()
     print(f"[INFO] APP_VERSION: {app_version}")
 
-    exe_name = "VGSync"
-    main_script = "VGSync.py"
+    exe_name = "KVRouite"
+    main_script = "KVRouite.py"
 
     # Icon-Datei prüfen
     icon_file = os.path.join(BASE_DIR, "icon_icon.ico")
@@ -117,15 +117,15 @@ def build_windows():
     if not os.path.isfile(exe_path):
         raise RuntimeError(f"{exe_name}.exe fehlt in dist/{exe_name}.")
 
-    target_dirname = f"VGSync_{app_version}"
+    target_dirname = f"KVRouite_{app_version}"
     target_dir = os.path.join("dist", target_dirname)
     os.makedirs(target_dir, exist_ok=True)
 
-    # Benenne app.exe -> VGSync.exe
-    new_exe_path = os.path.join(target_dir, "VGSync.exe")
+    # Benenne app.exe -> KVRouite.exe
+    new_exe_path = os.path.join(target_dir, "KVRouite.exe")
     shutil.move(exe_path, new_exe_path)
 
-    # Kopiere alle Dateien aus dist/app -> dist/VGSync_<ver>
+    # Kopiere alle Dateien aus dist/app -> dist/KVRouite_<ver>
     app_dist_dir = os.path.join("dist", exe_name)
     for item in os.listdir(app_dist_dir):
         src_item = os.path.join(app_dist_dir, item)
@@ -178,8 +178,21 @@ def build_windows():
         doc_target_dir = os.path.join(internal_dir, "doc")
         print(f"[INFO] Kopiere nur PDF-Dateien aus doc/ nach {doc_target_dir}")
         copy_only_pdfs(doc_dir, doc_target_dir)
+        
+        kinomap_logo_src = os.path.join(doc_dir, "Kinomap_Logo.png")
+        kinomap_logo_dst = os.path.join(doc_target_dir, "Kinomap_Logo.png")
+        if os.path.isfile(kinomap_logo_src):
+            print("[COPY KINOMAP LOGO]", kinomap_logo_src, "->", kinomap_logo_dst)
+            os.makedirs(os.path.dirname(kinomap_logo_dst), exist_ok=True)
+            shutil.copy2(kinomap_logo_src, kinomap_logo_dst)
+        else:
+            print("[WARN] Kinomap_Logo.png nicht gefunden in:", doc_dir)
+        
+        
     else:
         print("[INFO] 'doc' Ordner nicht vorhanden oder kein Ordner. Überspringe Kopie.")
+
+
 
     # Extra-Dateien (LICENSE usw.) kopieren
     for extra_file in ["LICENSE", "README.md", "ol.css", "ol.js", "map_page.html"]:
@@ -190,7 +203,7 @@ def build_windows():
             shutil.copy2(src_file, dst_file)
 
     print(f"[INFO] Windows-Build fertig in: dist/{target_dirname}/")
-    print("[INFO] Dort findest du '_internal/ffmpeg' und '_internal/mpv' sowie VGSync.exe.")
+    print("[INFO] Dort findest du '_internal/ffmpeg' und '_internal/mpv' sowie KVRouite.exe.")
     print("[INFO] Das Icon liegt nun in '_internal/icon/'.")
     print("[INFO] Falls vorhanden, doc/ liegt in '_internal/doc/'.")
 

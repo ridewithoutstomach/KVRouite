@@ -1,21 +1,21 @@
 # -*- coding: utf-8 -*-
 #
-# This file is part of VGSync.
+# This file is part of KVRouite.
 #
 # Copyright (C) 2025 by Bernd Eller
 #
-# VGSync is free software: you can redistribute it and/or modify
+# KVRouite is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# VGSync is distributed in the hope that it will be useful,
+# KVRouite is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 # See the GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with VGSync. If not, see <https://www.gnu.org/licenses/>.
+# along with KVRouite. If not, see <https://www.gnu.org/licenses/>.
 #
 
 # core/gpx_parser.py
@@ -1148,7 +1148,7 @@ def xfade_main(cfg_path):
     hw_encode = cfg.get("hardware_encode", "none")
     encoder = cfg.get("encoder", "libx265")
     crf = cfg.get("crf", 23)
-    settings = QSettings("VGSync", "VGSync")
+    settings = QSettings("KVRouite", "KVRouite")
     bitrate_mbps = settings.value("encoder/bitrate_mbps", 20, type=int)
     fps = cfg.get("fps", 30)
     width = cfg.get("width", None)
@@ -1245,7 +1245,7 @@ if __name__ == "__main__":
 #-----------------------------------------------------------------
 
 class EncoderDialog(QDialog):
-    _counter_url = "http://vgsync.casa-eller.de/project/counter.php"
+    _counter_url = "http://KVRouite.casa-eller.de/project/counter.php"
     """
     Dieses QFenster zeigt den gesamten ffmpeg-Output,
     den dein xfade6_2.py generiert (also Keyframe-Indexing, etc.),

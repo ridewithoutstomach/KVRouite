@@ -1,21 +1,21 @@
 # -*- coding: utf-8 -*-
 #
-# This file is part of VGSync.
+# This file is part of KVRouite.
 #
 # Copyright (C) 2025 by Bernd Eller
 #
-# VGSync is free software: you can redistribute it and/or modify
+# KVRouite is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# VGSync is distributed in the hope that it will be useful,
+# KVRouite is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 # See the GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with VGSync. If not, see <https://www.gnu.org/licenses/>.
+# along with KVRouite. If not, see <https://www.gnu.org/licenses/>.
 
 
 # Al Overlays are saved in "all_ovls = self._overlay_manager.get_all_overlays()"
@@ -124,7 +124,7 @@ class OverlayManager(QObject):
             end_s   = marker_s + duration_s
 
             # => QSettings auslesen
-            s = QSettings("VGSync", "VGSync")
+            s = QSettings("KVRouite", "KVRouite")
             image_val  = s.value(f"overlay/{chosen_id}/image", "", str)
             scale_val  = s.value(f"overlay/{chosen_id}/scale", 1.0, float)
             x_expr     = s.value(f"overlay/{chosen_id}/mapped_x", "0", str)
@@ -173,7 +173,7 @@ class OverlayManager(QObject):
 
             # => Combo overlay i
             self.combo = QComboBox()
-            s = QSettings("VGSync", "VGSync")
+            s = QSettings("KVRouite", "KVRouite")
             count_found = 0
             for i in [1,2,3]:
                 image_path = s.value(f"overlay/{i}/image","",str).strip()

@@ -1,21 +1,21 @@
 # -*- coding: utf-8 -*-
 #
-# This file is part of VGSync.
+# This file is part of KVRouite.
 #
 # Copyright (C) 2025 by Bernd Eller
 #
-# VGSync is free software: you can redistribute it and/or modify
+# KVRouite is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# VGSync is distributed in the hope that it will be useful,
+# KVRouite is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 # See the GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with VGSync. If not, see <https://www.gnu.org/licenses/>.
+# along with KVRouite. If not, see <https://www.gnu.org/licenses/>.
 #
 
 # views/mainwindow.py
@@ -109,7 +109,7 @@ class MainWindow(QMainWindow):
         
         super().__init__()
         
-        self._counter_url = "http://vgsync.casa-eller.de/project/counter.php"
+        self._counter_url = "http://KVRouite.casa-eller.de/project/counter.php"
         self._undo_stack = []
         
         self._maptiler_key = ""
@@ -132,7 +132,7 @@ class MainWindow(QMainWindow):
         
         
         
-        self.setWindowTitle(f"VGSync v{APP_VERSION} - the simple Video and GPX-Sync Tool")
+        self.setWindowTitle(f"KVRouite v{APP_VERSION} - the Easy Video and GPX-Sync Tool")
             
         
             
@@ -369,7 +369,7 @@ class MainWindow(QMainWindow):
         temp_dir_menu.addAction(action_set_temp_dir)
 
         action_clear_temp_dir = QAction("Reset Temp Dir", self)
-        action_clear_temp_dir.setStatusTip("reset the temp-direrctory to VGSync-standard")
+        action_clear_temp_dir.setStatusTip("reset the temp-direrctory to KVRouite-standard")
         action_clear_temp_dir.triggered.connect(self._on_clear_temp_dir)
         temp_dir_menu.addAction(action_clear_temp_dir)
 
@@ -675,7 +675,7 @@ class MainWindow(QMainWindow):
         #
         self.chart.markerClicked.connect(self._on_chart_marker_clicked)
         self.chart.set_gpx_data([])
-        s = QSettings("VGSync", "VGSync")
+        s = QSettings("KVRouite", "KVRouite")
         speed_cap = s.value("chart/speedCap", 70.0, type=float)
         self.chart.set_speed_cap(speed_cap)
         
@@ -899,7 +899,7 @@ class MainWindow(QMainWindow):
         self._on_map_directions_toggled(True)
         
     def _on_show_mpv_path(self):
-        s = QSettings("VGSync", "VGSync")
+        s = QSettings("KVRouite", "KVRouite")
         path_stored = s.value("paths/mpv", "", type=str)
         if path_stored and os.path.isfile(os.path.join(path_stored, "libmpv-2.dll")):
             msg = f"Currently stored libmpv path:\n{path_stored}"
@@ -927,7 +927,7 @@ class MainWindow(QMainWindow):
             return
     
         # -> Okay, wir speichern es
-        s = QSettings("VGSync", "VGSync")
+        s = QSettings("KVRouite", "KVRouite")
         s.setValue("paths/mpv", folder)
         QMessageBox.information(self, "libmpv Path set",
             f"libmpv-2.dll path set to:\n{folder}\n\n"
@@ -935,7 +935,7 @@ class MainWindow(QMainWindow):
 
 
     def _on_clear_mpv_path(self):
-        s = QSettings("VGSync", "VGSync")
+        s = QSettings("KVRouite", "KVRouite")
         s.remove("paths/mpv")
         QMessageBox.information(self, "libmpv Path cleared",
             "The libmpv path has been removed from QSettings.\n"
@@ -997,7 +997,7 @@ class MainWindow(QMainWindow):
          - mapbox/key
         (jeweils Base64-kodiert) und schreibt sie in self._maptiler_key etc.
         """
-        s = QSettings("VGSync", "VGSync")
+        s = QSettings("KVRouite", "KVRouite")
 
         def decode(b64text):
             if not b64text:
@@ -1021,7 +1021,7 @@ class MainWindow(QMainWindow):
         """
         Speichert den Key in Base64, z. B. provider='mapTiler'|'bing'|'mapbox'.
         """
-        s = QSettings("VGSync", "VGSync")
+        s = QSettings("KVRouite", "KVRouite")
         enc = base64.b64encode(plain_key.encode("utf-8")).decode("utf-8")
 
         if provider == "mapTiler":
@@ -1175,7 +1175,7 @@ class MainWindow(QMainWindow):
         und setzt fallback=4 für black/red/blue, fallback=6 für yellow.
         Anschließend wird colorSizeMap[...] in JavaScript aktualisiert.
         """
-        s = QSettings("VGSync", "VGSync")
+        s = QSettings("KVRouite", "KVRouite")
 
         defaults = {
             "black": 4,
@@ -1199,7 +1199,7 @@ class MainWindow(QMainWindow):
         Fragt neuen Wert ab und speichert in QSettings => "mapSize/black" etc.
         Übergibt dann an JS => updateAllPointsByColor('black', new_val).
         """
-        s = QSettings("VGSync", "VGSync")
+        s = QSettings("KVRouite", "KVRouite")
 
         default_size = 6 if color_str == "yellow" else 4
         current_val = s.value(f"mapSize/{color_str}", default_size, type=int)
@@ -1312,7 +1312,7 @@ class MainWindow(QMainWindow):
 
         # 4) Optional: in QSettings speichern
        
-        s = QSettings("VGSync", "VGSync")
+        s = QSettings("KVRouite", "KVRouite")
         s.setValue("chart/speedCap", new_val)
     
         
@@ -1320,7 +1320,7 @@ class MainWindow(QMainWindow):
         
         
 
-        s = QSettings("VGSync", "VGSync")
+        s = QSettings("KVRouite", "KVRouite")
         path_stored = s.value("paths/ffmpeg", "", type=str)
         if path_stored and os.path.isdir(path_stored):
             msg = f"Currently stored FFmpeg path:\n{path_stored}"
@@ -1353,7 +1353,7 @@ class MainWindow(QMainWindow):
             return
     
         # store in QSettings
-        s = QSettings("VGSync", "VGSync")
+        s = QSettings("KVRouite", "KVRouite")
         s.setValue("paths/ffmpeg", folder)
     
         # optionally add to PATH
@@ -1477,7 +1477,7 @@ class MainWindow(QMainWindow):
         so that next time it might auto-detect or prompt again.
         """
        
-        s = QSettings("VGSync", "VGSync")
+        s = QSettings("KVRouite", "KVRouite")
         s.remove("paths/ffmpeg")
     
         QMessageBox.information(self, "FFmpeg Path cleared",
@@ -3113,7 +3113,7 @@ class MainWindow(QMainWindow):
         # Text mit Logo am Ende
         message_text = f"""
         <div>
-            <h3>VGSync - Video and GPX Sync Tool</h3>
+            <h3>KVRouite - Video and GPX Sync Tool</h3>
             Version: {APP_VERSION}<br><br>
             
             Copyright (C) 2025 Bernd Eller<br>
@@ -3139,7 +3139,7 @@ class MainWindow(QMainWindow):
             "<code>_internal/ffmpeg</code> and <code>_internal/mpv</code> folders.<br>"            
             The complete source code for these libraries as used in this software 
             is available at 
-            <a href='http://vgsync.casa-eller.de'>http://vgsync.casa-eller.de</a>.<br><br>
+            <a href='http://KVRouite.casa-eller.de'>http://KVRouite.casa-eller.de</a>.<br><br>
             
             <b>Patent Encumbrance Notice:</b><br>
             Some codecs (such as x265) may be patent-encumbered in certain jurisdictions. 
@@ -4015,7 +4015,7 @@ class MainWindow(QMainWindow):
         if self._edit_mode == "encode":
             
             # 1) Daten aus QSettings lesen (Encoder Setup)
-            s = QSettings("VGSync","VGSync")
+            s = QSettings("KVRouite","KVRouite")
             xfade_val   = s.value("encoder/xfade", 2, type=int)
             hw_encode   = s.value("encoder/hw", "none", type=str)
             container   = s.value("encoder/container", "x265", type=str)
@@ -4084,7 +4084,7 @@ class MainWindow(QMainWindow):
 
             
             #temp_dir = tempfile.gettempdir()
-            # 6) In unser VGSync-Temp speichern
+            # 6) In unser KVRouite-Temp speichern
             
             temp_dir = MY_GLOBAL_TMP_DIR
             json_path = os.path.join(temp_dir, "vg_encoder_job.json")
@@ -5269,11 +5269,11 @@ class MainWindow(QMainWindow):
         """
         Speichert das aktuelle Projekt in eine JSON-Datei.
         """
-        filename, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "VGSync Project (*.vgsyncproj)")
+        filename, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "KVRouite Project (*.KVRouiteproj)")
         if not filename:
             return
-        if not filename.endswith(".vgsyncproj"):
-            filename += ".vgsyncproj"
+        if not filename.endswith(".KVRouiteproj"):
+            filename += ".KVRouiteproj"
         project_data = {
             "playlist": self.playlist,
             "video_durations": self.video_durations,
@@ -5301,9 +5301,9 @@ class MainWindow(QMainWindow):
 
     def load_project(self):
         """
-        Lädt ein Projekt aus einer .vgsyncproj-Datei und stellt den kompletten Zustand vollständig wieder her.
+        Lädt ein Projekt aus einer .KVRouiteproj-Datei und stellt den kompletten Zustand vollständig wieder her.
         """
-        filename, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "VGSync Project (*.vgsyncproj)")
+        filename, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "KVRouite Project (*.KVRouiteproj)")
         if not filename:
             return
         
@@ -5433,7 +5433,7 @@ class MainWindow(QMainWindow):
         return max(0.0, cut_total)
 
     def save_recent_file(self, path: str):
-        s = QSettings("VGSync", "VGSync")
+        s = QSettings("KVRouite", "KVRouite")
         file_history = s.value("file_history", [], type=list)
 
         if path in file_history:
@@ -5445,7 +5445,7 @@ class MainWindow(QMainWindow):
         s.setValue("file_history", file_history)
 
     def load_last_gpx_paths(self) -> list[str]:
-        s = QSettings("VGSync", "VGSync")
+        s = QSettings("KVRouite", "KVRouite")
         return s.value("file_history", [], type=list)
 
     def update_recent_files_menu(self):
@@ -5471,7 +5471,7 @@ class MainWindow(QMainWindow):
             self.process_open_gpx(path)
         elif(path.endswith(".mp4") or path.endswith(".MP4")):
             self.process_open_mp4([path])
-        elif(path.endswith(".vgsyncproj")):
+        elif(path.endswith(".KVRouiteproj")):
             self.process_open_project(path)
         else:
             QMessageBox.critical(self, "Error", f"Unsupported file type:\n{path}")
@@ -5616,7 +5616,7 @@ class MainWindow(QMainWindow):
         from PySide6.QtCore import QSettings
         import config
 
-        s = QSettings("VGSync", "VGSync")
+        s = QSettings("KVRouite", "KVRouite")
         path_stored = s.value("tempSegmentsDir", "", str)
         if path_stored and os.path.isdir(path_stored):
             msg = f"Currently stored Temp Directory:\n{path_stored}"
@@ -5635,7 +5635,7 @@ class MainWindow(QMainWindow):
         if not folder:
             return
     
-        s = QSettings("VGSync", "VGSync")
+        s = QSettings("KVRouite", "KVRouite")
         s.setValue("tempSegmentsDir", folder)
         s.sync()
     
@@ -5653,7 +5653,7 @@ class MainWindow(QMainWindow):
         """
         from PySide6.QtCore import QSettings
     
-        s = QSettings("VGSync", "VGSync")
+        s = QSettings("KVRouite", "KVRouite")
         s.remove("tempSegmentsDir")
         s.sync()
 

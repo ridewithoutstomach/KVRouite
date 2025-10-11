@@ -1,21 +1,21 @@
 # -*- coding: utf-8 -*-
 #
-# This file is part of VGSync.
+# This file is part of KVRouite.
 #
 # Copyright (C) 2025 by Bernd Eller
 #
-# VGSync is free software: you can redistribute it and/or modify
+# KVRouite is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# VGSync is distributed in the hope that it will be useful,
+# KVRouite is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with VGSync.  If not, see <https://www.gnu.org/licenses/>.
+# along with KVRouite.  If not, see <https://www.gnu.org/licenses/>.
 #
 
 import subprocess
@@ -56,7 +56,7 @@ class EncoderSetupDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Encoder Setup")
 
-        self.settings = QSettings("VGSync", "VGSync")
+        self.settings = QSettings("KVRouite", "KVRouite")
         
         # Hier speichern wir das "fertig getestete" Set an HW-Encodern,
         # das wir via QSettings eingelesen haben (bzw. neu ermitteln).

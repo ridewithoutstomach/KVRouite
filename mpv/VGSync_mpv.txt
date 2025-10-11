@@ -1,3 +1,0 @@
-→ Please download `mpv.zip` from the official VGSync GitHub Releases page.
-→ Extract the contents of the ZIP archive into this folder: mpv/
-

@@ -1,21 +1,21 @@
 # -*- coding: utf-8 -*-
 #
-# This file is part of VGSync.
+# This file is part of KVRouite.
 #
 # Copyright (C) 2025 by Bernd Eller
 #
-# VGSync is free software: you can redistribute it and/or modify
+# KVRouite is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# VGSync is distributed in the hope that it will be useful,
+# KVRouite is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 # See the GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with VGSync. If not, see <https://www.gnu.org/licenses/>.
+# along with KVRouite. If not, see <https://www.gnu.org/licenses/>.
 #
 # path_manager.py
 
@@ -50,7 +50,7 @@ def find_ffmpeg_folder() -> str:
     Returns a folder path or "" if none found.
     """
     # 1) QSettings
-    s = QSettings("VGSync", "VGSync")
+    s = QSettings("KVRouite", "KVRouite")
     stored_folder = s.value("paths/ffmpeg", "", type=str)
     if is_ffmpeg_in_folder(stored_folder):
         return stored_folder
@@ -89,7 +89,7 @@ def ensure_mpv(parent_widget) -> bool:
     Gibt True zurück, wenn am Ende alles korrekt gefunden/eingestellt wurde,
     sonst False.
     """
-    s = QSettings("VGSync", "VGSync")
+    s = QSettings("KVRouite", "KVRouite")
     folder = find_mpv_folder()
 
     if folder and is_valid_mpv_folder(folder):
@@ -142,7 +142,7 @@ def find_mpv_folder() -> str:
       2) lokaler Fallback mpv/lib
     Gibt einen Ordnerpfad zurück oder "" wenn nichts gefunden.
     """
-    s = QSettings("VGSync", "VGSync")
+    s = QSettings("KVRouite", "KVRouite")
     stored_folder = s.value("paths/mpv", "", type=str)
     if is_valid_mpv_folder(stored_folder):
         return stored_folder
@@ -164,7 +164,7 @@ def ensure_ffmpeg(parent_widget) -> bool:
     we store it in QSettings so it shows up in "Show current path".
     If not found -> prompt user to pick a folder.
     """
-    s = QSettings("VGSync", "VGSync")
+    s = QSettings("KVRouite", "KVRouite")
     folder = find_ffmpeg_folder()
 
     if folder and is_ffmpeg_in_folder(folder):
@@ -276,7 +276,7 @@ def find_mpv_folder_mac() -> str:
       3) Mehrere Standardpfade (Homebrew, MacPorts, ...)
       4) Falls nichts gefunden -> ""
     """
-    s = QSettings("VGSync", "VGSync")
+    s = QSettings("KVRouite", "KVRouite")
     stored_folder = s.value("paths/mpv_mac", "", type=str)
     if is_valid_mpv_folder_mac(stored_folder):
         return stored_folder
@@ -311,7 +311,7 @@ def ensure_mpv_mac(parent_widget) -> bool:
     
     Gibt True zurück, wenn alles gefunden/eingestellt wurde, sonst False.
     """
-    s = QSettings("VGSync", "VGSync")
+    s = QSettings("KVRouite", "KVRouite")
     folder = find_mpv_folder_mac()
 
     if folder and is_valid_mpv_folder_mac(folder):
@@ -368,7 +368,7 @@ def find_ffmpeg_folder_mac() -> str:
       3) Mehrere Standardpfade (Homebrew, MacPorts, ...)
       4) Falls nichts gefunden -> ""
     """
-    s = QSettings("VGSync", "VGSync")
+    s = QSettings("KVRouite", "KVRouite")
     stored_folder = s.value("paths/ffmpeg_mac", "", type=str)
     if is_ffmpeg_in_folder(stored_folder):
         return stored_folder
@@ -404,7 +404,7 @@ def ensure_ffmpeg_mac(parent_widget) -> bool:
     2) Falls nicht gefunden -> lässt User den Ordner wählen.
     3) Prüft ffmpeg-Executable -> schreibt in QSettings -> PATH
     """
-    s = QSettings("VGSync", "VGSync")
+    s = QSettings("KVRouite", "KVRouite")
     folder = find_ffmpeg_folder_mac()
 
     if folder and is_ffmpeg_in_folder(folder):
