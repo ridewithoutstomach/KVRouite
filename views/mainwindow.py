@@ -3139,7 +3139,7 @@ class MainWindow(QMainWindow):
             "<code>_internal/ffmpeg</code> and <code>_internal/mpv</code> folders.<br>"            
             The complete source code for these libraries as used in this software 
             is available at 
-            <a href='http://KVRouite.casa-eller.de'>http://KVRouite.casa-eller.de</a>.<br><br>
+            <a href='http://KVRouite.com'>http://KVRouite.com</a>.<br><br>
             
             <b>Patent Encumbrance Notice:</b><br>
             Some codecs (such as x265) may be patent-encumbered in certain jurisdictions. 
