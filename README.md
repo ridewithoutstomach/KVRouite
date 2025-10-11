@@ -1,4 +1,5 @@
 KVRouite
+**Note:** This project was formerly known as **VGSync**.
 ======
 
 ![Kinomap Logo](./doc/Kinomap_Logo.png)
