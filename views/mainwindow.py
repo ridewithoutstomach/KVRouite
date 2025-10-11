@@ -4118,10 +4118,19 @@ class MainWindow(QMainWindow):
             self,
             "Select output file",
             "output_final.mp4",
-            "Video Files (*.mp4 *.mov *.mkv *.avi)"
+            "Video Files (*.mp4)"
         )
+        
         if not out_file:
             return
+        if not out_file.lower().endswith('.mp4'):
+            out_file += '.mp4'
+            # Optional: Benutzer informieren
+            QMessageBox.information(
+                self, 
+                "File Extension Added!",
+                f"Added '.mp4' extension to filename:\n{os.path.basename(out_file)}"
+            )
 
         keep_intervals = self._compute_keep_intervals(self.cut_manager._cut_intervals, total_dur)
         if not keep_intervals:

@@ -1305,11 +1305,20 @@ class EncoderDialog(QDialog):
             self,
             "Select final output",
             default_out,
-            "Video Files (*.mp4 *.mov *.mkv *.avi)"
+            "Video Files (*.mp4)"
         )
         if not chosen_out:
             self._on_new_text("[CANCELED] No output file selected.\n")
             return
+        
+        if not chosen_out.lower().endswith('.mp4'):
+            chosen_out += '.mp4'
+            QMessageBox.information(
+                self,
+                "File Extension Added!",
+                f"Added '.mp4' extension to:\n{os.path.basename(chosen_out)}"
+            )
+        
         # => final_out überschreiben
         c["final_output"] = chosen_out
 
