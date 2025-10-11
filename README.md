@@ -1,6 +1,6 @@
 KVRouite
-
 ======
+
 > **Note:** This project was **formerly known as [VGSync](https://github.com/ridewithoutstomach/VGSync)**.  
 > The name was changed to better reflect the tool’s purpose — it’s much more than a sync utility:  
 > a complete *Video and GPX Route Creation Suite*.
