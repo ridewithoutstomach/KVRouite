@@ -3848,35 +3848,55 @@ class MainWindow(QMainWindow):
     
     def on_stop(self):
         self.video_editor.stop()
-   
+
+    
     def on_goto_video_end_clicked(self):
         """
         Gehe zum tatsächlichen Ende des Videos nach allen Schnitten.
-        Berücksichtigt alle Schnitte am Anfang, in der Mitte und am Ende.
+        Führt den Sprung zweimal kurz hintereinander aus, um das Problem zu umgehen.
         """
-        if not hasattr(self, 'cut_manager') or not hasattr(self, 'real_total_duration'):
-            return
+        print(f"[DEBUG] === GOTO END DEBUG START ===")
+        print(f"[DEBUG] real_total_duration: {self.real_total_duration}")
+        print(f"[DEBUG] _cut_intervals: {self.cut_manager._cut_intervals}")
     
-        # Berechne die kumulierte geschnittene Zeit
+        # Berechne die tatsächliche Endposition in der URSPRÜNGLICHEN Timeline
         total_duration = self.real_total_duration
+        cut_intervals = self.cut_manager._cut_intervals
     
-        # Finde alle Schnitte die das Ende betreffen
-        remaining_duration = total_duration
-        for cut_start, cut_end in sorted(self.cut_manager._cut_intervals, reverse=True):
-            if cut_end >= remaining_duration:
-                # Dieser Schnitt betrifft das Ende
-                remaining_duration = cut_start
-            else:
-                # Dieser Schnitt ist vor dem Ende
-                break
-    
-        final_duration = remaining_duration
+        # Wenn keine Schnitte vorhanden sind, springe zum Ende
+        if not cut_intervals:
+            final_position = total_duration
+        else:
+            # Sortiere Schnitte nach Endzeit absteigend
+            sorted_cuts = sorted(cut_intervals, key=lambda x: x[1], reverse=True)
+            current_end = total_duration
         
-        print(f"[DEBUG] Goto End: total_duration={total_duration}, final_duration={final_duration}")
+            # Toleranz für Fließkomma-Vergleiche
+            TOLERANCE = 0.001
+            
+            for cut_start, cut_end in sorted_cuts:
+                # Prüfe ob dieser Schnitt das aktuelle Ende beeinflusst
+                # Wenn der Schnitt bis zum aktuellen Ende reicht oder darüber hinaus
+                if abs(cut_end - current_end) < TOLERANCE or cut_end >= current_end:
+                    # Dieser Schnitt beeinflusst das Ende - setze Ende auf Schnittstart
+                    current_end = cut_start
+            
+            final_position = current_end
+        
+        print(f"[DEBUG] Final position in original timeline: {final_position}")
+        
+        # Stelle sicher, dass die Position nicht negativ ist
+        if final_position < 0:
+            final_position = 0
     
-        # Springe zur berechneten Position
-        self.video_editor._jump_to_global_time(final_duration)
+        # Erster Sprung sofort
+        self.video_editor._jump_to_global_time(final_position)
     
+        # Zweiter Sprung nach kurzer Verzögerung (Doppelklick-Effekt)
+        QTimer.singleShot(250, lambda: self.video_editor._jump_to_global_time(final_position))
+    
+        print(f"[DEBUG] === GOTO END DEBUG END ===")
+            
     def on_play_ended(self):
         self.video_editor.media_player
         self.video_control.update_play_pause_icon(False)
