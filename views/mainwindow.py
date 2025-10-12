@@ -39,6 +39,7 @@ import re
 import uuid
 import hashlib
 import statistics
+import fitparse
 
 
             
@@ -177,12 +178,22 @@ class MainWindow(QMainWindow):
         load_project_action.triggered.connect(self.load_project)
         file_menu.addAction(load_project_action)
         
-        load_gpx_action = QAction("Import GPX...", self)
-        load_gpx_action.setStatusTip("Load a GPX File or append a GPX File to a already loaded GPX.")
-        load_gpx_action.triggered.connect(self.load_gpx_file)
-        file_menu.addAction(load_gpx_action)
+        #load_gpx_action = QAction("Import GPX...", self)
+        #load_gpx_action.setStatusTip("Load a GPX File or append a GPX File to a already loaded GPX.")
+        #load_gpx_action.triggered.connect(self.load_gpx_file)
+        #file_menu.addAction(load_gpx_action)
+        
+        #load_fit_action = QAction("Import FIT...", self)
+        #load_fit_action.setStatusTip("Load a FIT File or append a FIT File to already loaded GPX.")
+        #load_fit_action.triggered.connect(self.load_fit_file)
+        #file_menu.addAction(load_fit_action)
 
-        load_mp4_action = QAction("Import Video...", self)
+        load_track_action = QAction("Import GPX/FIT", self)
+        load_track_action.setStatusTip("Load a GPX or FIT track file")
+        load_track_action.triggered.connect(self.load_track_file)
+        file_menu.addAction(load_track_action)
+
+        load_mp4_action = QAction("Import Video", self)
         load_mp4_action.setStatusTip("Load one or more Videos.")
         load_mp4_action.triggered.connect(self.load_mp4_files)
         file_menu.addAction(load_mp4_action)
@@ -5333,29 +5344,47 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", f"Failed to save project:\n{e}")
 
         
-    """
-    def load_project(self):
-       
-        filename, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "KVRouite Project (*.KVRouiteproj)")
-        if not filename:
-            return
-        
-        self.process_open_project(filename)
-        self.save_recent_file(filename)
-    """
     
     def load_project(self):
-        filename, _ = QFileDialog.getOpenFileName(
-            self, 
-            "Open Project", 
-            "", 
-            "KVRouite Project (*.kvrouiteproj);;VGSync Project (*.vgsyncproj);;All Files (*)"
+        """Lädt eine Projektdatei - zeigt beide Projektformate gleichzeitig an"""
+        file_path, selected_filter = QFileDialog.getOpenFileName(
+            self,
+            "Load Project File",
+            "",
+            "Project Files (*.kvrouiteproj *.vgsyncproj);;KVRouite Project (*.kvrouiteproj);;VGSync Project (*.vgsyncproj);;All Files (*.*)"
         )
-        if not filename:
-            return
     
-        self.process_open_project(filename)
-        self.save_recent_file(filename)
+        if not file_path:
+            return
+
+        # Automatische Erkennung anhand der Dateiendung
+        file_ext = file_path.lower()
+    
+        try:
+            if file_ext.endswith('.kvrouiteproj') or file_ext.endswith('.vgsyncproj'):
+                # Deine existierende Projekt-Lade-Logik hier aufrufen
+                # (die Logik, die du bereits in load_project hattest)
+                
+                #self._load_project_file(file_path)
+                self.process_open_project(file_path)
+                self.save_recent_file(file_path)
+            else:
+                QMessageBox.warning(
+                    self, 
+                    "Unsupported Format", 
+                    f"File format not supported: {file_path}\n"
+                    "Please select a .kvrouiteproj or .vgsyncproj file."
+                )
+                return
+                
+            self.save_recent_file(file_path)
+        
+        except Exception as e:
+            QMessageBox.critical(
+                self, 
+                "Error Loading Project", 
+                f"Failed to load project file:\n{str(e)}"
+            )
     
     def process_open_project(self, filename: str):
         try:
@@ -5877,3 +5906,184 @@ class MainWindow(QMainWindow):
         # Optional: sofort neu syncen lassen
         if reply == QMessageBox.Yes:
             self.on_set_video_gpx_sync_clicked()
+
+    # Neue Methoden für FIT-Support:
+
+    # Neue kombinierte Methode:
+
+    def load_track_file(self):
+        """Lädt entweder eine GPX oder FIT Datei - automatisch erkannt an der Endung"""
+        # Dialog für new/append (gleiche Logik wie vorher)
+        if self._gpx_data:
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Load Track File")
+            msg_box.setText("A track is already loaded.\n"
+                            "Do you want to start a new track or append the new file?")
+            new_btn = msg_box.addButton("New", QMessageBox.AcceptRole)
+            append_btn = msg_box.addButton("Append", QMessageBox.YesRole)
+            cancel_btn = msg_box.addButton("Cancel", QMessageBox.RejectRole)
+
+            msg_box.exec()
+            clicked = msg_box.clickedButton()
+            if clicked == cancel_btn:
+                return
+            elif clicked == new_btn:
+                mode = "new"
+            else:
+                mode = "append"
+        else:
+            mode = "new"
+
+        # Kombiniertes Dateiauswahlfenster für beide Formate
+        file_path, selected_filter = QFileDialog.getOpenFileName(
+            self,
+            "Select Track File (GPX or FIT)",
+            "",
+            "Track Files (*.gpx *.fit);;GPX Files (*.gpx);;FIT Files (*.fit);;All Files (*.*)"
+        )
+    
+        if not file_path:
+            return
+    
+        # Automatische Erkennung anhand der Dateiendung
+        file_ext = file_path.lower()
+    
+        try:
+            if file_ext.endswith('.gpx'):
+                self.process_open_gpx(file_path, mode)
+            elif file_ext.endswith('.fit'):
+                self.process_open_fit(file_path, mode)
+            else:
+                QMessageBox.warning(
+                    self, 
+                    "Unsupported Format", 
+                    f"File format not supported: {file_path}\n"
+                    "Please select a .gpx or .fit file."
+                )
+                return
+            
+            self.save_recent_file(file_path)
+        
+        except Exception as e:
+            QMessageBox.critical(
+                self, 
+                "Error Loading File", 
+                f"Failed to load track file:\n{str(e)}"
+            )
+    
+
+    
+    
+    
+    
+    def process_open_fit(self, file_path, mode="new"):
+        """Verarbeitet die FIT-Datei und konvertiert sie zu GPX-Daten"""
+        self.map_widget.view.page().runJavaScript("showLoading('Loading FIT...');")
+        QApplication.processEvents()
+    
+        try:
+            # FIT-Datei parsen
+            fit_data = self.parse_fit(file_path)
+            
+            if not fit_data:
+                QMessageBox.warning(self, "Load FIT", "File is empty or invalid.")
+                self.map_widget.view.page().runJavaScript("hideLoading();")
+                return
+    
+            # In GPX-Daten konvertieren
+            gpx_data = self.convert_fit_to_gpx(fit_data)
+            
+            if not gpx_data:
+                QMessageBox.warning(self, "Load FIT", "No valid track data found in FIT file.")
+                self.map_widget.view.page().runJavaScript("hideLoading();")
+                return
+    
+            # Prüfen ob Resample nötig ist
+            if self._check_gpx_step_intervals(gpx_data):
+                gpx_data = self._resample_to_1s(gpx_data)
+    
+            # Wie bei GPX weiterverarbeiten
+            if mode == "new":
+                self._set_gpx_data(gpx_data)
+            elif mode == "append":
+                if not self._gpx_data:
+                    self._set_gpx_data(gpx_data)
+                else:
+                    old_data = self._gpx_data
+                    old_snapshot = copy.deepcopy(old_data)
+                    self.gpx_widget.gpx_list._history_stack.append(old_snapshot)
+    
+                    from datetime import timedelta
+                    old_end_time = old_data[-1]["time"]
+                    gap_start = old_end_time + timedelta(seconds=1)
+                    shift_dt = gap_start - gpx_data[0]["time"]
+    
+                    for pt in gpx_data:
+                        pt["time"] = pt["time"] + shift_dt
+    
+                    merged_data = old_data + gpx_data
+                    recalc_gpx_data(merged_data)
+                    self._set_gpx_data(merged_data)
+                    QMessageBox.information(self, "Load FIT", "FIT data appended successfully.")
+    
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load FIT file:\n{str(e)}")
+        finally:
+            self.map_widget.view.page().runJavaScript("hideLoading();")
+    
+        self.proposeVideoGpxSync()
+    
+    def parse_fit(self, file_path):
+        """Parst die FIT-Datei und extrahiert Track-Daten"""
+        fitfile = fitparse.FitFile(file_path)
+        
+        records = []
+        for record in fitfile.get_messages('record'):
+            point = {}
+            
+            # Koordinaten
+            lat = record.get_value('position_lat')
+            lon = record.get_value('position_long')
+            
+            if lat is not None and lon is not None:
+                # FIT-Koordinaten sind in semicircles, konvertiere zu Grad
+                point['lat'] = lat * (180 / 2**31)
+                point['lon'] = lon * (180 / 2**31)
+            else:
+                continue  # Punkt ohne Koordinaten überspringen
+                
+            # Höhe
+            altitude = record.get_value('altitude')
+            point['ele'] = altitude if altitude is not None else 0.0
+            
+            # Zeit
+            timestamp = record.get_value('timestamp')
+            point['time'] = timestamp if timestamp else datetime.now()
+            
+            records.append(point)
+        
+        return records
+    
+    def convert_fit_to_gpx(self, fit_data):
+        """Konvertiert FIT-Daten in GPX-Format mit allen benötigten Feldern"""
+        if not fit_data:
+            return []
+        
+        gpx_data = []
+        for i, point in enumerate(fit_data):
+            gpx_point = {
+                "lat": point["lat"],
+                "lon": point["lon"], 
+                "ele": point["ele"],
+                "time": point["time"],
+                "delta_m": 0.0,  # Wird später berechnet
+                "speed_kmh": 0.0,  # Wird später berechnet
+                "gradient": 0.0,   # Wird später berechnet
+            }
+            gpx_data.append(gpx_point)
+        
+        # Metriken berechnen
+        if len(gpx_data) > 1:
+            recalc_gpx_data(gpx_data)
+        
+        return gpx_data
