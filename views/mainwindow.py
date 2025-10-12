@@ -109,7 +109,7 @@ class MainWindow(QMainWindow):
         
         super().__init__()
         
-        self._counter_url = "http://KVRouite.casa-eller.de/project/counter.php"
+        self._counter_url = "http://www.KVRouite.com/project/counter.php"
         self._undo_stack = []
         
         self._maptiler_key = ""
@@ -968,7 +968,6 @@ class MainWindow(QMainWindow):
             print("[WARN] Fehler beim Serveraufruf increment:", e)
             return None
 
-
     def _fetch_counters_from_server(self):
         """
         Liest die aktuellen Zählerstände ohne Hochzählen.
@@ -983,11 +982,18 @@ class MainWindow(QMainWindow):
             with urllib.request.urlopen(url, timeout=5) as resp:
                 data = resp.read().decode("utf-8")
                 counts = json.loads(data)
-                return counts
+                
+                # Angepasst für neue JSON-Struktur mit 'total' Key
+                if 'total' in counts and isinstance(counts['total'], dict):
+                    # Neue Struktur: {"total": {"video": X, "gpx": Y}}
+                    return counts['total']
+                else:
+                    # Fallback für alte Struktur oder Fehlerfall
+                    return counts
         except Exception as e:
             print("[WARN] Fehler beim Serveraufruf fetch:", e)
-            return None    
-        
+            return None
+
         
     def _load_map_keys_from_settings(self):
         """

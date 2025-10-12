@@ -1245,7 +1245,7 @@ if __name__ == "__main__":
 #-----------------------------------------------------------------
 
 class EncoderDialog(QDialog):
-    _counter_url = "http://KVRouite.casa-eller.de/project/counter.php"
+    _counter_url = "http://www.KVRouite.com/project/counter.php"
     """
     Dieses QFenster zeigt den gesamten ffmpeg-Output,
     den dein xfade6_2.py generiert (also Keyframe-Indexing, etc.),
