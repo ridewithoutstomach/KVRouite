@@ -5313,18 +5313,30 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", f"Failed to save project:\n{e}")
 
         
-
+    """
     def load_project(self):
-        """
-        Lädt ein Projekt aus einer .KVRouiteproj-Datei und stellt den kompletten Zustand vollständig wieder her.
-        """
+       
         filename, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "KVRouite Project (*.KVRouiteproj)")
         if not filename:
             return
         
         self.process_open_project(filename)
         self.save_recent_file(filename)
-
+    """
+    
+    def load_project(self):
+        filename, _ = QFileDialog.getOpenFileName(
+            self, 
+            "Open Project", 
+            "", 
+            "KVRouite Project (*.kvrouiteproj);;VGSync Project (*.vgsyncproj);;All Files (*)"
+        )
+        if not filename:
+            return
+    
+        self.process_open_project(filename)
+        self.save_recent_file(filename)
+    
     def process_open_project(self, filename: str):
         try:
             with open(filename, "r", encoding="utf-8") as f:
