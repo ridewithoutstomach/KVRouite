@@ -166,9 +166,16 @@ mpv
 - Original source code included in: "third-party-src/mpv-0.40.0-source.zip"
 - Release notes included in the source archive
 
+GoPro GPS Extraction
+- Based on: gopro2gpx by Juan M. Casillas (https://github.com/juanmcasillas/gopro2gpx)
+- Modifications by: Bernd Eller
+- License: GNU GPL v3
+
 All third-party components are redistributed in accordance with their respective licenses.
 The complete and unmodified source code is included in the "third-party-src/" directory 
 and will be retained and made available for at least three (3) years in accordance with GPL and LGPL requirements.
+
+
 
 -------------------------------------------------------------------------------
 
