@@ -214,29 +214,48 @@ class GoProExtractorDialog(QDialog):
     def handle_finished(self, exit_code, exit_status):
         """Wird aufgerufen, wenn der Prozess beendet ist"""
         video_path = self.video_list[self.current_video_index]
-        
+    
         if exit_code == 0:
             self.text_append(f"✓ Successfully processed {os.path.basename(video_path)}")
-            
+        
             # Importiere die erstellte GPX-Datei
             gpx_path = os.path.join(MY_GLOBAL_TMP_DIR, "KVR_GOPRO_Extract.tmp.gpx")
             if os.path.exists(gpx_path):
                 self.text_append(f"Importing GPX: {gpx_path}")
+                # Aufruf OHNE zusätzliche Parameter
                 self.parent._import_gopro_gpx(gpx_path)
             else:
                 self.text_append(f"WARNING: GPX file not found at {gpx_path}")
         else:
             self.text_append(f"✗ Failed to process {os.path.basename(video_path)} (exit code: {exit_code})")
-        
+    
         # Nächste Video verarbeiten
         self.current_video_index += 1
-        
+    
         if self.current_video_index >= len(self.video_list):
             # Alle Videos verarbeitet
             self.text_append("\n✓ All videos processed successfully!")
             self.set_finished_state()
         else:
             QTimer.singleShot(500, self.process_next_video)
+    
+    def _ensure_gpx_initialization(self):
+        """Stellt sicher, dass die GPX-Daten vollständig initialisiert sind"""
+        if hasattr(self.parent, '_gpx_data') and self.parent._gpx_data:
+            # Aktualisiere die UI-Komponenten
+            self.parent._update_gpx_overview()
+            self.parent.chart.set_gpx_data(self.parent._gpx_data)
+            if self.parent.mini_chart_widget:
+                self.parent.mini_chart_widget.set_gpx_data(self.parent._gpx_data)
+            
+            # Stelle sicher, dass die Map den aktuellen GPX-Stand anzeigt
+            route_geojson = self.parent._build_route_geojson_from_gpx(self.parent._gpx_data)
+            self.parent.map_widget.loadRoute(route_geojson, do_fit=False)
+       
+            # Aktiviere die Video-GPX-Synchronisation falls nicht bereits aktiv
+            if not is_gpx_video_shift_set() and self.parent.playlist_counter > 0:
+               self.parent._propose_gopro_sync()
+    
     
     def text_append(self, text):
         """Fügt Text zum Ausgabefeld hinzu"""
@@ -251,6 +270,7 @@ class GoProExtractorDialog(QDialog):
         except:
             pass
         self.cancel_button.clicked.connect(self.accept)
+        QTimer.singleShot(300, self.parent._complete_gpx_integration)
     
     def cancel_process(self):
         """Bricht den Prozess ab oder schließt den Dialog"""
@@ -340,6 +360,11 @@ class MainWindow(QMainWindow):
         load_project_action.triggered.connect(self.load_project)
         file_menu.addAction(load_project_action)
         
+        self.recent_menu = QMenu("Open Recent", self)
+        file_menu.addMenu(self.recent_menu)    
+        self.update_recent_files_menu()
+        file_menu.addSeparator()
+        
         #load_gpx_action = QAction("Import GPX...", self)
         #load_gpx_action.setStatusTip("Load a GPX File or append a GPX File to a already loaded GPX.")
         #load_gpx_action.triggered.connect(self.load_gpx_file)
@@ -360,16 +385,16 @@ class MainWindow(QMainWindow):
         load_mp4_action.triggered.connect(self.load_mp4_files)
         file_menu.addAction(load_mp4_action)
         
-        extract_gopro_gps_action = QAction("Extract Gopo-GPS", self)
+        
+        file_menu.addSeparator()
+        extract_gopro_gps_action = QAction("*Gopo-Extractor", self)
         extract_gopro_gps_action.setStatusTip("Extract GPS from all loaded GoPro videos")
         extract_gopro_gps_action.triggered.connect(self._on_extract_gopro_gps)
-        file_menu.addAction(extract_gopro_gps_action)
-
-        self.recent_menu = QMenu("Open Recent", self)
-        file_menu.addMenu(self.recent_menu)    
-        self.update_recent_files_menu()
-
         file_menu.addSeparator()
+        file_menu.addAction(extract_gopro_gps_action)
+        file_menu.addSeparator()
+        
+        
         
         save_project_action = QAction("Save Project...", self)
         save_project_action.setStatusTip("Safe the loaded files and edits as project.")
@@ -6421,19 +6446,20 @@ class MainWindow(QMainWindow):
         dlg.start_extraction()
         dlg.exec()
     
+    
     def _import_gopro_gpx(self, gpx_path):
         """
         Importiert eine GPX-Datei, die vom GoPro-Extractor erstellt wurde.
-        Wird automatisch an bestehende GPX-Daten angehängt.
+        Wird automatisch an bestehende GPX-Daten angehängt UND automatisch synchronisiert.
         """
         if not os.path.exists(gpx_path):
             print(f"GPX file not found: {gpx_path}")
             return
-        
+    
         try:
             # Parse die GPX-Datei
             new_data = parse_gpx(gpx_path)
-            
+        
             # Konvertiere String-Zeiten zu datetime-Objekten falls nötig
             for pt in new_data:
                 if isinstance(pt.get("time"), str):
@@ -6441,11 +6467,11 @@ class MainWindow(QMainWindow):
                         pt["time"] = datetime.fromisoformat(pt["time"].replace("Z", "+00:00"))
                     except Exception:
                         pass
-            
+        
             if not new_data:
                 print("No valid GPX data found in extracted file")
                 return
-            
+        
             # Prüfe ob Resample nötig ist
             if self._check_gpx_step_intervals(new_data):
                 new_data = self._resample_to_1s(new_data)
@@ -6454,6 +6480,16 @@ class MainWindow(QMainWindow):
             if not self._gpx_data:
                 # Keine bestehenden Daten => als neue GPX laden
                 self._set_gpx_data(new_data)
+                
+                # AUTOMATISCHE SYNCHRONISATION für GoPro-Daten
+                # GoPro-Videos haben korrekte Zeitstempel, daher Sync auf 0 setzen
+                if self.playlist_counter > 0:
+                    set_gpx_video_shift(0)
+                    self.enableVideoGpxSync(True)
+                    if self._edit_mode != "off":
+                        self.video_control.set_editing_mode(True, True)
+                    
+                    print("✓ Automatic video-GPX synchronization activated for GoPro data")
             else:
                 # An bestehende Daten anhängen
                 old_data = self._gpx_data
@@ -6476,8 +6512,17 @@ class MainWindow(QMainWindow):
                 merged_data = old_data + new_data
                 recalc_gpx_data(merged_data)
                 self._set_gpx_data(merged_data)
+                
+                # Für angehängte Daten: Synchronisation nur aktivieren wenn noch nicht gesetzt
+                if not is_gpx_video_shift_set() and self.playlist_counter > 0:
+                    set_gpx_video_shift(0)
+                    self.enableVideoGpxSync(True)
+                    print("✓ Automatic video-GPX synchronization activated for appended GoPro data")
             
             print(f"Successfully imported GPX from GoPro extraction: {len(new_data)} points")
+        
+            # Vollständige Integration der GPX-Daten
+            QTimer.singleShot(200, self._complete_gpx_integration)
             
         except Exception as e:
             print(f"Error importing GPX from GoPro extraction: {e}")
@@ -6485,7 +6530,75 @@ class MainWindow(QMainWindow):
                 self,
                 "GPX Import Error",
                 f"Failed to import GPX from extraction:\n{str(e)}"
-            )    
+            )
+        
+    
+        
+        
+    
             
             
+    def _propose_gopro_sync(self):
+        """
+        Fragt nach der Synchronisation zwischen Video und GPX für GoPro-Daten.
+        Ähnlich wie proposeVideoGpxSync, aber speziell für GoPro.
+        """
+        if self._gpx_data and self.playlist_counter > 0:
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Video & GPX Sync")
             
+            yes_btn = msg_box.addButton("Yes", QMessageBox.AcceptRole)
+            msg_box.setText("Do your GPX and video start at the same time?\n " \
+            "If so, let's activate video / GPX sync mode.")
+            no_btn = msg_box.addButton("No", QMessageBox.RejectRole)
+    
+            msg_box.setWindowModality(Qt.WindowModal)
+            msg_box.show()
+            QApplication.processEvents()
+    
+            msg_box.exec()
+            clicked = msg_box.clickedButton()
+            if clicked == yes_btn:
+                set_gpx_video_shift(0)
+                self.enableVideoGpxSync(True)
+                if self._edit_mode != "off":
+                    self.video_control.set_editing_mode(True, True)  # to refresh the button state
+            else:
+                QMessageBox.information(self, "Video & GPX Sync", 
+                                        "In this case it is advised to define the sync point.\n " \
+                                        "Select a GPX point, find it in video and click on the red button")         
+                                        
+                                        
+    def _complete_gpx_integration(self):
+        """
+        Vollständige Integration der GPX-Daten für Video-Synchronisation.
+        Wird nach dem GoPro-Extraktionsprozess aufgerufen.
+        """
+        if not self._gpx_data or not self.playlist:
+            return
+        
+        # 1. Stelle sicher, dass alle UI-Komponenten aktualisiert sind
+        self._update_gpx_overview()
+        self.chart.set_gpx_data(self._gpx_data)
+        if self.mini_chart_widget:
+            self.mini_chart_widget.set_gpx_data(self._gpx_data)
+        
+        # 2. Lade die Route in die Map
+        route_geojson = self._build_route_geojson_from_gpx(self._gpx_data)
+        self.map_widget.loadRoute(route_geojson, do_fit=True)
+        
+        # 3. Aktiviere die Auto-Sync-Funktionalität falls möglich
+        if is_gpx_video_shift_set():
+            self.enableVideoGpxSync(True)
+            
+            # 4. Setze den aktuellen Video-Zeitpunkt auf den Start
+            if self.video_editor.get_current_position_s() == 0:
+                # Springe zum ersten Frame, um die Synchronisation zu testen
+                self.video_editor.show_first_frame_at_index(0)
+                
+                # Markiere den ersten GPX-Punkt
+                if len(self._gpx_data) > 0:
+                    self.gpx_widget.gpx_list.select_row_in_pause(0)
+                    self.map_widget.show_blue(0, do_center=True)
+                    self.chart.highlight_gpx_index(0)                                    
+                    
