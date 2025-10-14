@@ -5719,7 +5719,7 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.critical(self, "Error", f"Unsupported file type:\n{path}")
             return
-
+    """
     def on_save_gpx_clicked(self):
         reply = QMessageBox.question(
             self,
@@ -5735,11 +5735,7 @@ class MainWindow(QMainWindow):
             # User declined saving
             return
         
-        """
-        Wird aufgerufen, wenn man im GPXControlWidget den Safe-Button drückt.
-        => Speichert die GPX-Daten, ggf. gekürzt auf finale Videolänge,
-        falls Videos geladen wurden.
-        """
+       
         #from PySide6.QtWidgets import QFileDialog, QMessageBox
 
         # 1) Dateidialog
@@ -5851,7 +5847,144 @@ class MainWindow(QMainWindow):
     
         QMessageBox.information(self, "Done", 
             f"GPX safed as '{out_path}'.")
+            
+    """
+    
+    def on_save_gpx_clicked(self):
+        reply = QMessageBox.question(
+            self,
+            "Save GPX",
+            "Have you smoothed the GPX data?\n\n"
+            "It is highly recommended to smooth your GPX before saving.\n"
+            "Do you want to continue saving?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply == QMessageBox.No:
+            return
+
+        # 1) Dateidialog
+        out_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save GPX File",
+            "export.gpx",
+            "GPX Files (*.gpx)"
+        )
+        if not out_path:
+            return
+
+        # 2) GPX-Daten
+        gpx_data = self.gpx_widget.gpx_list._gpx_data
+        if not gpx_data:
+            QMessageBox.warning(self, "No GPX", "No GPX data available!")
+            return
+
+        # 3) Nur Punkte mit positiver Zeit behalten (keine grauen Punkte am Anfang)
+        try:
+            shift = get_gpx_video_shift()
+        except Exception:
+            shift = 0
+    
+        first_gpx_video_time = gpx_data[0].get("time", 0.0) - timedelta(seconds=shift)
         
+        # Finde den ersten Punkt mit positiver Zeit
+        first_positive_index = 0
+        for i, pt in enumerate(gpx_data):
+            rel_s = (pt.get("time", 0.0) - first_gpx_video_time).total_seconds()
+            if rel_s >= 0:
+                first_positive_index = i
+                break
+    
+        # Wenn kein Punkt mit positiver Zeit gefunden wurde, verwende den letzten Punkt
+        if first_positive_index >= len(gpx_data):
+            QMessageBox.warning(self, "Truncation", 
+                "No GPX points with positive time found!")
+            return
+    
+        # Nimm nur Punkte ab dem ersten positiven Zeitpunkt
+        truncated = gpx_data[first_positive_index:]
+    
+        if len(truncated) < 2:
+            QMessageBox.warning(self, "Truncation", 
+                "After shortening to positive time, no meaningful GPX remains!")
+            return
+    
+        # 4) OPTIONAL: Auf finale Videolänge kürzen (nur wenn Videos geladen sind)
+        # Hier liegt das Problem - diese Kürzung entfernt die zusätzlichen 15 Sekunden!
+        if self.playlist and self.video_durations:
+            # Berechne finale Videolänge
+            final_duration_s = self.real_total_duration
+            sum_cuts_s = self.cut_manager.get_total_cuts()
+            final_duration_s -= sum_cuts_s
+            if final_duration_s < 0:
+                final_duration_s = 0
+    
+            # Finde den letzten Punkt innerhalb der Videolänge
+            last_valid_index = -1
+            for i, pt in enumerate(truncated):
+                rel_s = (pt.get("time", 0.0) - first_gpx_video_time).total_seconds()
+                if rel_s <= final_duration_s:
+                    last_valid_index = i
+                else:
+                    break
+    
+            if last_valid_index < 0:
+                QMessageBox.warning(self, "Truncation", 
+                    "After shortening to the video length, no meaningful GPX remains!")
+                return
+    
+            # Nimm alle Punkte bis zum letzten vollständigen Punkt
+            final_truncated = truncated[:last_valid_index + 1]
+
+            # Prüfe ob wir den letzten Punkt anpassen müssen (Interpolation)
+            if last_valid_index < len(truncated) - 1:
+                last_pt = final_truncated[-1]
+                next_pt = truncated[last_valid_index + 1]
+                
+                last_pt_time = (last_pt.get("time", 0.0) - first_gpx_video_time).total_seconds()
+                next_pt_time = (next_pt.get("time", 0.0) - first_gpx_video_time).total_seconds()
+                
+                if next_pt_time > final_duration_s and (next_pt_time - last_pt_time) > 0:
+                    factor = (final_duration_s - last_pt_time) / (next_pt_time - last_pt_time)
+                    
+                    interpolated_lat = last_pt["lat"] + factor * (next_pt["lat"] - last_pt["lat"])
+                    interpolated_lon = last_pt["lon"] + factor * (next_pt["lon"] - last_pt["lon"])
+                    interpolated_ele = last_pt.get("ele", 0.0) + factor * (next_pt.get("ele", 0.0) - last_pt.get("ele", 0.0))
+                    
+                    adjusted_pt = {
+                        "lat": interpolated_lat,
+                        "lon": interpolated_lon,
+                        "ele": interpolated_ele,
+                        "time": first_gpx_video_time + timedelta(seconds=final_duration_s),
+                        "delta_m": 0.0,
+                        "speed_kmh": 0.0,
+                        "gradient": 0.0
+                    }
+                    
+                    final_truncated[-1] = adjusted_pt
+    
+            if len(final_truncated) < 2:
+                QMessageBox.warning(self, "Truncation", 
+                    "After shortening to the video length, no meaningful GPX remains!")
+                return
+    
+            truncated = final_truncated
+    
+        # 5) Speichern
+        self._save_gpx_to_file(truncated, out_path)
+        
+        ret = self._increment_counter_on_server("gpx")
+        if ret is not None:
+            vcount, gcount = ret
+            print(f"[INFO] Server-Counter nun: Video={vcount}, GPX={gcount}")
+        else:
+            print("[WARN] Konnte GPX-Zähler nicht hochsetzen.")
+    
+        QMessageBox.information(self, "Done", 
+            f"GPX saved as '{out_path}'.")
+        
+                
     def _on_show_temp_dir(self):
         """
         Zeigt das aktuelle Temp-Verzeichnis an.
