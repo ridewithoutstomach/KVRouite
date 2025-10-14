@@ -269,8 +269,27 @@ class GoProExtractorDialog(QDialog):
             self.cancel_button.clicked.disconnect()
         except:
             pass
-        self.cancel_button.clicked.connect(self.accept)
+        self.cancel_button.clicked.connect(self.show_elevation_notice)
         QTimer.singleShot(300, self.parent._complete_gpx_integration)
+        
+    def show_elevation_notice(self):
+        """Zeigt einen Hinweis zu den Höhendaten und schließt dann den Dialog"""
+        QMessageBox.information(
+            self,
+            "Elevation Data Quality Notice",
+            "Raw GoPro elevation data is often inaccurate due to:\n"
+            "• Barometric pressure changes\n"
+            "• Weather conditions\n"
+            "• Sensor drift\n\n"
+            "For accurate elevation data:\n"
+            "1. Use 'Update Elevation' in GPX Control (requires Mapbox key)\n"
+            "2. Apply smoothing with the smoothing tool\n"
+            "3. or extrackt it with  tools like GoPro Telemetry Extractor\n\n"
+            "This will significantly improve your elevation profile!"
+        )
+        self.accept()    
+        
+        
     
     def cancel_process(self):
         """Bricht den Prozess ab oder schließt den Dialog"""
@@ -6419,15 +6438,30 @@ class MainWindow(QMainWindow):
         """
         
         # Prüfe ob bereits GPX-Daten geladen sind
+        
         if self._gpx_data:
-            QMessageBox.warning(
-                self,
-                "GPX Already Loaded",
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("GPX Already Loaded")
+            msg_box.setIcon(QMessageBox.Warning)
+            msg_box.setText(
                 "The GoPro GPS extractor can only be used when no GPX data is loaded.\n\n"
-                "Please start a new project before extracting GPS from GoPro videos."
+                "Would you like to clear the current GPX data and continue with extraction?"
             )
-            return
-            
+        
+            # Buttons hinzufügen
+            clear_btn = msg_box.addButton("Clear GPX and Continue", QMessageBox.YesRole)
+            cancel_btn = msg_box.addButton("Cancel", QMessageBox.RejectRole)
+        
+            msg_box.exec()
+            clicked_button = msg_box.clickedButton()
+            if clicked_button == clear_btn:
+                # GPX-Daten löschen und fortfahren
+                self._clear_gpx_data()
+            else:
+                # Abbrechen
+                return 
+        
+        
             
         if not self.playlist:
             QMessageBox.warning(
@@ -6458,6 +6492,32 @@ class MainWindow(QMainWindow):
         dlg.start_extraction()
         dlg.exec()
     
+    def _clear_gpx_data(self):
+        """
+        Löscht alle GPX-Daten und setzt die UI-Komponenten zurück.
+        """
+        # GPX-Daten löschen
+        self._gpx_data.clear()
+        
+        # UI-Komponenten zurücksetzen
+        self.gpx_widget.set_gpx_data([])
+        self.chart.set_gpx_data([])
+        if self.mini_chart_widget:
+            self.mini_chart_widget.set_gpx_data([])
+        
+        # Map zurücksetzen
+        self.map_widget.loadRoute({"type": "FeatureCollection", "features": []}, do_fit=True)
+        
+        # GPX-Video-Shift zurücksetzen
+        set_gpx_video_shift(None)
+        
+        # UI-Status aktualisieren
+        self._update_gpx_overview()
+        
+        # Video-Sync deaktivieren
+        self.enableVideoGpxSync(False)
+    
+        print("GPX data cleared successfully")
     
     def _import_gopro_gpx(self, gpx_path):
         """
