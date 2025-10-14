@@ -457,6 +457,33 @@ def main():
     print(f"  GPX duration:   {gpx_duration:.3f} s")
     print(f"  Difference:     {diff_seconds:+.3f} s ({diff_percent:+.2f}%)")
     analyze_gps_distribution(points_resampled, video_duration)
+   
+"""   
+def main_direct(video_path: str):
+    try:
+        video_duration = get_video_duration(video_path)
+        if not video_duration:
+            return False
+
+        metadata = extract_metadata(video_path)
+        if not metadata:
+            return False
+
+        gps_start_time = get_video_start_time(video_path, metadata)
+        points = parse_gps5_data(metadata)
+        if not points:
+            return False
+
+        points_resampled = resample_to_1s(points)
+        points_resampled = adjust_gpx_to_video_duration(points_resampled, video_duration)
+
+        output_path = os.path.join(MY_GLOBAL_TMP_DIR, "KVR_GOPRO_Extract.tmp.gpx")
+        success = create_gpx_with_time(points_resampled, output_path)
+        return success
+    except Exception as e:
+        print(f"[ERROR] main_direct: {e}")
+        return False
+"""    
 
 if __name__ == "__main__":
     main()

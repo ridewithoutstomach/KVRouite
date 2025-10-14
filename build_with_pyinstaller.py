@@ -145,6 +145,16 @@ def build_windows():
     # ffmpeg/ & mpv/ nach _internal/ kopieren
     copy_tree_all(LOCAL_FFMPEG, os.path.join(internal_dir, "ffmpeg"))
     copy_tree_all(LOCAL_MPV, os.path.join(internal_dir, "mpv"))
+    extractor_src = os.path.join(BASE_DIR, "core", "gopro_extractor.py")
+    extractor_dst_dir = os.path.join(internal_dir, "core")
+    os.makedirs(extractor_dst_dir, exist_ok=True)
+    if os.path.isfile(extractor_src):
+        extractor_dst = os.path.join(extractor_dst_dir, "gopro_extractor.py")
+        print("[COPY GOPRO EXTRACTOR]", extractor_src, "->", extractor_dst)
+        shutil.copy2(extractor_src, extractor_dst)
+    else:
+        print("[WARN] core/gopro_extractor.py nicht gefunden:", extractor_src)
+    
 
     # --- Icon nach _internal/icon ---
     if os.path.isfile(icon_file):

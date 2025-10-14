@@ -145,7 +145,7 @@ class GoProExtractorDialog(QDialog):
         self.current_video_index = 0
         self.process = None
         self.is_cancelled = False
-        
+    """    
     def start_extraction(self):
         self.text_append("Starting GoPro GPS extraction...")
         self.text_append(f"Found {len(self.video_list)} video(s) to process")
@@ -153,7 +153,8 @@ class GoProExtractorDialog(QDialog):
         self.text_append("=" * 50)
         
         self.process_next_video()
-    
+    """    
+    """
     def process_next_video(self):
         if self.is_cancelled or self.current_video_index >= len(self.video_list):
             if self.is_cancelled:
@@ -162,47 +163,195 @@ class GoProExtractorDialog(QDialog):
                 self.text_append("\nAll videos processed successfully!")
             self.set_finished_state()
             return
-            
+        
         video_path = self.video_list[self.current_video_index]
         self.status_label.setText(f"Processing {self.current_video_index + 1}/{len(self.video_list)}: {os.path.basename(video_path)}")
         self.progress_bar.setValue(self.current_video_index + 1)
-        
+
         self.text_append(f"\n--- Processing: {os.path.basename(video_path)} ---")
+
+        try:
+            # Importiere das Modul und führe die Extraktion direkt durch
+            from core.gopro_extractor import (
+                get_video_duration, extract_metadata, get_video_start_time,
+                parse_gps5_data, resample_to_1s, adjust_gpx_to_video_duration,
+                create_gpx_with_time, trim_invalid_gps_points
+            )
         
-        # Finde den gopro_extractor.py Pfad
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        script_path = os.path.join(base_dir, "core", "gopro_extractor.py")
+            # Führe alle Schritte direkt aus
+            video_duration = get_video_duration(video_path)
+            if not video_duration:
+                self.text_append("✗ Could not get video duration")
+                self.current_video_index += 1
+                QTimer.singleShot(100, self.process_next_video)
+                return
+    
+            metadata = extract_metadata(video_path)
+            if not metadata:
+                self.text_append("✗ No GPS metadata found in video")
+                self.current_video_index += 1
+                QTimer.singleShot(100, self.process_next_video)
+                return
+
+            gps_start_time = get_video_start_time(video_path, metadata)
+            points = parse_gps5_data(metadata)
         
-        if not os.path.exists(script_path):
-            self.text_append(f"ERROR: gopro_extractor.py not found at {script_path}")
-            self.current_video_index += 1
-            QTimer.singleShot(100, self.process_next_video)
+            if not points:
+                self.text_append("✗ No GPS points extracted")
+                self.current_video_index += 1
+                QTimer.singleShot(100, self.process_next_video)
+                return
+
+            points_with_time = points
+            points_resampled = resample_to_1s(points_with_time)
+            points_resampled = adjust_gpx_to_video_duration(points_resampled, video_duration)
+            
+            output_path = os.path.join(MY_GLOBAL_TMP_DIR, "KVR_GOPRO_Extract.tmp.gpx")
+            success = create_gpx_with_time(points_resampled, output_path)
+
+            if success and os.path.exists(output_path):
+                self.text_append(f"✓ Successfully processed {os.path.basename(video_path)}")
+                self.text_append(f"Importing GPX: {output_path}")
+            
+                # Importiere die GPX sofort
+                self.parent._import_gopro_gpx(output_path)
+            else:
+                self.text_append(f"✗ Failed to process {os.path.basename(video_path)}")
+            
+        except Exception as e:
+            self.text_append(f"✗ Error in direct extraction: {str(e)}")
+            import traceback
+            self.text_append(f"Detailed error: {traceback.format_exc()}")
+    
+        # Nächste Video verarbeiten
+        self.current_video_index += 1
+
+        if self.current_video_index >= len(self.video_list):
+            self.text_append("\n✓ All videos processed successfully!")
+            self.set_finished_state()
+        else:
+            QTimer.singleShot(500, self.process_next_video)
+    """
+    def start_extraction(self):
+        # Zuerst den Text anzeigen
+        self.text_append("Starting GoPro GPS extraction...")
+        self.text_append(f"Found {len(self.video_list)} video(s) to process")
+        self.text_append("Experimental - Only works with GoPro files containing GPS")
+        self.text_append("=" * 50)
+    
+        # Sofortige GUI-Aktualisierung erzwingen
+        QApplication.processEvents()
+    
+        # Verarbeitung mit kurzer Verzögerung starten, damit das Fenster sichtbar wird
+        QTimer.singleShot(100, self.process_next_video)
+
+    def process_next_video(self):
+        if self.is_cancelled or self.current_video_index >= len(self.video_list):
+            if self.is_cancelled:
+                self.text_append("\nProcess cancelled by user")
+            else:
+                self.text_append("\nAll videos processed successfully!")
+            self.set_finished_state()
             return
         
-        # Starte den Extraktionsprozess
-        self.process = QProcess()
-        self.process.readyReadStandardOutput.connect(self.handle_stdout)
-        self.process.readyReadStandardError.connect(self.handle_stderr)
-        self.process.finished.connect(self.handle_finished)
-        
-        # Setze Umgebungsvariablen
-        env = QProcessEnvironment.systemEnvironment()
-        env.insert("KVR_TEMP_DIR", MY_GLOBAL_TMP_DIR)
-        env.insert("PYTHONIOENCODING", "utf-8")
-        env.insert("PYTHONUTF8", "1")
-        self.process.setProcessEnvironment(env)
-        
-        # Starte das Skript
-        self.process.start(sys.executable, ["-X", "utf8", script_path, video_path])
+        video_path = self.video_list[self.current_video_index]
+        self.status_label.setText(f"Processing {self.current_video_index + 1}/{len(self.video_list)}: {os.path.basename(video_path)}")
+        self.progress_bar.setValue(self.current_video_index + 1)
+
+        self.text_append(f"\n--- Processing: {os.path.basename(video_path)} ---")
     
-    def handle_stdout(self):
-        """Verarbeitet die Standard-Ausgabe des Prozesses"""
-        if self.process:
-            data = self.process.readAllStandardOutput()
-            stdout = bytes(data).decode("utf8", errors='ignore')
-            if stdout.strip():
-                self.text_append(stdout.strip())
+        # GUI sofort aktualisieren
+        QApplication.processEvents()
+
+        try:
+            # Importiere das Modul und führe die Extraktion direkt durch
+            from core.gopro_extractor import (
+                get_video_duration, extract_metadata, get_video_start_time,
+                parse_gps5_data, resample_to_1s, adjust_gpx_to_video_duration,
+                create_gpx_with_time, trim_invalid_gps_points
+            )
+            
+            # Führe alle Schritte direkt aus
+            video_duration = get_video_duration(video_path)
+            if not video_duration:
+                self.text_append("✗ Could not get video duration")
+                self.current_video_index += 1
+                QTimer.singleShot(100, self.process_next_video)
+                return
     
+            metadata = extract_metadata(video_path)
+            if not metadata:
+                self.text_append("✗ No GPS metadata found in video")
+                self.current_video_index += 1
+                QTimer.singleShot(100, self.process_next_video)
+                return
+    
+            gps_start_time = get_video_start_time(video_path, metadata)
+            points = parse_gps5_data(metadata)
+            
+            if not points:
+                self.text_append("✗ No GPS points extracted")
+                self.current_video_index += 1
+                QTimer.singleShot(100, self.process_next_video)
+                return
+    
+            points_with_time = points
+            points_resampled = resample_to_1s(points_with_time)
+            points_resampled = adjust_gpx_to_video_duration(points_resampled, video_duration)
+            
+            output_path = os.path.join(MY_GLOBAL_TMP_DIR, "KVR_GOPRO_Extract.tmp.gpx")
+            success = create_gpx_with_time(points_resampled, output_path)
+    
+            if success and os.path.exists(output_path):
+                self.text_append(f"✓ Successfully processed {os.path.basename(video_path)}")
+                self.text_append(f"Importing GPX: {output_path}")
+                
+                # Importiere die GPX sofort
+                self.parent._import_gopro_gpx(output_path)
+            else:
+                self.text_append(f"✗ Failed to process {os.path.basename(video_path)}")
+                
+        except Exception as e:
+            self.text_append(f"✗ Error in direct extraction: {str(e)}")
+            import traceback
+            self.text_append(f"Detailed error: {traceback.format_exc()}")
+    
+        # Nächste Video verarbeiten
+        self.current_video_index += 1
+    
+        if self.current_video_index >= len(self.video_list):
+            self.text_append("\n✓ All videos processed successfully!")
+            self.set_finished_state()
+        else:
+            QTimer.singleShot(500, self.process_next_video)
+        
+        
+    def handle_extraction_result(self, gpx_path, video_path):
+        """Verarbeitet das Ergebnis der direkten Extraktion"""
+        if gpx_path and os.path.exists(gpx_path):
+            self.text_append(f"✓ Successfully processed {os.path.basename(video_path)}")
+            self.text_append(f"Importing GPX: {gpx_path}")
+            self.parent._import_gopro_gpx(gpx_path)
+        else:
+            self.text_append(f"✗ Failed to process {os.path.basename(video_path)}")
+        
+        # Nächste Video verarbeiten
+        self.current_video_index += 1
+    
+        if self.current_video_index >= len(self.video_list):
+            self.text_append("\n✓ All videos processed successfully!")
+            self.set_finished_state()
+        else:
+            QTimer.singleShot(500, self.process_next_video)
+            
+        def handle_stdout(self):
+            """Verarbeitet die Standard-Ausgabe des Prozesses"""
+            if self.process:
+                data = self.process.readAllStandardOutput()
+                stdout = bytes(data).decode("utf8", errors='ignore')
+                if stdout.strip():
+                    self.text_append(stdout.strip())
+        
     def handle_stderr(self):
         """Verarbeitet die Fehler-Ausgabe des Prozesses"""
         if self.process:
@@ -6431,11 +6580,9 @@ class MainWindow(QMainWindow):
             recalc_gpx_data(gpx_data)
         
         return gpx_data
-        
+    """ 
     def _on_extract_gopro_gps(self):
-        """
-        Wird aufgerufen, wenn 'Extract Gopo-GPS' im Menü geklickt wird.
-        """
+       
         
         # Prüfe ob bereits GPX-Daten geladen sind
         
@@ -6491,6 +6638,60 @@ class MainWindow(QMainWindow):
         dlg = GoProExtractorDialog(self.playlist, self)
         dlg.start_extraction()
         dlg.exec()
+    """
+    def _on_extract_gopro_gps(self):
+        """
+        Wird aufgerufen, wenn 'Extract Gopo-GPS' im Menü geklickt wird.
+        """
+        # Prüfe ob bereits GPX-Daten geladen sind
+        if self._gpx_data:
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("GPX Already Loaded")
+            msg_box.setIcon(QMessageBox.Warning)
+            msg_box.setText(
+                "The GoPro GPS extractor can only be used when no GPX data is loaded.\n\n"
+                "Would you like to clear the current GPX data and continue with extraction?"
+            )
+        
+            clear_btn = msg_box.addButton("Clear GPX and Continue", QMessageBox.YesRole)
+            cancel_btn = msg_box.addButton("Cancel", QMessageBox.RejectRole)
+        
+            msg_box.exec()
+            clicked_button = msg_box.clickedButton()
+            if clicked_button == clear_btn:
+                self._clear_gpx_data()
+            else:
+                return 
+            
+        if not self.playlist:
+            QMessageBox.warning(
+                self,
+                "No Videos Loaded",
+                "Please load video files first before extracting GPS data."
+            )
+            return
+    
+        # Warnhinweis anzeigen
+        reply = QMessageBox.warning(
+            self,
+            "Experimental Feature",
+            "EXPERIMENTAL - All video files must be loaded\n\n"
+            "Only works with GoPro files containing GPS data.\n"
+            "Each video will be processed sequentially.\n"
+            "Extracted GPX tracks will be automatically appended.\n\n"
+            "Do you want to continue?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+    
+        if reply != QMessageBox.Yes:
+            return
+        
+        # Starte den Extraktionsprozess - Dialog sofort anzeigen
+        dlg = GoProExtractorDialog(self.playlist, self)
+        dlg.show()  # Dialog sofort anzeigen
+        QApplication.processEvents()  # GUI sofort aktualisieren
+        dlg.start_extraction()  # Dann die Extraktion starten
     
     def _clear_gpx_data(self):
         """
