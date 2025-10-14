@@ -6417,6 +6417,18 @@ class MainWindow(QMainWindow):
         """
         Wird aufgerufen, wenn 'Extract Gopo-GPS' im Menü geklickt wird.
         """
+        
+        # Prüfe ob bereits GPX-Daten geladen sind
+        if self._gpx_data:
+            QMessageBox.warning(
+                self,
+                "GPX Already Loaded",
+                "The GoPro GPS extractor can only be used when no GPX data is loaded.\n\n"
+                "Please start a new project before extracting GPS from GoPro videos."
+            )
+            return
+            
+            
         if not self.playlist:
             QMessageBox.warning(
                 self,
