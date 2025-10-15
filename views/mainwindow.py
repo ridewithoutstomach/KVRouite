@@ -107,10 +107,22 @@ from managers.encoder_manager import EncoderDialog
 from datetime import datetime, timedelta
 
 
+
+
+from core.gopro_extractor import (
+    get_video_duration, extract_metadata, get_video_start_time,
+    parse_gps5_data, resample_to_1s, adjust_gpx_to_video_duration,
+    create_gpx_with_time, trim_invalid_gps_points
+)
+
+# ... restliche Imports ...
+
+
 FIT_BUILD = False  # Set to True if you want to enable Fit Immersion export functionality
 
 
 ### CLASS ####
+
 class GoProExtractorDialog(QDialog):
     def __init__(self, video_list, parent=None):
         super().__init__(parent)
@@ -143,108 +155,17 @@ class GoProExtractorDialog(QDialog):
         self.setLayout(layout)
         
         self.current_video_index = 0
-        self.process = None
         self.is_cancelled = False
-    """    
+        
     def start_extraction(self):
         self.text_append("Starting GoPro GPS extraction...")
         self.text_append(f"Found {len(self.video_list)} video(s) to process")
         self.text_append("Experimental - Only works with GoPro files containing GPS")
         self.text_append("=" * 50)
         
-        self.process_next_video()
-    """    
-    """
-    def process_next_video(self):
-        if self.is_cancelled or self.current_video_index >= len(self.video_list):
-            if self.is_cancelled:
-                self.text_append("\nProcess cancelled by user")
-            else:
-                self.text_append("\nAll videos processed successfully!")
-            self.set_finished_state()
-            return
-        
-        video_path = self.video_list[self.current_video_index]
-        self.status_label.setText(f"Processing {self.current_video_index + 1}/{len(self.video_list)}: {os.path.basename(video_path)}")
-        self.progress_bar.setValue(self.current_video_index + 1)
-
-        self.text_append(f"\n--- Processing: {os.path.basename(video_path)} ---")
-
-        try:
-            # Importiere das Modul und führe die Extraktion direkt durch
-            from core.gopro_extractor import (
-                get_video_duration, extract_metadata, get_video_start_time,
-                parse_gps5_data, resample_to_1s, adjust_gpx_to_video_duration,
-                create_gpx_with_time, trim_invalid_gps_points
-            )
-        
-            # Führe alle Schritte direkt aus
-            video_duration = get_video_duration(video_path)
-            if not video_duration:
-                self.text_append("✗ Could not get video duration")
-                self.current_video_index += 1
-                QTimer.singleShot(100, self.process_next_video)
-                return
-    
-            metadata = extract_metadata(video_path)
-            if not metadata:
-                self.text_append("✗ No GPS metadata found in video")
-                self.current_video_index += 1
-                QTimer.singleShot(100, self.process_next_video)
-                return
-
-            gps_start_time = get_video_start_time(video_path, metadata)
-            points = parse_gps5_data(metadata)
-        
-            if not points:
-                self.text_append("✗ No GPS points extracted")
-                self.current_video_index += 1
-                QTimer.singleShot(100, self.process_next_video)
-                return
-
-            points_with_time = points
-            points_resampled = resample_to_1s(points_with_time)
-            points_resampled = adjust_gpx_to_video_duration(points_resampled, video_duration)
-            
-            output_path = os.path.join(MY_GLOBAL_TMP_DIR, "KVR_GOPRO_Extract.tmp.gpx")
-            success = create_gpx_with_time(points_resampled, output_path)
-
-            if success and os.path.exists(output_path):
-                self.text_append(f"✓ Successfully processed {os.path.basename(video_path)}")
-                self.text_append(f"Importing GPX: {output_path}")
-            
-                # Importiere die GPX sofort
-                self.parent._import_gopro_gpx(output_path)
-            else:
-                self.text_append(f"✗ Failed to process {os.path.basename(video_path)}")
-            
-        except Exception as e:
-            self.text_append(f"✗ Error in direct extraction: {str(e)}")
-            import traceback
-            self.text_append(f"Detailed error: {traceback.format_exc()}")
-    
-        # Nächste Video verarbeiten
-        self.current_video_index += 1
-
-        if self.current_video_index >= len(self.video_list):
-            self.text_append("\n✓ All videos processed successfully!")
-            self.set_finished_state()
-        else:
-            QTimer.singleShot(500, self.process_next_video)
-    """
-    def start_extraction(self):
-        # Zuerst den Text anzeigen
-        self.text_append("Starting GoPro GPS extraction...")
-        self.text_append(f"Found {len(self.video_list)} video(s) to process")
-        self.text_append("Experimental - Only works with GoPro files containing GPS")
-        self.text_append("=" * 50)
-    
-        # Sofortige GUI-Aktualisierung erzwingen
-        QApplication.processEvents()
-    
-        # Verarbeitung mit kurzer Verzögerung starten, damit das Fenster sichtbar wird
+        # Verarbeitung mit kurzer Verzögerung starten
         QTimer.singleShot(100, self.process_next_video)
-
+        
     def process_next_video(self):
         if self.is_cancelled or self.current_video_index >= len(self.video_list):
             if self.is_cancelled:
@@ -259,55 +180,20 @@ class GoProExtractorDialog(QDialog):
         self.progress_bar.setValue(self.current_video_index + 1)
 
         self.text_append(f"\n--- Processing: {os.path.basename(video_path)} ---")
-    
-        # GUI sofort aktualisieren
         QApplication.processEvents()
 
         try:
-            # Importiere das Modul und führe die Extraktion direkt durch
-            from core.gopro_extractor import (
-                get_video_duration, extract_metadata, get_video_start_time,
-                parse_gps5_data, resample_to_1s, adjust_gpx_to_video_duration,
-                create_gpx_with_time, trim_invalid_gps_points
-            )
+            # Verwende die direkte Extraktionsmethode aus MainWindow
             
-            # Führe alle Schritte direkt aus
-            video_duration = get_video_duration(video_path)
-            if not video_duration:
-                self.text_append("✗ Could not get video duration")
-                self.current_video_index += 1
-                QTimer.singleShot(100, self.process_next_video)
-                return
-    
-            metadata = extract_metadata(video_path)
-            if not metadata:
-                self.text_append("✗ No GPS metadata found in video")
-                self.current_video_index += 1
-                QTimer.singleShot(100, self.process_next_video)
-                return
-    
-            gps_start_time = get_video_start_time(video_path, metadata)
-            points = parse_gps5_data(metadata)
-            
-            if not points:
-                self.text_append("✗ No GPS points extracted")
-                self.current_video_index += 1
-                QTimer.singleShot(100, self.process_next_video)
-                return
-    
-            points_with_time = points
-            points_resampled = resample_to_1s(points_with_time)
-            points_resampled = adjust_gpx_to_video_duration(points_resampled, video_duration)
-            
-            output_path = os.path.join(MY_GLOBAL_TMP_DIR, "KVR_GOPRO_Extract.tmp.gpx")
-            success = create_gpx_with_time(points_resampled, output_path)
-    
-            if success and os.path.exists(output_path):
-                self.text_append(f"✓ Successfully processed {os.path.basename(video_path)}")
-                self.text_append(f"Importing GPX: {output_path}")
-                
-                # Importiere die GPX sofort
-                self.parent._import_gopro_gpx(output_path)
+            success = self._extract_gopro_gps_direct(video_path)  # self. statt self.parent.
+            if success:
+                output_path = os.path.join(MY_GLOBAL_TMP_DIR, "KVR_GOPRO_Extract.tmp.gpx")
+                if os.path.exists(output_path):
+                    self.text_append(f"✓ Successfully processed {os.path.basename(video_path)}")
+                    self.text_append(f"Importing GPX: {output_path}")
+                    self.parent._import_gopro_gpx(output_path)
+                else:
+                    self.text_append(f"✗ GPX file not found for {os.path.basename(video_path)}")
             else:
                 self.text_append(f"✗ Failed to process {os.path.basename(video_path)}")
                 
@@ -324,87 +210,6 @@ class GoProExtractorDialog(QDialog):
             self.set_finished_state()
         else:
             QTimer.singleShot(500, self.process_next_video)
-        
-        
-    def handle_extraction_result(self, gpx_path, video_path):
-        """Verarbeitet das Ergebnis der direkten Extraktion"""
-        if gpx_path and os.path.exists(gpx_path):
-            self.text_append(f"✓ Successfully processed {os.path.basename(video_path)}")
-            self.text_append(f"Importing GPX: {gpx_path}")
-            self.parent._import_gopro_gpx(gpx_path)
-        else:
-            self.text_append(f"✗ Failed to process {os.path.basename(video_path)}")
-        
-        # Nächste Video verarbeiten
-        self.current_video_index += 1
-    
-        if self.current_video_index >= len(self.video_list):
-            self.text_append("\n✓ All videos processed successfully!")
-            self.set_finished_state()
-        else:
-            QTimer.singleShot(500, self.process_next_video)
-            
-        def handle_stdout(self):
-            """Verarbeitet die Standard-Ausgabe des Prozesses"""
-            if self.process:
-                data = self.process.readAllStandardOutput()
-                stdout = bytes(data).decode("utf8", errors='ignore')
-                if stdout.strip():
-                    self.text_append(stdout.strip())
-        
-    def handle_stderr(self):
-        """Verarbeitet die Fehler-Ausgabe des Prozesses"""
-        if self.process:
-            data = self.process.readAllStandardError()
-            stderr = bytes(data).decode("utf8", errors='ignore')
-            if stderr.strip():
-                self.text_append(f"ERROR: {stderr.strip()}")
-    
-    def handle_finished(self, exit_code, exit_status):
-        """Wird aufgerufen, wenn der Prozess beendet ist"""
-        video_path = self.video_list[self.current_video_index]
-    
-        if exit_code == 0:
-            self.text_append(f"✓ Successfully processed {os.path.basename(video_path)}")
-        
-            # Importiere die erstellte GPX-Datei
-            gpx_path = os.path.join(MY_GLOBAL_TMP_DIR, "KVR_GOPRO_Extract.tmp.gpx")
-            if os.path.exists(gpx_path):
-                self.text_append(f"Importing GPX: {gpx_path}")
-                # Aufruf OHNE zusätzliche Parameter
-                self.parent._import_gopro_gpx(gpx_path)
-            else:
-                self.text_append(f"WARNING: GPX file not found at {gpx_path}")
-        else:
-            self.text_append(f"✗ Failed to process {os.path.basename(video_path)} (exit code: {exit_code})")
-    
-        # Nächste Video verarbeiten
-        self.current_video_index += 1
-    
-        if self.current_video_index >= len(self.video_list):
-            # Alle Videos verarbeitet
-            self.text_append("\n✓ All videos processed successfully!")
-            self.set_finished_state()
-        else:
-            QTimer.singleShot(500, self.process_next_video)
-    
-    def _ensure_gpx_initialization(self):
-        """Stellt sicher, dass die GPX-Daten vollständig initialisiert sind"""
-        if hasattr(self.parent, '_gpx_data') and self.parent._gpx_data:
-            # Aktualisiere die UI-Komponenten
-            self.parent._update_gpx_overview()
-            self.parent.chart.set_gpx_data(self.parent._gpx_data)
-            if self.parent.mini_chart_widget:
-                self.parent.mini_chart_widget.set_gpx_data(self.parent._gpx_data)
-            
-            # Stelle sicher, dass die Map den aktuellen GPX-Stand anzeigt
-            route_geojson = self.parent._build_route_geojson_from_gpx(self.parent._gpx_data)
-            self.parent.map_widget.loadRoute(route_geojson, do_fit=False)
-       
-            # Aktiviere die Video-GPX-Synchronisation falls nicht bereits aktiv
-            if not is_gpx_video_shift_set() and self.parent.playlist_counter > 0:
-               self.parent._propose_gopro_sync()
-    
     
     def text_append(self, text):
         """Fügt Text zum Ausgabefeld hinzu"""
@@ -419,7 +224,7 @@ class GoProExtractorDialog(QDialog):
         except:
             pass
         self.cancel_button.clicked.connect(self.show_elevation_notice)
-        QTimer.singleShot(300, self.parent._complete_gpx_integration)
+        # KEIN Timer-Aufruf mehr hier!
         
     def show_elevation_notice(self):
         """Zeigt einen Hinweis zu den Höhendaten und schließt dann den Dialog"""
@@ -433,26 +238,54 @@ class GoProExtractorDialog(QDialog):
             "For accurate elevation data:\n"
             "1. Use 'Update Elevation' in GPX Control (requires Mapbox key)\n"
             "2. Apply smoothing with the smoothing tool\n"
-            "3. or extrackt it with  tools like GoPro Telemetry Extractor\n\n"
+            "3. or extract it with tools like GoPro Telemetry Extractor\n\n"
             "This will significantly improve your elevation profile!"
         )
         self.accept()    
         
-        
-    
     def cancel_process(self):
         """Bricht den Prozess ab oder schließt den Dialog"""
-        if self.process and self.process.state() == QProcess.ProcessState.Running:
-            self.process.terminate()
-            self.process.waitForFinished(5000)
-            if self.process.state() == QProcess.ProcessState.Running:
-                self.process.kill()
-        
         self.is_cancelled = True
         self.set_finished_state()
         self.text_append("\nProcess cancelled by user")
+        
+    def _extract_gopro_gps_direct(self, video_path: str) -> bool:
+        """
+        Führt die GoPro GPS-Extraktion direkt durch, ohne externen Prozess
+        """
+        try:
+            # Führe alle Schritte direkt aus
+            video_duration = get_video_duration(video_path)
+            if not video_duration:
+                self.text_append("✗ Could not get video duration")
+                return False
+    
+            metadata = extract_metadata(video_path)
+            if not metadata:
+                self.text_append("✗ No GPS metadata found in video")
+                return False
 
-
+            gps_start_time = get_video_start_time(video_path, metadata)
+            points = parse_gps5_data(metadata)
+            
+            if not points:
+                self.text_append("✗ No GPS points extracted")
+                return False
+    
+            points_with_time = points
+            points_resampled = resample_to_1s(points_with_time)
+            points_resampled = adjust_gpx_to_video_duration(points_resampled, video_duration)
+            
+            output_path = os.path.join(MY_GLOBAL_TMP_DIR, "KVR_GOPRO_Extract.tmp.gpx")
+            success = create_gpx_with_time(points_resampled, output_path)
+        
+            return success
+        
+        except Exception as e:
+            self.text_append(f"✗ Extraction error: {str(e)}")
+            import traceback
+            self.text_append(f"Detailed error: {traceback.format_exc()}")
+            return False        
 ### CLASS
 
 class MainWindow(QMainWindow):
@@ -2337,229 +2170,6 @@ class MainWindow(QMainWindow):
                 "Please restart the application."
             )
     
-        
-    """
-    def on_cut_clicked_video(self):
-        
-        from datetime import timedelta
-        import copy
-        try:
-            from core.gpx_parser import recalc_gpx_data
-        except Exception:
-            recalc_gpx_data = None
-
-        do_gpx_edit = (self._autoSyncVideoEnabled and self._edit_mode in ("copy", "encode"))
-    
-        # --- 0) Wenn GPX-Edit gewünscht: Zeiten VOR dem Video-Cut speichern ---
-        final_start = None
-        final_end = None
-        if do_gpx_edit:
-            # Mark-Zeiten aus cut_manager (global)
-            if not hasattr(self.cut_manager, "markB_time_s") or not hasattr(self.cut_manager, "markE_time_s"):
-                print("[WARN] on_cut_clicked_video: cut_manager missing mark times, skipping GPX cut.")
-                # trotzdem Video-Cut ausführen (kein GPX)
-                self.register_video_undo_snapshot(False)
-                self.cut_manager.on_cut_clicked()
-                return
-
-            if self.cut_manager.markB_time_s < 0 or self.cut_manager.markE_time_s < 0:
-                print("[WARN] on_cut_clicked_video: mark times missing, skipping GPX cut.")
-                # Video-Cut trotzdem ausführen
-                self.register_video_undo_snapshot(False)
-                self.cut_manager.on_cut_clicked()
-                return
-
-            start_global = min(self.cut_manager.markB_time_s, self.cut_manager.markE_time_s)
-            end_global = max(self.cut_manager.markB_time_s, self.cut_manager.markE_time_s)
-
-            total_dur = sum(self.video_durations) if self.video_durations else getattr(self, "real_total_duration", 0.0)
-            start_global = max(0.0, start_global)
-            end_global = min(end_global, total_dur)
-            if (end_global - start_global) < 0.01:
-                print("[DEBUG] Cut-Bereich zu klein, Abbruch. Start:", start_global, "Ende:", end_global)
-                return
-
-            # final times (vor dem Anlegen des Cuts!!) -> damit das Mapping korrekt ist
-            final_start = self.get_final_time_for_global(start_global)
-            final_end = self.get_final_time_for_global(end_global)
-            print(f"[DEBUG] on_cut_clicked_video => captured marks: global [{start_global:.3f}..{end_global:.3f}] -> final [{final_start:.3f}..{final_end:.3f}]")
-    
-            # Undo-Snapshots (GPX + Video)
-            self.register_gpx_undo_snapshot()
-            self.register_video_undo_snapshot(True)
-        else:
-            # nur Video-Undo
-            self.register_video_undo_snapshot(False)
-    
-        # --- 1) Video-Cut anlegen (macht auch timeline update, reset MarkB/E intern) ---
-        self.cut_manager.on_cut_clicked()
-    
-        # --- 2) Wenn kein GPX-Edit erwünscht -> fertig ---
-        if not do_gpx_edit:
-            return
-    
-        # --- 3) GPX bearbeiten: exakte Zeit-Intervalle entfernen (lineare Interpolation) ---
-        gpx_data = self.gpx_widget.gpx_list._gpx_data
-        if not gpx_data or len(gpx_data) < 2:
-            print("[DEBUG] on_cut_clicked_video: no GPX data or too few points, skipping GPX cut.")
-            return
-    
-        # Basis-Datetime + Video-Shift
-        base_dt = gpx_data[0].get("time", None)
-        try:
-            video_shift = get_gpx_video_shift()
-            if video_shift is None:
-                video_shift = 0.0
-        except Exception:
-            video_shift = 0.0
-    
-        if base_dt is None:
-            print("[DEBUG] on_cut_clicked_video: GPX base time missing, skipping GPX cut.")
-            return
-    
-        # gewünschte absolute GPX-Datetimes (vor dem Cut)
-        #desired_start_dt = base_dt + timedelta(seconds=(final_start - video_shift))
-        #desired_end_dt   = base_dt + timedelta(seconds=(final_end - video_shift))
-        video_start_gpx = base_dt + timedelta(seconds=-video_shift)
-        desired_start_dt = video_start_gpx + timedelta(seconds=final_start)
-        desired_end_dt = video_start_gpx + timedelta(seconds=final_end)
-        
-        if desired_end_dt <= desired_start_dt:
-            print("[DEBUG] on_cut_clicked_video: invalid desired GPX interval, skipping.")
-            return
-    
-        delta_to_remove = (desired_end_dt - desired_start_dt).total_seconds()
-        if delta_to_remove <= 0.0:
-            print("[DEBUG] on_cut_clicked_video: zero removal interval, skipping.")
-            return
-    
-        print(f"[DEBUG] on_cut_clicked_video => trimming GPX times from {desired_start_dt} to {desired_end_dt} (delta {delta_to_remove:.3f}s)")
-    
-        # Hilfsfunktion: lineare Interpolation zwischen zwei Punkten
-        def _interp_point(pt1, pt2, new_time):
-            t1 = pt1.get("time")
-            t2 = pt2.get("time")
-            if t1 is None or t2 is None or t2 == t1:
-                ratio = 0.0
-            else:
-                ratio = (new_time - t1).total_seconds() / (t2 - t1).total_seconds()
-            def _val(k):
-                return pt1.get(k, 0.0) + ratio * (pt2.get(k, 0.0) - pt1.get(k, 0.0))
-            new_pt = {
-                "lat": _val("lat"),
-                "lon": _val("lon"),
-                "ele": _val("ele"),
-                "time": new_time,
-                # metrics recalculated later
-                "delta_m": 0.0,
-                "speed_kmh": 0.0,
-                "gradient": 0.0
-            }
-            return new_pt
-    
-        # Build new GPX: keep everything before desired_start_dt (incl. interpolated start),
-        # skip region [desired_start_dt .. desired_end_dt], then append remainder with times shifted by delta_to_remove.
-        import copy as _cpy
-        new_gpx = []
-        n = len(gpx_data)
-        i = 0
-    
-        # copy points strictly before desired_start_dt
-        while i < n and gpx_data[i].get("time") < desired_start_dt:
-            new_gpx.append(_cpy.deepcopy(gpx_data[i]))
-            i += 1
-    
-        # if the next point is after desired_start_dt and we have a previous point -> insert interpolated start
-        if i < n and gpx_data[i].get("time") != desired_start_dt:
-            if new_gpx:
-                prev_pt = new_gpx[-1]
-                next_pt = gpx_data[i]
-                if prev_pt.get("time") < desired_start_dt < next_pt.get("time"):
-                    new_start_pt = _interp_point(prev_pt, next_pt, desired_start_dt)
-                    new_gpx.append(new_start_pt)
-            else:
-                # There is no prev_pt: desired_start before first point -> nothing to interpolate, we simply start from later points
-                pass
-        elif i < n and gpx_data[i].get("time") == desired_start_dt:
-            # exact match: include that exact point (but we consider it as the "last kept" and will remove it if desired)
-            new_gpx.append(_cpy.deepcopy(gpx_data[i]))
-            i += 1
-    
-        # skip all points up to and including desired_end_dt
-        while i < n and gpx_data[i].get("time") <= desired_end_dt:
-            i += 1
-    
-        # now append remaining points shifted backward by delta_to_remove
-        from datetime import timedelta as _td
-        for j in range(i, n):
-            pt = _cpy.deepcopy(gpx_data[j])
-            pt_time = pt.get("time")
-            if pt_time is not None:
-                pt["time"] = pt_time - _td(seconds=delta_to_remove)
-            new_gpx.append(pt)
-    
-        # Edge-case: if the point immediately after the removed region started before desired_start_dt
-        # we may end up with the last point being duplicated or out-of-order; enforce ordering & sanity:
-        if len(new_gpx) >= 2:
-            # ensure strictly increasing times (small eps tolerance)
-            cleaned = [new_gpx[0]]
-            for k in range(1, len(new_gpx)):
-                if new_gpx[k].get("time") is None or cleaned[-1].get("time") is None:
-                    cleaned.append(new_gpx[k])
-                else:
-                    if new_gpx[k]["time"] > cleaned[-1]["time"]:
-                        cleaned.append(new_gpx[k])
-                    else:
-                        # skip point that would violate ordering
-                        pass
-            new_gpx = cleaned
-    
-        if len(new_gpx) < 2:
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.warning(self, "Truncation", "After shortening to the video length, no meaningful GPX remains!")
-            print("[WARN] on_cut_clicked_video: truncation removed too much GPX.")
-            return
-    
-        # 4) Recalc metrics & set new GPX data
-        if recalc_gpx_data is not None:
-            recalc_gpx_data(new_gpx)
-        else:
-            print("[WARN] on_cut_clicked_video: recalc_gpx_data not available; times changed but metrics not recalculated.")
-    
-        self.gpx_widget.set_gpx_data(new_gpx)
-        # UI updates: chart / mini / map
-        
-        try:
-            self._update_gpx_overview()
-        except Exception:
-            pass    
-        
-        self._gpx_data = new_gpx
-        try:
-            route_geojson = self._build_route_geojson_from_gpx(self._gpx_data)
-            self.map_widget.loadRoute(route_geojson, do_fit=False)
-        except Exception as e:
-            print("[DEBUG] on_cut_clicked_video: could not update map route:", e)
-        try:
-            self.chart.set_gpx_data(self._gpx_data)
-        except Exception:
-            pass
-        if self.mini_chart_widget:
-            try:
-                self.mini_chart_widget.set_gpx_data(self._gpx_data)
-            except Exception:
-                pass
-    
-        # Clear any red-marked range in GPX list (we've applied the change)
-        try:
-            self.gpx_widget.gpx_list.clear_marked_range()
-        except Exception:
-            pass
-    
-        print("[DEBUG] on_cut_clicked_video => GPX trimmed and UI updated.")
-
-   
-    """
     
     def on_cut_clicked_video(self):
         """
@@ -6873,5 +6483,29 @@ class MainWindow(QMainWindow):
                 if len(self._gpx_data) > 0:
                     self.gpx_widget.gpx_list.select_row_in_pause(0)
                     self.map_widget.show_blue(0, do_center=True)
-                    self.chart.highlight_gpx_index(0)                                    
+                    self.chart.highlight_gpx_index(0)    
+                    
+    
+    def _import_gopro_gpx(self, gpx_path: str):
+        """
+        Importiert die extrahierte GPX-Datei
+        """
+        try:
+            if os.path.exists(gpx_path):
+                self.process_open_gpx(gpx_path, "new")
+                self.statusBar().showMessage("GoPro GPX successfully imported")
+            else:
+                QMessageBox.warning(self, "Import Error", "GPX file not found")
+        except Exception as e:
+            QMessageBox.critical(self, "Import Error", f"Error importing GPX: {str(e)}")
+    
+    
+    def _complete_gpx_integration(self):
+        """
+        Wird aufgerufen, nachdem alle GPX-Daten importiert wurden
+        """
+        self._ensure_gpx_initialization()     
+        
+    
+                       
                     
