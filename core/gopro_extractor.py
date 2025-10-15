@@ -254,8 +254,9 @@ def parse_gps5_data(metadata):
             pos += 1
             continue
 
-    points = trim_invalid_gps_points(points)
-    print(f"Remaining GPS points after trimming: {len(points)}")
+    #points = trim_invalid_gps_points(points)
+    print(f"GPS without trimming: {len(points)}")
+    #print(f"Remaining GPS points after trimming: {len(points)}")
     return points
 
 # -----------------------------
@@ -265,23 +266,22 @@ def parse_gps5_data(metadata):
 # -----------------------------
 # Resample GPS to 1s
 # -----------------------------
-def resample_to_1s(points):
+
+def resample_to_1s_auto(points):
     """
-    Speichereffiziente Version der Resample-Funktion
+    Automatisches Resampling ohne Benutzerabfrage - für GoPro-Extraktion
     """
     if not points or len(points) < 2:
         return points
 
-    # Extrahiere die Zeitpunkte - points sind Tupel: (lat, lon, alt, timestamp)
-    base_time = points[0][3]  # Der timestamp ist das 4. Element
+    # Basiszeit vom ersten Punkt
+    base_time = points[0]["time"]
     
     # Letzte Zeit für Gesamtdauer
-    last_time = points[-1][3]
+    last_time = points[-1]["time"]
     total_seconds = int((last_time - base_time).total_seconds())
     
     new_data = []
-    
-    # Index für die aktuelle Position in points
     current_idx = 0
     
     for target_second in range(0, total_seconds + 1):
@@ -289,17 +289,17 @@ def resample_to_1s(points):
         
         # Finde die beiden Punkte, zwischen denen target_time liegt
         while (current_idx < len(points) - 1 and 
-               points[current_idx + 1][3] < target_time):
+               points[current_idx + 1]["time"] < target_time):
             current_idx += 1
         
         if current_idx >= len(points) - 1:
             break
             
-        pt_before = points[current_idx]  # (lat, lon, alt, time)
+        pt_before = points[current_idx]
         pt_after = points[current_idx + 1]
         
-        time_before = pt_before[3]
-        time_after = pt_after[3]
+        time_before = pt_before["time"]
+        time_after = pt_after["time"]
         
         if time_before == time_after:
             ratio = 0.0
@@ -307,11 +307,10 @@ def resample_to_1s(points):
             ratio = (target_time - time_before).total_seconds() / (time_after - time_before).total_seconds()
         
         # Interpoliere die Werte
-        lat = pt_before[0] + ratio * (pt_after[0] - pt_before[0])
-        lon = pt_before[1] + ratio * (pt_after[1] - pt_before[1])
-        ele = pt_before[2] + ratio * (pt_after[2] - pt_before[2])
+        lat = pt_before["lat"] + ratio * (pt_after["lat"] - pt_before["lat"])
+        lon = pt_before["lon"] + ratio * (pt_after["lon"] - pt_before["lon"])
+        ele = pt_before["ele"] + ratio * (pt_after["ele"] - pt_before["ele"])
         
-        # Erstelle das neue Punkt-Dictionary
         new_data.append({
             "lat": lat,
             "lon": lon, 
@@ -319,7 +318,7 @@ def resample_to_1s(points):
             "time": target_time
         })
     
-    return new_data# -----------------------------
+    return new_data 
 # GPX export
 # -----------------------------
 def create_gpx_with_time(points, output_path):
@@ -438,7 +437,7 @@ def main():
     
     
     points_with_time = points  # Rohpunkte haben schon die echte Zeit
-    points_resampled = resample_to_1s(points_with_time)
+    #points_resampled = resample_to_1s(points_with_time)
 
     points_resampled = adjust_gpx_to_video_duration(points_resampled, video_duration)
     

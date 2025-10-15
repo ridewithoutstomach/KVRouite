@@ -111,18 +111,17 @@ from datetime import datetime, timedelta
 
 from core.gopro_extractor import (
     get_video_duration, extract_metadata, get_video_start_time,
-    parse_gps5_data, resample_to_1s, adjust_gpx_to_video_duration,
-    create_gpx_with_time, trim_invalid_gps_points
+    parse_gps5_data, adjust_gpx_to_video_duration,
+    create_gpx_with_time, resample_to_1s_auto
 )
 
-# ... restliche Imports ...
+
 
 
 FIT_BUILD = False  # Set to True if you want to enable Fit Immersion export functionality
 
 
 ### CLASS ####
-
 class GoProExtractorDialog(QDialog):
     def __init__(self, video_list, parent=None):
         super().__init__(parent)
@@ -130,162 +129,251 @@ class GoProExtractorDialog(QDialog):
         self.parent = parent
         self.setWindowTitle("Extracting GoPro GPS...")
         self.setMinimumSize(600, 400)
-        
+
         layout = QVBoxLayout()
-        
-        # Status Label
         self.status_label = QLabel(f"Processing 1/{len(video_list)} videos...")
         layout.addWidget(self.status_label)
-        
-        # Progress Bar
+
         self.progress_bar = QProgressBar()
         self.progress_bar.setMaximum(len(video_list))
         layout.addWidget(self.progress_bar)
-        
-        # Output Text
+
         self.text_edit = QTextEdit()
         self.text_edit.setReadOnly(True)
         layout.addWidget(self.text_edit)
-        
-        # Cancel Button
+
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.cancel_process)
         layout.addWidget(self.cancel_button)
-        
+
         self.setLayout(layout)
-        
+
         self.current_video_index = 0
         self.is_cancelled = False
-        
+        self._temp_gpx_files = []  # Liste der temporären GPX-Dateien
+
     def start_extraction(self):
         self.text_append("Starting GoPro GPS extraction...")
         self.text_append(f"Found {len(self.video_list)} video(s) to process")
         self.text_append("Experimental - Only works with GoPro files containing GPS")
         self.text_append("=" * 50)
-        
-        # Verarbeitung mit kurzer Verzögerung starten
         QTimer.singleShot(100, self.process_next_video)
-        
+
     def process_next_video(self):
-        if self.is_cancelled or self.current_video_index >= len(self.video_list):
-            if self.is_cancelled:
-                self.text_append("\nProcess cancelled by user")
-            else:
-                self.text_append("\nAll videos processed successfully!")
+        if self.is_cancelled:
+            self.text_append("\nProcess cancelled by user")
             self.set_finished_state()
             return
-        
+
+        if self.current_video_index >= len(self.video_list):
+            # Alle Videos fertig -> kombinieren
+            self._combine_all_temp_files()
+            return
+
         video_path = self.video_list[self.current_video_index]
-        self.status_label.setText(f"Processing {self.current_video_index + 1}/{len(self.video_list)}: {os.path.basename(video_path)}")
+        self.status_label.setText(
+            f"Processing {self.current_video_index + 1}/{len(self.video_list)}: {os.path.basename(video_path)}"
+        )
         self.progress_bar.setValue(self.current_video_index + 1)
 
         self.text_append(f"\n--- Processing: {os.path.basename(video_path)} ---")
         QApplication.processEvents()
 
         try:
-            # Verwende die direkte Extraktionsmethode aus MainWindow
-            
-            success = self._extract_gopro_gps_direct(video_path)  # self. statt self.parent.
-            if success:
-                output_path = os.path.join(MY_GLOBAL_TMP_DIR, "KVR_GOPRO_Extract.tmp.gpx")
-                if os.path.exists(output_path):
-                    self.text_append(f"✓ Successfully processed {os.path.basename(video_path)}")
-                    self.text_append(f"Importing GPX: {output_path}")
-                    self.parent._import_gopro_gpx(output_path)
-                else:
-                    self.text_append(f"✗ GPX file not found for {os.path.basename(video_path)}")
+            # Extrahiere und speichere als temporäre Datei
+            temp_gpx_path = self._process_single_video(video_path)
+            if temp_gpx_path:
+                self._temp_gpx_files.append(temp_gpx_path)
+                self.text_append(f"✓ Saved temporary GPX: {os.path.basename(temp_gpx_path)}")
             else:
-                self.text_append(f"✗ Failed to process {os.path.basename(video_path)}")
-                
+                self.text_append(f"✗ No GPS data for {os.path.basename(video_path)}")
         except Exception as e:
-            self.text_append(f"✗ Error in direct extraction: {str(e)}")
             import traceback
-            self.text_append(f"Detailed error: {traceback.format_exc()}")
-    
-        # Nächste Video verarbeiten
+            self.text_append(f"✗ Error in extraction: {e}")
+            self.text_append(traceback.format_exc())
+
+        # nächstes Video
         self.current_video_index += 1
-    
-        if self.current_video_index >= len(self.video_list):
-            self.text_append("\n✓ All videos processed successfully!")
-            self.set_finished_state()
-        else:
-            QTimer.singleShot(500, self.process_next_video)
-    
-    def text_append(self, text):
-        """Fügt Text zum Ausgabefeld hinzu"""
-        self.text_edit.append(text)
-        QApplication.processEvents()
-    
-    def set_finished_state(self):
-        """Setzt den Dialog in den fertigen Zustand"""
-        self.cancel_button.setText("Close")
+        QTimer.singleShot(400, self.process_next_video)
+
+    def _process_single_video(self, video_path: str):
+        """Verarbeitet ein einzelnes Video und speichert es als temporäre GPX-Datei"""
         try:
-            self.cancel_button.clicked.disconnect()
-        except:
-            pass
-        self.cancel_button.clicked.connect(self.show_elevation_notice)
-        # KEIN Timer-Aufruf mehr hier!
-        
-    def show_elevation_notice(self):
-        """Zeigt einen Hinweis zu den Höhendaten und schließt dann den Dialog"""
-        QMessageBox.information(
-            self,
-            "Elevation Data Quality Notice",
-            "Raw GoPro elevation data is often inaccurate due to:\n"
-            "• Barometric pressure changes\n"
-            "• Weather conditions\n"
-            "• Sensor drift\n\n"
-            "For accurate elevation data:\n"
-            "1. Use 'Update Elevation' in GPX Control (requires Mapbox key)\n"
-            "2. Apply smoothing with the smoothing tool\n"
-            "3. or extract it with tools like GoPro Telemetry Extractor\n\n"
-            "This will significantly improve your elevation profile!"
-        )
-        self.accept()    
-        
-    def cancel_process(self):
-        """Bricht den Prozess ab oder schließt den Dialog"""
-        self.is_cancelled = True
-        self.set_finished_state()
-        self.text_append("\nProcess cancelled by user")
-        
-    def _extract_gopro_gps_direct(self, video_path: str) -> bool:
-        """
-        Führt die GoPro GPS-Extraktion direkt durch, ohne externen Prozess
-        """
-        try:
-            # Führe alle Schritte direkt aus
             video_duration = get_video_duration(video_path)
             if not video_duration:
                 self.text_append("✗ Could not get video duration")
-                return False
-    
+                return None
+
             metadata = extract_metadata(video_path)
             if not metadata:
                 self.text_append("✗ No GPS metadata found in video")
-                return False
+                return None
 
-            gps_start_time = get_video_start_time(video_path, metadata)
             points = parse_gps5_data(metadata)
-            
             if not points:
                 self.text_append("✗ No GPS points extracted")
-                return False
-    
-            points_with_time = points
-            points_resampled = resample_to_1s(points_with_time)
-            points_resampled = adjust_gpx_to_video_duration(points_resampled, video_duration)
+                return None
+
+            # in Dicts umwandeln
+            points_dict = [
+                {"lat": lat, "lon": lon, "ele": alt, "time": timestamp}
+                for (lat, lon, alt, timestamp) in points
+            ]
+
+            # Video-Dauer anpassen
+            points_adjusted = adjust_gpx_to_video_duration(points_dict, video_duration)
+
+            # Resample auf 1 Hz
+            try:
+                from core.gopro_extractor import resample_to_1s_auto
+                points_final = resample_to_1s_auto(points_adjusted)
+                self.text_append(f"→ Resampled to {len(points_final)} points (1s grid)")
+            except Exception as e:
+                self.text_append(f"⚠ Resample skipped due to error: {e}")
+                points_final = points_adjusted
+
+            # Temporäre GPX-Datei erstellen
+            temp_filename = f"KVR_GOPRO_{self.current_video_index:04d}.tmp.gpx"
+            temp_path = os.path.join(MY_GLOBAL_TMP_DIR, temp_filename)
             
-            output_path = os.path.join(MY_GLOBAL_TMP_DIR, "KVR_GOPRO_Extract.tmp.gpx")
-            success = create_gpx_with_time(points_resampled, output_path)
-        
-            return success
-        
+            from core.gopro_extractor import create_gpx_with_time
+            create_gpx_with_time(points_final, temp_path)
+            
+            return temp_path
+
         except Exception as e:
-            self.text_append(f"✗ Extraction error: {str(e)}")
             import traceback
-            self.text_append(f"Detailed error: {traceback.format_exc()}")
-            return False        
+            self.text_append(f"✗ Extraction error: {e}")
+            self.text_append(traceback.format_exc())
+            return None
+
+    def _combine_all_temp_files(self):
+        """Kombiniert alle temporären GPX-Dateien mit korrekter Zeitfortführung"""
+        self.text_append("\n✓ All videos processed successfully!")
+        if not self._temp_gpx_files:
+            self.text_append("✗ No GPS data found in any video.")
+            self.set_finished_state()
+            return
+
+        try:
+            from datetime import datetime, timedelta
+            
+            all_combined_data = []
+            current_end_time = None
+        
+            for i, temp_gpx_path in enumerate(self._temp_gpx_files):
+                self.text_append(f"\n--- Combining file {i+1}/{len(self._temp_gpx_files)} ---")
+                
+                # Parse temporäre GPX-Datei
+                temp_data = parse_gpx(temp_gpx_path)
+                if not temp_data:
+                    self.text_append(f"⚠ Could not parse {os.path.basename(temp_gpx_path)}")
+                    continue
+            
+                if current_end_time is None:
+                    # Erste Datei: Komplett übernehmen
+                    start_time = datetime.now().replace(microsecond=0)
+                    self.text_append(f"📅 First file starts at: {start_time}")
+                    
+                    for j, pt in enumerate(temp_data):
+                        pt["time"] = start_time + timedelta(seconds=j)
+                    
+                    all_combined_data.extend(temp_data)
+                    current_end_time = temp_data[-1]["time"]
+                    self.text_append(f"✓ Added {len(temp_data)} points, track ends at: {current_end_time}")
+                else:
+                    # Folgedateien: ERSTEN PUNKT ENTFERNEN und dann anhängen
+                    if len(temp_data) <= 1:
+                        self.text_append(f"⚠ File has only {len(temp_data)} point, skipping")
+                        continue
+                    
+                    # Ersten Punkt entfernen
+                    temp_data_without_first = temp_data[1:]
+                    expected_start = current_end_time + timedelta(seconds=1)
+                    
+                    self.text_append(f"📅 Next file starts at: {expected_start} (first point removed)")
+                    self.text_append(f"   Original: {len(temp_data)} points, After removal: {len(temp_data_without_first)} points")
+                    
+                    # Zeitstempel für die verbleibenden Punkte setzen
+                    for j, pt in enumerate(temp_data_without_first):
+                        pt["time"] = expected_start + timedelta(seconds=j)
+                
+                    all_combined_data.extend(temp_data_without_first)
+                    current_end_time = temp_data_without_first[-1]["time"]
+                    self.text_append(f"✓ Added {len(temp_data_without_first)} points, track ends at: {current_end_time}")
+            
+            # Finale kombinierte Datei schreiben
+            combined_path = os.path.join(MY_GLOBAL_TMP_DIR, "KVR_GOPRO_Combined.tmp.gpx")
+            from core.gopro_extractor import create_gpx_with_time
+            create_gpx_with_time(all_combined_data, combined_path)
+            
+            self.text_append(f"\n🎉 Successfully combined {len(all_combined_data)} points from {len(self._temp_gpx_files)} files")
+            self.text_append(f"✓ Final GPX: {combined_path}")
+            
+            # Importieren
+            self.text_append(">>> Starting GPX import...")
+            self.parent._import_gopro_gpx(combined_path, True)
+            self.text_append(">>> GPX import finished")
+            
+            # Aufräumen
+            self._cleanup_temp_files(combined_path)
+            
+        except Exception as e:
+            import traceback
+            self.text_append(f"✗ Error combining GPX files: {e}")
+            self.text_append(traceback.format_exc())
+        
+        self.set_finished_state()
+        
+    
+    def _cleanup_temp_files(self, combined_path):
+        """Löscht alle temporären Dateien"""
+        try:
+            # Lösche kombinierte Datei
+            os.remove(combined_path)
+            self.text_append("✓ Combined temp file deleted")
+            
+            # Lösche einzelne temporäre Dateien
+            for temp_path in self._temp_gpx_files:
+                try:
+                    os.remove(temp_path)
+                except Exception as e:
+                    self.text_append(f"⚠ Could not delete {os.path.basename(temp_path)}: {e}")
+            
+            self.text_append("✓ All temp files cleaned up")
+            
+        except Exception as e:
+            self.text_append(f"⚠ Cleanup error: {e}")
+
+    def text_append(self, text):
+        self.text_edit.append(text)
+        QApplication.processEvents()
+
+    def cancel_process(self):
+        self.is_cancelled = True
+        self.text_append("\nProcess cancelled by user")
+        # Aufräumen der temporären Dateien
+        self._cleanup_temp_files(None)
+        self.set_finished_state()
+
+    def set_finished_state(self):
+        self.cancel_button.setText("Close")
+        try:
+            self.cancel_button.clicked.disconnect()
+        except Exception:
+            pass
+        self.cancel_button.clicked.connect(self.show_elevation_notice)
+
+    def show_elevation_notice(self):
+        QMessageBox.information(
+            self,
+            "Elevation Data Quality Notice",
+            "Raw GoPro elevation data is often inaccurate.\n"
+            "Use 'Update Elevation' or smoothing for better results."
+        )
+        self.accept()
+
+
 ### CLASS
 
 class MainWindow(QMainWindow):
@@ -6330,11 +6418,10 @@ class MainWindow(QMainWindow):
     
         print("GPX data cleared successfully")
     
-    def _import_gopro_gpx(self, gpx_path):
-        """
-        Importiert eine GPX-Datei, die vom GoPro-Extractor erstellt wurde.
-        Wird automatisch an bestehende GPX-Daten angehängt UND automatisch synchronisiert.
-        """
+    """
+    # alte chatgpt
+    def _import_gopro_gpx(self, gpx_path, is_first_video=True):
+       
         if not os.path.exists(gpx_path):
             print(f"GPX file not found: {gpx_path}")
             return
@@ -6350,22 +6437,22 @@ class MainWindow(QMainWindow):
                         pt["time"] = datetime.fromisoformat(pt["time"].replace("Z", "+00:00"))
                     except Exception:
                         pass
-        
+    
             if not new_data:
                 print("No valid GPX data found in extracted file")
                 return
+
+            # Automatisches Resampling ohne Abfrage
+            print("Applying automatic resampling to GoPro GPS data...")
+            #new_data = resample_to_1s_auto(new_data)
+            print(f"Resampled to {len(new_data)} points")
         
-            # Prüfe ob Resample nötig ist
-            if self._check_gpx_step_intervals(new_data):
-                new_data = self._resample_to_1s(new_data)
-            
-            # Anhängen an bestehende GPX-Daten
-            if not self._gpx_data:
-                # Keine bestehenden Daten => als neue GPX laden
+            # Entscheidung: Neue GPX oder anhängen?
+            if is_first_video or not self._gpx_data:
+                # Erste Video oder keine bestehenden Daten => als neue GPX laden
                 self._set_gpx_data(new_data)
-                
+            
                 # AUTOMATISCHE SYNCHRONISATION für GoPro-Daten
-                # GoPro-Videos haben korrekte Zeitstempel, daher Sync auf 0 setzen
                 if self.playlist_counter > 0:
                     set_gpx_video_shift(0)
                     self.enableVideoGpxSync(True)
@@ -6375,34 +6462,60 @@ class MainWindow(QMainWindow):
                     print("✓ Automatic video-GPX synchronization activated for GoPro data")
             else:
                 # An bestehende Daten anhängen
-                old_data = self._gpx_data
+                #old_data = self._gpx_data
                 
+                # Undo-Snapshot
+                #old_snapshot = copy.deepcopy(old_data)
+                s#elf.gpx_widget.gpx_list._history_stack.append(old_snapshot)
+                
+                # Zeitliche Lücke zwischen alter und neuer GPX
+                f#rom datetime import timedelta
+                #old_end_time = old_data[-1]["time"]
+                #gap_start = old_end_time + timedelta(seconds=1)
+                #shift_dt = gap_start - new_data[0]["time"]
+                
+                # Verschiebe alle Zeiten der neuen Daten
+                #for pt in new_data:
+                #    pt["time"] = pt["time"] + shift_dt
+                
+                # Zusammenführen
+                #merged_data = old_data + new_data
+                #recalc_gpx_data(merged_data)
+                #self._set_gpx_data(merged_data)
+                # An bestehende Daten anhängen
+                old_data = self._gpx_data
+
                 # Undo-Snapshot
                 old_snapshot = copy.deepcopy(old_data)
                 self.gpx_widget.gpx_list._history_stack.append(old_snapshot)
-                
-                # Zeitliche Lücke zwischen alter und neuer GPX
-                from datetime import timedelta
+
+                # Letzter Zeitstempel der alten GPX
                 old_end_time = old_data[-1]["time"]
-                gap_start = old_end_time + timedelta(seconds=1)
-                shift_dt = gap_start - new_data[0]["time"]
-                
-                # Verschiebe alle Zeiten der neuen Daten
-                for pt in new_data:
-                    pt["time"] = pt["time"] + shift_dt
-                
-                # Zusammenführen
+            
+                # Prüfen, ob die neue GPX unsinnige Zeiten hat (z.B. 1921 oder 369679 Stunden)
+                first_new_time = new_data[0]["time"]
+                if first_new_time.year < 2000 or first_new_time.year > 2100:
+                    # → korrigiere die Zeitbasis auf alte Endzeit + 1 Sekunde
+                    print(f"⚠️  Invalid GPX base time detected ({first_new_time}), fixing timestamps...")
+                    from datetime import timedelta
+                    for i, pt in enumerate(new_data):
+                        pt["time"] = old_end_time + timedelta(seconds=(i + 1))
+                else:
+                    # → Zeiten fortführen, egal ob Lücke oder Überlappung
+                    from datetime import timedelta
+                    expected_start = old_end_time + timedelta(seconds=1)
+                    shift_dt = expected_start - new_data[0]["time"]
+                    for pt in new_data:
+                        pt["time"] = pt["time"] + shift_dt
+
+                # Zusammenführen und neu berechnen
                 merged_data = old_data + new_data
                 recalc_gpx_data(merged_data)
                 self._set_gpx_data(merged_data)
                 
-                # Für angehängte Daten: Synchronisation nur aktivieren wenn noch nicht gesetzt
-                if not is_gpx_video_shift_set() and self.playlist_counter > 0:
-                    set_gpx_video_shift(0)
-                    self.enableVideoGpxSync(True)
-                    print("✓ Automatic video-GPX synchronization activated for appended GoPro data")
+                #print("✓ Appended GoPro data to existing GPX")
             
-            print(f"Successfully imported GPX from GoPro extraction: {len(new_data)} points")
+                print(f"Successfully imported and resampled GPX from GoPro extraction: {len(new_data)} points")
         
             # Vollständige Integration der GPX-Daten
             QTimer.singleShot(200, self._complete_gpx_integration)
@@ -6414,12 +6527,50 @@ class MainWindow(QMainWindow):
                 "GPX Import Error",
                 f"Failed to import GPX from extraction:\n{str(e)}"
             )
-        
+    """
+    def _import_gopro_gpx(self, gpx_path, is_first_video=True):
+        """
+        Vereinfachte Import-Funktion - erwartet bereits korrekt zusammengeführte GPX
+        """
+        if not os.path.exists(gpx_path):
+            print(f"GPX file not found: {gpx_path}")
+            return
     
-        
-        
-    
+        try:
+            # Parse die GPX-Datei
+            new_data = parse_gpx(gpx_path)
             
+            if not new_data:
+                print("No valid GPX data found in extracted file")
+                return
+    
+            # KEINE Zeitmanipulation mehr - Datei ist bereits korrekt
+            print(f"📅 Importing {len(new_data)} pre-processed points")
+            print(f"   Time range: {new_data[0]['time']} to {new_data[-1]['time']}")
+            
+            # Einfach die Daten setzen
+            self._set_gpx_data(new_data)
+            
+            # AUTOMATISCHE SYNCHRONISATION für GoPro-Daten
+            if self.playlist_counter > 0:
+                set_gpx_video_shift(0)
+                self.enableVideoGpxSync(True)
+                if self._edit_mode != "off":
+                    self.video_control.set_editing_mode(True, True)
+                print("✓ Automatic video-GPX synchronization activated for GoPro data")
+
+            # Vollständige Integration der GPX-Daten
+            QTimer.singleShot(200, self._complete_gpx_integration)
+            
+        except Exception as e:
+            print(f"❌ Error importing combined GPX: {e}")
+            import traceback
+            traceback.print_exc()
+            QMessageBox.warning(
+                self,
+                "GPX Import Error", 
+                f"Failed to import combined GPX:\n{str(e)}"
+            )
             
     def _propose_gopro_sync(self):
         """
@@ -6485,27 +6636,4 @@ class MainWindow(QMainWindow):
                     self.map_widget.show_blue(0, do_center=True)
                     self.chart.highlight_gpx_index(0)    
                     
-    
-    def _import_gopro_gpx(self, gpx_path: str):
-        """
-        Importiert die extrahierte GPX-Datei
-        """
-        try:
-            if os.path.exists(gpx_path):
-                self.process_open_gpx(gpx_path, "new")
-                self.statusBar().showMessage("GoPro GPX successfully imported")
-            else:
-                QMessageBox.warning(self, "Import Error", "GPX file not found")
-        except Exception as e:
-            QMessageBox.critical(self, "Import Error", f"Error importing GPX: {str(e)}")
-    
-    
-    def _complete_gpx_integration(self):
-        """
-        Wird aufgerufen, nachdem alle GPX-Daten importiert wurden
-        """
-        self._ensure_gpx_initialization()     
-        
-    
-                       
                     
