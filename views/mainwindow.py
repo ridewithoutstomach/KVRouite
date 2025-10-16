@@ -3799,7 +3799,19 @@ class MainWindow(QMainWindow):
             # UI nur überschreiben, wenn Slot 1 aktiv ist
             if self._active_gpx_slot == 1:
                 self._apply_slot_to_ui()    
-            
+            if self._active_gpx_slot == 2:
+                self.switch_gpx_slot(1)
+                try:
+                    btn = self.gpx_control.slot_button
+                    btn.blockSignals(True)
+                    btn.setChecked(False)
+                    btn.setText("Slot 1")
+                    btn.setStyleSheet(self.gpx_control._slot1_style)
+                    btn.blockSignals(False)
+                except Exception as e:
+                    print(f"[DEBUG] Slot1-AutoActivate UI update skipped: {e}")
+                    
+                    
         elif mode == "append":
             if not self._gpx_data:
                 # --- Append ausschließlich in Slot 1 ---
@@ -6417,7 +6429,19 @@ class MainWindow(QMainWindow):
 
                 if self._active_gpx_slot == 1:
                     self._apply_slot_to_ui()    
-                
+                if self._active_gpx_slot == 2:
+                    self.switch_gpx_slot(1)
+                    try:
+                        btn = self.gpx_control.slot_button
+                        btn.blockSignals(True)
+                        btn.setChecked(False)
+                        btn.setText("Slot 1")
+                        btn.setStyleSheet(self.gpx_control._slot1_style)
+                        btn.blockSignals(False)
+                    except Exception as e:
+                        print(f"[DEBUG] Slot1-AutoActivate UI update skipped: {e}")
+                        
+                        
             elif mode == "append":
                 if not self._gpx_data:
                         # --- Append ausschließlich in Slot 1 ---
@@ -6653,16 +6677,31 @@ class MainWindow(QMainWindow):
             self._gpx_slots[2]["gpx_video_shift"] = 0  # Default: 0s bei GoPro
 
             # UI nur aktualisieren, wenn Slot 2 aktiv ist
-            if self._active_gpx_slot == 2:
-                self._apply_slot_to_ui()
+                        # --- NEU: Nach erfolgreichem GoPro-Import direkt Slot 2 aktivieren ---
+            if self._active_gpx_slot != 2:
+                # Wechsle zu Slot 2 und lade seine Daten
+                self.switch_gpx_slot(2)
 
-            # AUTOMATISCHE SYNCHRONISATION (wirksam sichtbar nur bei aktivem Slot 2)
+                # Falls der Slot-Button existiert, auch optisch umschalten
+                try:
+                    btn = self.gpx_control.slot_button
+                    btn.blockSignals(True)  # vermeidet Doppelauslösung
+                    btn.setChecked(True)
+                    btn.setText("Slot 2")
+                    btn.setStyleSheet(self.gpx_control._slot2_style)
+                    btn.blockSignals(False)
+                except Exception as e:
+                    print(f"[DEBUG] Slot2-AutoActivate UI update skipped: {e}")
+
+            # AUTOMATISCHE SYNCHRONISATION für GoPro-Daten (nur sichtbar wirksam, wenn Slot 2 aktiv)
             if self.playlist_counter > 0:
+                from core.gpx_parser import set_gpx_video_shift
                 set_gpx_video_shift(0)
                 self.enableVideoGpxSync(True)
                 if self._edit_mode != "off":
                     self.video_control.set_editing_mode(True, True)
                 print("✓ Automatic video-GPX synchronization activated for GoPro data (Slot 2)")
+
 
 
             # Vollständige Integration der GPX-Daten
