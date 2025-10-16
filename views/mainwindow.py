@@ -495,7 +495,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"KVRouite v{APP_VERSION} - the Easy Video and GPX-Sync Tool")
             
         
-            
+        self._sync_prompt_answer = None   # None = unknown / not asked yet, True/False = user's first answer
+        self._last_gpx_load_mode = None   # "new" | "append" | None 
             
         
         
@@ -3573,30 +3574,48 @@ class MainWindow(QMainWindow):
             self.proposeVideoGpxSync()
 
     def proposeVideoGpxSync(self):
-        if self._gpx_data and self.playlist_counter > 0:
-            msg_box = QMessageBox(self)
-            msg_box.setWindowTitle("Video & GPX Sync")
-            
-            yes_btn = msg_box.addButton("Yes", QMessageBox.AcceptRole)
-            msg_box.setText("Do your GPX and video start at the same time?\n " \
-            "If so, let's activate video / GPX sync mode.")
-            no_btn = msg_box.addButton("No", QMessageBox.RejectRole)
+        # show only if we have both GPX and at least one video
+        if not (self._gpx_data and self.playlist_counter > 0):
+            return
 
-            msg_box.setWindowModality(Qt.WindowModal)
-            msg_box.show()
-            QApplication.processEvents()
+        # if last GPX operation was an append => never ask here
+        if getattr(self, "_last_gpx_load_mode", None) == "append":
+            return
 
-            msg_box.exec()
-            clicked = msg_box.clickedButton()
-            if clicked == yes_btn:
-                set_gpx_video_shift(0)
-                self.enableVideoGpxSync(True)
-                if self._edit_mode != "off":
-                    self.video_control.set_editing_mode(True,True) #to refresh the button state
-            else:
-                QMessageBox.information(self, "Video & GPX Sync", 
-                                        "In this case it is advised to define the sync point.\n " \
-                                        "Select a GPX point, find it in video and click on the red button")
+        # if we've already asked for this (and not explicitly reset), do not ask again
+        if self._sync_prompt_answer is not None:
+            return
+
+        # ask once
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Video & GPX Sync")
+        yes_btn = msg_box.addButton("Yes", QMessageBox.AcceptRole)
+        msg_box.setText("Do your GPX and video start at the same time?\n "
+                        "If so, let's activate video / GPX sync mode.")
+        no_btn = msg_box.addButton("No", QMessageBox.RejectRole)
+    
+        msg_box.setWindowModality(Qt.WindowModal)
+        msg_box.show()
+        QApplication.processEvents()
+    
+        msg_box.exec()
+        clicked = msg_box.clickedButton()
+        if clicked == yes_btn:
+            # remember and apply
+            self._sync_prompt_answer = True
+            set_gpx_video_shift(0)
+            self.enableVideoGpxSync(True)
+            if self._edit_mode != "off":
+                self.video_control.set_editing_mode(True, True)  # refresh button state
+        else:
+            # remember and give the hint
+            self._sync_prompt_answer = False
+            QMessageBox.information(
+                self, "Video & GPX Sync",
+                "In this case it is advised to define the sync point.\n "
+                "Select a GPX point, find it in video and click on the red button"
+            )
+    
                 
     def enableVideoGpxSync(self,enable = True):
         #self.video_control.set_editing_mode(enable)
@@ -3646,6 +3665,7 @@ class MainWindow(QMainWindow):
                 return  # Nutzer hat abgebrochen
             elif clicked == new_btn:
                 mode = "new"
+                self._sync_prompt_answer = None
             else:
                 mode = "append"
         else:
@@ -5143,7 +5163,8 @@ class MainWindow(QMainWindow):
         self.playlist.clear()
         self.video_durations.clear()
         self.playlist_menu.clear()
-     
+        self._sync_prompt_answer = None
+        self._last_gpx_load_mode = None
 
     
             
@@ -6208,6 +6229,7 @@ class MainWindow(QMainWindow):
                 return
             elif clicked == new_btn:
                 mode = "new"
+                self._sync_prompt_answer = None
             else:
                 mode = "append"
         else:
@@ -6449,6 +6471,8 @@ class MainWindow(QMainWindow):
         self.enableVideoGpxSync(False)
     
         print("GPX data cleared successfully")
+        self._sync_prompt_answer = None
+        self._last_gpx_load_mode = None
     
     
     def _import_gopro_gpx(self, gpx_path, is_first_video=True):
@@ -6495,37 +6519,50 @@ class MainWindow(QMainWindow):
                 f"Failed to import combined GPX:\n{str(e)}"
             )
             
+    """
     def _propose_gopro_sync(self):
-        """
-        Fragt nach der Synchronisation zwischen Video und GPX für GoPro-Daten.
-        Ähnlich wie proposeVideoGpxSync, aber speziell für GoPro.
-        """
-        if self._gpx_data and self.playlist_counter > 0:
-            msg_box = QMessageBox(self)
-            msg_box.setWindowTitle("Video & GPX Sync")
-            
-            yes_btn = msg_box.addButton("Yes", QMessageBox.AcceptRole)
-            msg_box.setText("Do your GPX and video start at the same time?\n " \
-            "If so, let's activate video / GPX sync mode.")
-            no_btn = msg_box.addButton("No", QMessageBox.RejectRole)
+       
+        if not (self._gpx_data and self.playlist_counter > 0):
+            return
+
+        # do not ask if last load was append
+        if getattr(self, "_last_gpx_load_mode", None) == "append":
+            return
+
+        # already answered once? don't ask again (until reset on NEW/New Project)
+        if self._sync_prompt_answer is not None:
+            return
+
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Video & GPX Sync")
+
+        yes_btn = msg_box.addButton("Yes", QMessageBox.AcceptRole)
+        msg_box.setText("Do your GPX and video start at the same time?\n "
+                        "If so, let's activate video / GPX sync mode.")
+        no_btn = msg_box.addButton("No", QMessageBox.RejectRole)
     
-            msg_box.setWindowModality(Qt.WindowModal)
-            msg_box.show()
-            QApplication.processEvents()
+        msg_box.setWindowModality(Qt.WindowModal)
+        msg_box.show()
+        QApplication.processEvents()
     
-            msg_box.exec()
-            clicked = msg_box.clickedButton()
-            if clicked == yes_btn:
-                set_gpx_video_shift(0)
-                self.enableVideoGpxSync(True)
-                if self._edit_mode != "off":
-                    self.video_control.set_editing_mode(True, True)  # to refresh the button state
-            else:
-                QMessageBox.information(self, "Video & GPX Sync", 
-                                        "In this case it is advised to define the sync point.\n " \
-                                        "Select a GPX point, find it in video and click on the red button")         
-                                        
-                                        
+        msg_box.exec()
+        clicked = msg_box.clickedButton()
+        if clicked == yes_btn:
+            self._sync_prompt_answer = True
+            set_gpx_video_shift(0)
+            self.enableVideoGpxSync(True)
+            if self._edit_mode != "off":
+                self.video_control.set_editing_mode(True, True)
+        else:
+            self._sync_prompt_answer = False
+            QMessageBox.information(
+                self, "Video & GPX Sync",
+                "In this case it is advised to define the sync point.\n "
+                "Select a GPX point, find it in video and click on the red button"
+            )
+
+    """
+    
     def _complete_gpx_integration(self):
         """
         Vollständige Integration der GPX-Daten für Video-Synchronisation.
