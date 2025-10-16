@@ -40,6 +40,7 @@ import uuid
 import hashlib
 import statistics
 import fitparse
+import gc
 
 
             
@@ -196,34 +197,71 @@ class GoProExtractorDialog(QDialog):
         self.current_video_index += 1
         QTimer.singleShot(400, self.process_next_video)
 
+    
     def _process_single_video(self, video_path: str):
         """Verarbeitet ein einzelnes Video und speichert es als temporäre GPX-Datei"""
         try:
+            import gc
             video_duration = get_video_duration(video_path)
             if not video_duration:
                 self.text_append("✗ Could not get video duration")
                 return None
-
+    
             metadata = extract_metadata(video_path)
             if not metadata:
                 self.text_append("✗ No GPS metadata found in video")
                 return None
     
+            # Rohpunkte extrahieren (Liste von Tuples (lat,lon,alt,datetime))
             points = parse_gps5_data(metadata)
             if not points:
                 self.text_append("✗ No GPS points extracted")
                 return None
-
-            # in Dicts umwandeln
-            points_dict = [
-                {"lat": lat, "lon": lon, "ele": alt, "time": timestamp}
-                for (lat, lon, alt, timestamp) in points
-            ]
-
-            # Video-Dauer grob anpassen (>0,5s)
+    
+            # -------------------------------------------------------
+            # 1) Sofort in Temp JSON speichern (RAM entlasten)
+            #    save_temp_points kommt aus core.gopro_extractor
+            # -------------------------------------------------------
+            try:
+                from core.gopro_extractor import save_temp_points, load_temp_points
+                temp_json_path = save_temp_points(points, video_path)
+            except Exception as e:
+                temp_json_path = None
+                self.text_append(f"⚠ Could not save temp JSON: {e}")
+    
+            # RAM freigeben (Metadata + raw points)
+            try:
+                del metadata
+                del points
+            except Exception:
+                pass
+            gc.collect()
+    
+            # -------------------------------------------------------
+            # 2) Lade die Punkte (als dicts mit datetime) - nur jetzt
+            # -------------------------------------------------------
+            if temp_json_path:
+                points_dict = load_temp_points(temp_json_path)
+            else:
+                # Fallback: falls save fehlgeschlagen, versuche nochmal parse direkt
+                points = parse_gps5_data(extract_metadata(video_path))
+                points_dict = [
+                    {"lat": lat, "lon": lon, "ele": alt, "time": timestamp}
+                    for (lat, lon, alt, timestamp) in points
+                ]
+    
+            if not points_dict:
+                self.text_append("✗ No GPS points after loading temp JSON")
+                return None
+    
+            # -------------------------------------------------------
+            # 3) Video-Dauer grob anpassen (>0,5s)
+            # -------------------------------------------------------
             points_adjusted = adjust_gpx_to_video_duration(points_dict, video_duration)
-
-            # Resample auf 1 Hz
+    
+            # -------------------------------------------------------
+            # 4) Resample auf 1 Hz (import lokal, bereits vorhanden)
+            # -------------------------------------------------------
             try:
                 from core.gopro_extractor import resample_to_1s_auto
                 points_final = resample_to_1s_auto(points_adjusted)
@@ -232,26 +270,39 @@ class GoProExtractorDialog(QDialog):
                 self.text_append(f"⚠ Resample skipped due to error: {e}")
                 points_final = points_adjusted
     
-            # Letzten Punkt exakt auf Videolänge bringen (füllt fehlende ms auf)
-            #points_final = self.extend_last_point_to_video(points_final, video_duration)
+            # -------------------------------------------------------
+            # 5) Letzten Punkt exakt auf Videolänge bringen (ms auffüllen)
+            # -------------------------------------------------------
             points_final = self.extend_last_point_to_video(points_final, video_duration)
     
-            # Temporäre GPX-Datei erstellen
+            # -------------------------------------------------------
+            # 6) Temporäre GPX-Datei erstellen
+            # -------------------------------------------------------
             temp_filename = f"KVR_GOPRO_{self.current_video_index:04d}.tmp.gpx"
             temp_path = os.path.join(MY_GLOBAL_TMP_DIR, temp_filename)
     
             from core.gopro_extractor import create_gpx_with_time
             create_gpx_with_time(points_final, temp_path)
     
+            # -------------------------------------------------------
+            # 7) Aufräumen: Lösche optional die Temp-JSON-Datei
+            # -------------------------------------------------------
+            try:
+                if temp_json_path and os.path.exists(temp_json_path):
+                    os.remove(temp_json_path)
+                    self.text_append(f"✓ Deleted temp JSON: {os.path.basename(temp_json_path)}")
+            except Exception as e:
+                self.text_append(f"⚠ Could not delete temp JSON: {e}")
+    
             return temp_path
-
+    
         except Exception as e:
             import traceback
             self.text_append(f"✗ Extraction error: {e}")
             self.text_append(traceback.format_exc())
             return None
-            
-
+    
+    
     def extend_last_point_to_video(self, points, video_duration):
         """
         Stellt sicher, dass die letzte GPX-Zeit dem Video entspricht.

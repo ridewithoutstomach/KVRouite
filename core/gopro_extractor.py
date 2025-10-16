@@ -39,6 +39,8 @@ import tempfile
 from datetime import datetime, timedelta
 import argparse
 import math
+import gc
+import json
 
 MY_GLOBAL_TMP_DIR = os.environ.get("KVR_TEMP_DIR", tempfile.gettempdir())
 if not os.path.exists(MY_GLOBAL_TMP_DIR):
@@ -259,9 +261,55 @@ def parse_gps5_data(metadata):
     #print(f"Remaining GPS points after trimming: {len(points)}")
     return points
 
+
 # -----------------------------
-# Timestamps
+# Temp-JSON-Zwischenspeicherung (RAM-Entlastung)
 # -----------------------------
+import gc
+import json
+
+def save_temp_points(points, video_path, tmp_dir=MY_GLOBAL_TMP_DIR):
+    """
+    Speichert extrahierte Rohpunkte in eine temporäre JSON-Datei.
+    Rückgabe: Pfad zur Datei oder None.
+    """
+    if not points:
+        return None
+
+    base_name = os.path.basename(video_path)
+    safe_name = os.path.splitext(base_name)[0].replace(" ", "_")
+    temp_json_path = os.path.join(tmp_dir, f"KVR_GOPRO_RAW_{safe_name}.json")
+
+    try:
+        with open(temp_json_path, "w", encoding="utf-8") as f:
+            # Konvertiere Zeitstempel in ISO (serialisierbar)
+            json.dump([
+                {"lat": lat, "lon": lon, "ele": alt, "time": timestamp.isoformat()}
+                for (lat, lon, alt, timestamp) in points
+            ], f)
+        print(f"[DEBUG] Saved raw GPS to {temp_json_path} ({len(points)} pts)")
+        return temp_json_path
+    except Exception as e:
+        print(f"[ERROR] Could not save temp JSON: {e}")
+        return None
+
+def load_temp_points(temp_json_path):
+    """
+    Lädt Punkte aus der Temp-JSON zurück in List[dict] mit datetime-Objekt.
+    """
+    try:
+        with open(temp_json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        # Konvertiere ISO-Zeiten zurück
+        for pt in data:
+            pt["time"] = datetime.fromisoformat(pt["time"])
+        print(f"[DEBUG] Loaded {len(data)} points from {temp_json_path}")
+        return data
+    except Exception as e:
+        print(f"[ERROR] Could not load temp JSON: {e}")
+        return []
+
+
 
 # -----------------------------
 # Resample GPS to 1s
