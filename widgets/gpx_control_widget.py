@@ -240,15 +240,20 @@ class GPXControlWidget(QWidget):
         self.smooth_button.clicked.connect(self.smoothClicked.emit)
         self._buttons_layout.addWidget(self.smooth_button)
 
-        # 10) Save
-        # self.save_button = QPushButton("", self)
-        # self.save_button.setIcon(self.style().standardIcon(QStyle.SP_DriveHDIcon))
-        # self.save_button.setMinimumWidth(60)
-        # self.save_button.setMaximumWidth(80)
-        
-        # self.save_button.clicked.connect(self.saveClicked.emit)
-        # self._buttons_layout.addWidget(self.save_button)
 
+        self.slot_button = QPushButton("Slot 1", self)
+        self.slot_button.setToolTip("Switch GPX Slot: 1 (Import GPX/FIT, green) ↔ 2 (GoPro Extractor, yellow)")
+        self.slot_button.setMaximumWidth(70)
+        self.slot_button.setCheckable(True)  # checked => Slot 2
+        self._buttons_layout.addWidget(self.slot_button)
+
+        # Farben initial: Slot 1 = grün, Slot 2 = gelb
+        self._slot1_style = "background-color:#2ecc71; color:black;"
+        self._slot2_style = "background-color:#f1c40f; color:black;"
+        self.slot_button.setStyleSheet(self._slot1_style)
+
+        self.slot_button.clicked.connect(self._on_slot_button_clicked)
+        
         self._buttons_layout.addStretch()  # optional: damit die Buttons nach links rücken
 
         # ---------------------------------------------
@@ -893,7 +898,30 @@ class GPXControlWidget(QWidget):
         """
         self._mainwindow = mw   
             
+    def _on_slot_button_clicked(self):
+        """
+        Wechselt den Slot im MainWindow und passt Optik an:
+        - Slot 1: Button-Text 'Slot 1', grün
+        - Slot 2: Button-Text 'Slot 2', gelb
+        """
+        mw = getattr(self, "_mainwindow", None)
+        if not mw:
+            return
 
+        # checked => Slot 2, unchecked => Slot 1
+        new_slot = 2 if self.slot_button.isChecked() else 1
+
+        mw.switch_gpx_slot(new_slot)
+
+        if new_slot == 1:
+            self.slot_button.setText("Slot 1")
+            self.slot_button.setStyleSheet(self._slot1_style)
+        else:
+            self.slot_button.setText("Slot 2")
+            self.slot_button.setStyleSheet(self._slot2_style)
+
+        if hasattr(mw.video_control, "update_set_sync_highlight"):
+            mw.video_control.update_set_sync_highlight()
 
     # ----------------------------------------------------------
     # Methode zum Aktualisieren der Info-Zeile

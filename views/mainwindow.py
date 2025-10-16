@@ -510,7 +510,21 @@ class MainWindow(QMainWindow):
         # Abkoppel-Dialoge
         self._video_area_floating_dialog = None
         self._video_placeholder = None
-        
+        self._gpx_slots = {
+            1: {
+                "gpx_data": [],
+                "gpx_video_shift": None,
+                "markB": None,
+                "markE": None,
+            },
+            2: {
+                "gpx_data": [],
+                "gpx_video_shift": None,
+                "markB": None,
+                "markE": None,
+            }
+        }
+        self._active_gpx_slot = 1  # 1 = Standard-Import, 2 = GoPro-Extractor
 
         # Playlist / Keyframe-Daten
         self.playlist = []
@@ -969,7 +983,7 @@ class MainWindow(QMainWindow):
         self.bottom_right_layout.setSpacing(0)
         
         self.gpx_control = GPXControlWidget()
-        
+        self.gpx_control.set_mainwindow(self)
         self.bottom_right_layout.addWidget(self.gpx_control, stretch=1)
         
         undo_action.triggered.connect(self.on_global_undo)
@@ -3641,7 +3655,74 @@ class MainWindow(QMainWindow):
         self._update_gpx_overview()
         self.check_gpx_errors(gpx_data)
 
-    
+        # === NEU: Slot-Utilities ===
+    def _get_active_slot_store(self):
+        return self._gpx_slots[self._active_gpx_slot]
+
+    def _apply_slot_to_ui(self):
+        """
+        Lädt den aktiven Slot in die UI (Liste/Map/Chart) und setzt
+        den slot-spezifischen Video<->GPX-Shift.
+        """
+        store = self._get_active_slot_store()
+        data = store["gpx_data"] or []
+        self._gpx_data = data
+
+        self.gpx_widget.set_gpx_data(data)
+        self.chart.set_gpx_data(data)
+        if self.mini_chart_widget:
+            self.mini_chart_widget.set_gpx_data(data)
+
+        route_geojson = self._build_route_geojson_from_gpx(data)
+        self.map_widget.loadRoute(route_geojson, do_fit=True)
+
+        from core.gpx_parser import set_gpx_video_shift
+        set_gpx_video_shift(store["gpx_video_shift"])
+
+        # Markierungen je Slot wiederherstellen
+        lw = self.gpx_widget.gpx_list
+        lw.clear_marked_range()
+        if store["markB"] is not None:
+            lw.set_markB_row(store["markB"])
+        if store["markE"] is not None:
+            lw.set_markE_row(store["markE"])
+
+        self._update_gpx_overview()
+        if hasattr(self.video_control, "update_set_sync_highlight"):
+            self.video_control.update_set_sync_highlight()
+
+    def _save_ui_into_current_slot(self):
+        """
+        Sichert den aktuellen UI-Zustand (GPX, Markierungen, gpx_video_shift)
+        im aktiven Slot.
+        """
+        store = self._get_active_slot_store()
+        store["gpx_data"] = self._gpx_data or []
+
+        lw = self.gpx_widget.gpx_list
+        store["markB"] = lw._markB_idx
+        store["markE"] = lw._markE_idx
+
+        from core.gpx_parser import get_gpx_video_shift
+        try:
+            store["gpx_video_shift"] = get_gpx_video_shift()
+        except Exception:
+            store["gpx_video_shift"] = None
+
+    def switch_gpx_slot(self, new_slot: int):
+        """
+        Slot 1 ↔ 2 umschalten: ZUERST aktuellen UI-State sichern,
+        DANN Zielslot in UI anwenden.
+        """
+        if new_slot not in (1, 2):
+            return
+        if new_slot == self._active_gpx_slot:
+            return
+
+        self._save_ui_into_current_slot()
+        self._active_gpx_slot = new_slot
+        self._apply_slot_to_ui()
+
 
    
     def load_gpx_file(self):
@@ -3709,12 +3790,26 @@ class MainWindow(QMainWindow):
             return
     
         if mode == "new":
-            self._set_gpx_data(new_data)
-            #QMessageBox.information(self, "Load GPX", "New GPX loaded successfully.")
+            # --- NEU: Immer Slot 1 füllen ---
+            self._gpx_slots[1]["gpx_data"] = new_data
+            self._gpx_slots[1]["gpx_video_shift"] = None
+            self._gpx_slots[1]["markB"] = None
+            self._gpx_slots[1]["markE"] = None
+
+            # UI nur überschreiben, wenn Slot 1 aktiv ist
+            if self._active_gpx_slot == 1:
+                self._apply_slot_to_ui()    
+            
         elif mode == "append":
             if not self._gpx_data:
-                # Falls doch leer => wie new
-                self._set_gpx_data(new_data)
+                # --- Append ausschließlich in Slot 1 ---
+                base = self._gpx_slots[1]["gpx_data"] or []
+                merged = (base + new_data) if base else list(new_data)
+                self._gpx_slots[1]["gpx_data"] = merged
+                # Slot-1 UI nur aktualisieren, wenn Slot 1 aktiv ist
+                if self._active_gpx_slot == 1:
+                    self._apply_slot_to_ui()
+                return    
             else:
                 # => alte + neue zusammen
                 old_data = self._gpx_data
@@ -5136,8 +5231,18 @@ class MainWindow(QMainWindow):
             self.mini_chart_widget.set_gpx_data([])
         set_gpx_video_shift(None) # reset GPX-Video shift
         self.enableVideoGpxSync(False)  
+             
         
         self.map_widget.loadRoute({"type": "FeatureCollection", "features": []}, do_fit=True)
+        
+        for s in (1, 2):
+            self._gpx_slots[s]["gpx_data"] = []
+            self._gpx_slots[s]["gpx_video_shift"] = None
+            self._gpx_slots[s]["markB"] = None
+            self._gpx_slots[s]["markE"] = None
+        self._active_gpx_slot = 1
+        # (Optional) UI auf Slot 1 synchronisieren:
+        self._apply_slot_to_ui()
     
         # Cuts löschen
         self.cut_manager._cut_intervals.clear()
@@ -6305,10 +6410,23 @@ class MainWindow(QMainWindow):
     
             # Wie bei GPX weiterverarbeiten
             if mode == "new":
-                self._set_gpx_data(gpx_data)
+                self._gpx_slots[1]["gpx_data"] = gpx_data
+                self._gpx_slots[1]["gpx_video_shift"] = None
+                self._gpx_slots[1]["markB"] = None
+                self._gpx_slots[1]["markE"] = None
+
+                if self._active_gpx_slot == 1:
+                    self._apply_slot_to_ui()    
+                
             elif mode == "append":
                 if not self._gpx_data:
-                    self._set_gpx_data(gpx_data)
+                        # --- Append ausschließlich in Slot 1 ---
+                    base = self._gpx_slots[1]["gpx_data"] or []
+                    merged = (base + gpx_data) if base else list(gpx_data)
+                    self._gpx_slots[1]["gpx_data"] = merged
+                    if self._active_gpx_slot == 1:
+                        self._apply_slot_to_ui()
+                    returnself._set_gpx_data(gpx_data)
                 else:
                     old_data = self._gpx_data
                     old_snapshot = copy.deepcopy(old_data)
@@ -6389,32 +6507,59 @@ class MainWindow(QMainWindow):
         
         return gpx_data
     
-    
-    
     def _on_extract_gopro_gps(self):
         """
-        Wird aufgerufen, wenn 'Extract Gopo-GPS' im Menü geklickt wird.
+        Wird aufgerufen, wenn 'Extract GoPro-GPS' im Menü geklickt wird.
         """
-        # Prüfe ob bereits GPX-Daten geladen sind
-        if self._gpx_data:
+        # Prüfe nur SLOT 2 (Extractor-Slot) – Slot 1 bleibt unberührt
+        slot2_has_gpx = False
+        try:
+            slot2_has_gpx = bool(self._gpx_slots[2]["gpx_data"])
+        except Exception:
+            slot2_has_gpx = False
+
+        if slot2_has_gpx:
             msg_box = QMessageBox(self)
-            msg_box.setWindowTitle("GPX Already Loaded")
+            msg_box.setWindowTitle("Slot 2 already contains GPX")
             msg_box.setIcon(QMessageBox.Warning)
             msg_box.setText(
-                "The GoPro GPS extractor can only be used when no GPX data is loaded.\n\n"
-                "Would you like to clear the current GPX data and continue with extraction?"
+                "Slot 2 (GoPro Extractor) already contains GPX data.\n\n"
+                "What do you want to do?"
             )
-        
-            clear_btn = msg_box.addButton("Clear GPX and Continue", QMessageBox.YesRole)
-            cancel_btn = msg_box.addButton("Cancel", QMessageBox.RejectRole)
-        
+
+            overwrite_btn = msg_box.addButton("Overwrite Slot 2", QMessageBox.YesRole)
+            append_btn    = msg_box.addButton("Keep & Append", QMessageBox.NoRole)
+            cancel_btn    = msg_box.addButton("Cancel", QMessageBox.RejectRole)
+
             msg_box.exec()
-            clicked_button = msg_box.clickedButton()
-            if clicked_button == clear_btn:
-                self._clear_gpx_data()
+            clicked = msg_box.clickedButton()
+
+            if clicked == cancel_btn:
+                return
+
+            if clicked == overwrite_btn:
+                # Nur Slot 2 leeren (KEIN globales _clear_gpx_data!)
+                self._gpx_slots[2]["gpx_data"] = []
+                self._gpx_slots[2]["markB"] = None
+                self._gpx_slots[2]["markE"] = None
+                self._gpx_slots[2]["gpx_video_shift"] = None
+
+                # Falls aktuell Slot 2 aktiv ist, UI entsprechend leeren
+                if getattr(self, "_active_gpx_slot", 1) == 2:
+                    # Nur UI leeren – ohne andere Slots anzutasten
+                    self.gpx_widget.set_gpx_data([])
+                    self.chart.set_gpx_data([])
+                    if self.mini_chart_widget:
+                        self.mini_chart_widget.set_gpx_data([])
+                    self.map_widget.loadRoute({"type": "FeatureCollection", "features": []}, do_fit=True)
+                    from core.gpx_parser import set_gpx_video_shift
+                    set_gpx_video_shift(None)
+                    self._update_gpx_overview()
             else:
-                return 
-            
+                # Keep & Append: nichts leeren, einfach fortfahren
+                pass
+
+        # (unverändert) – jetzt erst prüfen, ob Videos geladen sind
         if not self.playlist:
             QMessageBox.warning(
                 self,
@@ -6422,8 +6567,8 @@ class MainWindow(QMainWindow):
                 "Please load video files first before extracting GPS data."
             )
             return
-    
-        # Warnhinweis anzeigen
+
+        # (ab hier bleibt dein Code unverändert)
         reply = QMessageBox.warning(
             self,
             "Experimental Feature",
@@ -6435,15 +6580,18 @@ class MainWindow(QMainWindow):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
-    
+
         if reply != QMessageBox.Yes:
             return
-        
+
         # Starte den Extraktionsprozess - Dialog sofort anzeigen
         dlg = GoProExtractorDialog(self.playlist, self)
         dlg.show()  # Dialog sofort anzeigen
         QApplication.processEvents()  # GUI sofort aktualisieren
         dlg.start_extraction()  # Dann die Extraktion starten
+
+    
+    
     
     def _clear_gpx_data(self):
         """
@@ -6469,6 +6617,13 @@ class MainWindow(QMainWindow):
         
         # Video-Sync deaktivieren
         self.enableVideoGpxSync(False)
+        
+        store = self._get_active_slot_store()
+        store["gpx_data"] = []
+        store["markB"] = None
+        store["markE"] = None
+        store["gpx_video_shift"] = None
+        
     
         print("GPX data cleared successfully")
         self._sync_prompt_answer = None
@@ -6490,21 +6645,25 @@ class MainWindow(QMainWindow):
             if not new_data:
                 print("No valid GPX data found in extracted file")
                 return
-    
-            # KEINE Zeitmanipulation mehr - Datei ist bereits korrekt
-            print(f"📅 Importing {len(new_data)} pre-processed points")
-            print(f"   Time range: {new_data[0]['time']} to {new_data[-1]['time']}")
-            
-            # Einfach die Daten setzen
-            self._set_gpx_data(new_data)
-            
-            # AUTOMATISCHE SYNCHRONISATION für GoPro-Daten
+
+            # --- Slot 2 füllen (keine globale UI-Löschung/Überschreibung) ---
+            self._gpx_slots[2]["gpx_data"] = new_data
+            self._gpx_slots[2]["markB"] = None
+            self._gpx_slots[2]["markE"] = None
+            self._gpx_slots[2]["gpx_video_shift"] = 0  # Default: 0s bei GoPro
+
+            # UI nur aktualisieren, wenn Slot 2 aktiv ist
+            if self._active_gpx_slot == 2:
+                self._apply_slot_to_ui()
+
+            # AUTOMATISCHE SYNCHRONISATION (wirksam sichtbar nur bei aktivem Slot 2)
             if self.playlist_counter > 0:
                 set_gpx_video_shift(0)
                 self.enableVideoGpxSync(True)
                 if self._edit_mode != "off":
                     self.video_control.set_editing_mode(True, True)
-                print("✓ Automatic video-GPX synchronization activated for GoPro data")
+                print("✓ Automatic video-GPX synchronization activated for GoPro data (Slot 2)")
+
 
             # Vollständige Integration der GPX-Daten
             QTimer.singleShot(200, self._complete_gpx_integration)
