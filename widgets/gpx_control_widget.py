@@ -934,14 +934,9 @@ class GPXControlWidget(QWidget):
         self.deselect_button.setVisible(visible) # auch deselect verstecken
         self.cut_button.setVisible(visible)  
         
-    
+    """
     def _process_delete_points(self,shift_next: bool = True):
-        
-        """
-        Wird ausgelöst, wenn der Delete-Button (Mülleimer) 
-        im gpx_control_widget geklickt wurde.
-        => Leitet an die gpx_list weiter.
-        """
+      
         mw = self._mainwindow
         gpx_data = mw.gpx_widget.gpx_list._gpx_data
         
@@ -1029,6 +1024,169 @@ class GPXControlWidget(QWidget):
         if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
             mw.cut_manager.on_markClear_clicked()
             
+    """
+    def _process_delete_points(self, shift_next: bool = True):
+        """
+        Delete-/Remove-Button:
+          - Standard: leitet an gpx_list.delete_selected_range(shift_next) weiter
+          - Sonderfall (Head-Cut): Remove („-“) + Range beginnt bei Index 0
+            => Δt inkl. +1 Schrittweite bestimmen
+            => löschen
+            => Δt ab Index 1 addieren
+            => Zeiten auf 0.000 normalisieren
+            => GPX–Video-Shift um Δt reduzieren (damit Liste bei 0.000 startet)
+            => Recalc + UI-Refresh
+        """
+        # Lokale Imports, damit datetime/timedelta sicher definiert sind
+        from datetime import datetime, timedelta
+
+        mw = self._mainwindow
+        gpx_data = mw.gpx_widget.gpx_list._gpx_data
+
+        # --- Graubereich-Check wie gehabt ---
+        try:
+            cur_shift = get_gpx_video_shift()
+        except Exception:
+            cur_shift = 0.0
+        auto_on = hasattr(mw, "action_auto_sync_video") and mw.action_auto_sync_video.isChecked()
+        hit_grey = False
+        if (not auto_on) and (cur_shift < 0):
+            data = gpx_data
+            b = mw.gpx_widget.gpx_list._markB_idx
+            e = mw.gpx_widget.gpx_list._markE_idx
+            if data and b is not None and e is not None:
+                if b > e:
+                    b, e = e, b
+                positive_time = data[0]["time"] + timedelta(seconds=abs(cur_shift))
+                hit_grey = data[b]["time"] < positive_time
+
+        # --- Undo + Busy ---
+        mw.register_gpx_undo_snapshot()
+        mw.map_widget.view.page().runJavaScript("showLoading('Deleting GPX-Range...');")
+
+        # --- Head-Cut erkennen (nur für Remove / shift_next == False) ---
+        headcut = False
+        head_cut_diff_s = 0.0
+        b_idx = mw.gpx_widget.gpx_list._markB_idx
+        e_idx = mw.gpx_widget.gpx_list._markE_idx
+        if not shift_next and gpx_data and b_idx is not None and e_idx is not None:
+            b, e = (b_idx, e_idx)
+            if b > e:
+                b, e = e, b
+            if b == 0 and 0 <= e < len(gpx_data):
+                t0 = gpx_data[0]["time"]
+                tE = gpx_data[e]["time"]
+                # Schrittweite ermessen (typisch 1 s), robust:
+                if e + 1 < len(gpx_data):
+                    step_s = (gpx_data[e + 1]["time"] - gpx_data[e]["time"]).total_seconds()
+                elif len(gpx_data) >= 2:
+                    step_s = (gpx_data[1]["time"] - gpx_data[0]["time"]).total_seconds()
+                else:
+                    step_s = 0.0
+                # Inklusive Range => + step_s
+                head_cut_diff_s = (tE - t0).total_seconds() + step_s
+                headcut = head_cut_diff_s > 0.0
+                # print(f"[DEBUG] HeadCut candidate: Δt={head_cut_diff_s:.3f}s  (b=0..e={e})")
+
+        # --- Bereich löschen ---
+        mw.gpx_widget.gpx_list.delete_selected_range(shift_next)
+
+        # --- Nachbearbeitung NUR für Head-Cut (Remove ab Index 0) ---
+        if headcut:
+            data_after = mw.gpx_widget.gpx_list._gpx_data
+            if data_after and len(data_after) >= 2:
+                # 1) Δt ab Index 1 addieren (Index 1..N-1)
+                dt_add = timedelta(seconds=head_cut_diff_s)
+                for i in range(1, len(data_after)):
+                    ti = data_after[i].get("time")
+                    if ti is not None:
+                        data_after[i]["time"] = ti + dt_add
+
+                # 2) Zeiten auf 0.000 normalisieren (erster verbleibender Punkt als Basis)
+                base_dt = data_after[0]["time"]
+                epoch0 = datetime(1970, 1, 1)
+                for pt in data_after:
+                    rel_s = (pt["time"] - base_dt).total_seconds()
+                    pt["time"] = epoch0 + timedelta(seconds=rel_s)
+
+                # 3) GPX–Video-Shift anpassen: alterShift - Δt (min. 0)
+                try:
+                    old_shift = get_gpx_video_shift() or 0.0
+                except Exception:
+                    old_shift = 0.0
+                new_shift = old_shift - head_cut_diff_s
+                if new_shift < 0.0:
+                    new_shift = 0.0
+                try:
+                    set_gpx_video_shift(new_shift)
+                    if hasattr(mw.video_control, "update_set_sync_highlight"):
+                        mw.video_control.update_set_sync_highlight()
+                except Exception as e:
+                    print(f"[DEBUG] set_gpx_video_shift failed: {e}")
+
+                # 4) Recalc + UI Refresh
+                try:
+                    from core.gpx_parser import recalc_gpx_data
+                    recalc_gpx_data(data_after)
+                except Exception as err:
+                    print(f"[DEBUG] recalc_gpx_data failed: {err}")
+
+                mw.gpx_widget.gpx_list.set_gpx_data(data_after)
+                mw._gpx_data = data_after
+                mw._update_gpx_overview()
+                if hasattr(mw.chart, "set_gpx_data"):
+                    mw.chart.set_gpx_data(data_after)
+                if getattr(mw, "mini_chart_widget", None):
+                    mw.mini_chart_widget.set_gpx_data(data_after)
+                mw.map_widget.loadRoute(mw._build_route_geojson_from_gpx(data_after), do_fit=False)
+
+                mw.map_widget.view.page().runJavaScript("hideLoading();")
+                # Headcut-Fall ist vollständig behandelt → früh raus
+                return
+
+        # --- Standard-Updates (alle anderen Fälle unverändert) ---
+        mw._update_gpx_overview()
+        mw._gpx_data = mw.gpx_widget.gpx_list._gpx_data
+        route_geojson = mw._build_route_geojson_from_gpx(mw._gpx_data)
+        mw.map_widget.loadRoute(route_geojson, do_fit=False)
+        mw.chart.set_gpx_data(mw._gpx_data)
+        if mw.mini_chart_widget and mw._gpx_data:
+            mw.mini_chart_widget.set_gpx_data(mw._gpx_data)
+        mw.map_widget.view.page().runJavaScript("hideLoading();")
+
+        # --- Graubereich-Dialog (wie gehabt) ---
+        if hit_grey:
+            reply = QMessageBox.question(
+                self,
+                "Sync may be invalid",
+                "You manually cut inside the pre-video (grey) section.\n"
+                f"The current GPX–video shift ({cur_shift:+.1f}s) will be cleared.\n\n"
+                "Do you want to set a new sync now?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            set_gpx_video_shift(0)
+            route_geojson = mw._build_route_geojson_from_gpx(mw._gpx_data)
+            mw.map_widget.loadRoute(route_geojson, do_fit=False)
+            mw.gpx_widget.gpx_list.set_gpx_data(mw._gpx_data)
+            mw.video_control.activate_controls()
+            if hasattr(mw.video_control, "update_set_sync_highlight"):
+                mw.video_control.update_set_sync_highlight()
+            if reply == QMessageBox.Yes:
+                mw.gpx_widget.gpx_list.clear_marked_range()
+                if hasattr(mw, "map_widget"):
+                    mw.map_widget.clear_marked_range()
+                if hasattr(mw.video_control, "update_set_sync_highlight"):
+                    mw.video_control.update_set_sync_highlight()
+                QMessageBox.information(
+                    mw,
+                    "Set a new sync",
+                    "Please select the matching GPX point and set the current video frame, "
+                    "then click 'Sync' (GSync) to create a new alignment."
+                )
+
+        if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+            mw.cut_manager.on_markClear_clicked()
 
     def on_cut_range_clicked(self):
        self._process_delete_points(True)
