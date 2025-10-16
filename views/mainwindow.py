@@ -516,14 +516,17 @@ class MainWindow(QMainWindow):
                 "gpx_video_shift": None,
                 "markB": None,
                 "markE": None,
+                "sync_enabled": False,   # NEU: eigener Sync-Status
             },
             2: {
                 "gpx_data": [],
                 "gpx_video_shift": None,
                 "markB": None,
                 "markE": None,
+                "sync_enabled": True,    # NEU: GoPro-Slot startet standardmäßig ON
             }
         }
+
         self._active_gpx_slot = 1  # 1 = Standard-Import, 2 = GoPro-Extractor
 
         # Playlist / Keyframe-Daten
@@ -2699,6 +2702,16 @@ class MainWindow(QMainWindow):
         
         print(f"[DEBUG] _on_auto_sync_video_toggled => {checked}")
         self._autoSyncVideoEnabled = checked
+        if hasattr(self, "_gpx_slots"):
+            self._gpx_slots[self._active_gpx_slot]["sync_enabled"] = bool(checked)
+            print(f"[DEBUG] Slot {self._active_gpx_slot} sync_enabled set to {checked}")
+
+        # --- NEU: Sync-Status im aktuellen Slot persistieren ---
+        try:
+            self._gpx_slots[self._active_gpx_slot]["sync_enabled"] = bool(checked)
+        except Exception:
+            pass
+
         self.gpx_control.set_markE_visibility(not checked)
         self.video_control._update_autocut_icon()
         
@@ -2742,6 +2755,9 @@ class MainWindow(QMainWindow):
         self._autoSyncNewPointsWithVideoTime = checked
         self.action_new_pts_video_time.setChecked(checked)
         self.map_widget.view.page().runJavaScript(f"enableVSyncMode({str(checked).lower()});")
+        
+        if hasattr(self, "_active_gpx_slot") and self._active_gpx_slot in self._gpx_slots:
+            self._gpx_slots[self._active_gpx_slot]["sync_enabled"] = checked
         
    # OpenGL     
    # def _on_enable_soft_opengl_toggled(self, checked: bool):
@@ -3666,6 +3682,7 @@ class MainWindow(QMainWindow):
         """
         store = self._get_active_slot_store()
         data = store["gpx_data"] or []
+        print(f"[DEBUG] Applying Slot {self._active_gpx_slot}, GPX-Points = {len(data)}")
         self._gpx_data = data
 
         self.gpx_widget.set_gpx_data(data)
@@ -3710,18 +3727,38 @@ class MainWindow(QMainWindow):
             store["gpx_video_shift"] = None
 
     def switch_gpx_slot(self, new_slot: int):
-        """
-        Slot 1 ↔ 2 umschalten: ZUERST aktuellen UI-State sichern,
-        DANN Zielslot in UI anwenden.
-        """
+        """Slot 1 ↔ 2 umschalten: Speichert und lädt GPX + Sync-Status."""
         if new_slot not in (1, 2):
             return
         if new_slot == self._active_gpx_slot:
             return
 
-        self._save_ui_into_current_slot()
+        # 1️⃣ Vorherigen Slot-Status speichern
+        prev_slot = self._active_gpx_slot
+        prev_sync = self.action_new_pts_video_time.isChecked()
+        self._gpx_slots[prev_slot]["sync_enabled"] = prev_sync
+        print(f"[DEBUG] Saved sync for Slot {prev_slot} = {prev_sync}")
+
+        # 2️⃣ Umschalten auf neuen Slot
         self._active_gpx_slot = new_slot
-        self._apply_slot_to_ui()
+        self._apply_slot_to_ui()  # zeigt Karte + GPX sofort korrekt an
+
+        # 3️⃣ Status des neuen Slots wiederherstellen
+        sync_state = self._gpx_slots[new_slot].get("sync_enabled", False)
+        print(f"[DEBUG] Restoring sync for Slot {new_slot} = {sync_state}")
+
+        # Verhindere Rückkopplung durch blockSignals()
+        self.action_new_pts_video_time.blockSignals(True)
+        self.action_new_pts_video_time.setChecked(sync_state)
+        self.action_new_pts_video_time.blockSignals(False)
+
+        # Setze internen Zustand und VideoSync ohne Rückkopplung
+        self._autoSyncVideoEnabled = sync_state
+        self.enableVideoGpxSync(sync_state)
+
+        print(f"[DEBUG] Switched to Slot {new_slot} – Sync = {sync_state}")
+
+
 
 
    
@@ -5282,7 +5319,7 @@ class MainWindow(QMainWindow):
         self.playlist_menu.clear()
         self._sync_prompt_answer = None
         self._last_gpx_load_mode = None
-
+        self._gpx_slots[s]["sync_enabled"] = (s == 2)  
     
             
     
@@ -6567,7 +6604,7 @@ class MainWindow(QMainWindow):
                 self._gpx_slots[2]["markB"] = None
                 self._gpx_slots[2]["markE"] = None
                 self._gpx_slots[2]["gpx_video_shift"] = None
-
+        
                 # Falls aktuell Slot 2 aktiv ist, UI entsprechend leeren
                 if getattr(self, "_active_gpx_slot", 1) == 2:
                     # Nur UI leeren – ohne andere Slots anzutasten
@@ -6671,40 +6708,41 @@ class MainWindow(QMainWindow):
                 return
 
             # --- Slot 2 füllen (keine globale UI-Löschung/Überschreibung) ---
+            # --- Slot 2 vorbereiten & Daten speichern ---
             self._gpx_slots[2]["gpx_data"] = new_data
             self._gpx_slots[2]["markB"] = None
             self._gpx_slots[2]["markE"] = None
-            self._gpx_slots[2]["gpx_video_shift"] = 0  # Default: 0s bei GoPro
+            self._gpx_slots[2]["gpx_video_shift"] = 0
+            self._gpx_slots[2]["sync_enabled"] = True
 
-            # UI nur aktualisieren, wenn Slot 2 aktiv ist
-                        # --- NEU: Nach erfolgreichem GoPro-Import direkt Slot 2 aktivieren ---
-            if self._active_gpx_slot != 2:
-                # Wechsle zu Slot 2 und lade seine Daten
-                self.switch_gpx_slot(2)
+            # --- Direkt Slot 2 aktivieren, bevor UI geladen wird ---
+            self._active_gpx_slot = 2
+            self._apply_slot_to_ui()  # zeigt Map + GPX sofort an
 
-                # Falls der Slot-Button existiert, auch optisch umschalten
-                try:
-                    btn = self.gpx_control.slot_button
-                    btn.blockSignals(True)  # vermeidet Doppelauslösung
-                    btn.setChecked(True)
-                    btn.setText("Slot 2")
-                    btn.setStyleSheet(self.gpx_control._slot2_style)
-                    btn.blockSignals(False)
-                except Exception as e:
-                    print(f"[DEBUG] Slot2-AutoActivate UI update skipped: {e}")
+            # --- Button-Status visuell anpassen ---
+            try:
+                btn = self.gpx_control.slot_button
+                btn.blockSignals(True)
+                btn.setChecked(True)
+                btn.setText("Slot 2")
+                btn.setStyleSheet(self.gpx_control._slot2_style)
+                btn.blockSignals(False)
+            except Exception as e:
+                print(f"[DEBUG] Slot2 button update skipped: {e}")
 
-            # AUTOMATISCHE SYNCHRONISATION für GoPro-Daten (nur sichtbar wirksam, wenn Slot 2 aktiv)
+            # --- Sync-Zustand & Edit-Mode aktivieren ---
             if self.playlist_counter > 0:
                 from core.gpx_parser import set_gpx_video_shift
                 set_gpx_video_shift(0)
                 self.enableVideoGpxSync(True)
+                self._gpx_slots[2]["sync_enabled"] = True
                 if self._edit_mode != "off":
                     self.video_control.set_editing_mode(True, True)
-                print("✓ Automatic video-GPX synchronization activated for GoPro data (Slot 2)")
+                print("✓ Automatic video-GPX synchronization activated for GoPro data")
 
+            # --- Integration abschließen ---
+            QTimer.singleShot(200, self._complete_gpx_integration)
 
-
-            # Vollständige Integration der GPX-Daten
             QTimer.singleShot(200, self._complete_gpx_integration)
             
         except Exception as e:
