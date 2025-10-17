@@ -513,7 +513,7 @@ class ChartWidget(QWidget):
         # === NEU: Warn-Badge "unter 0 m" einblenden, wenn min_ele < 0 ===
         if min_ele < 0.0:
             # Text & Style
-            badge_text = "⚠ under Seelevel (0m)"
+            badge_text = "⚠ under sea level ⚠ (0m)"
             try:
                 lab_font = QFont(self.font().family(), max(8, int(h * 0.025)))
                 painter.setFont(lab_font)
