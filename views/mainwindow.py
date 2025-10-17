@@ -3781,6 +3781,22 @@ class MainWindow(QMainWindow):
         # internen Zustand und Engine schalten (ohne _on_sync_point_video_time_toggled aufzurufen!)
         self._autoSyncVideoEnabled = sync_state
         self.enableVideoGpxSync(sync_state)
+        try:
+            btn = self.gpx_control.slot_button
+            btn.blockSignals(True)
+            btn.setText(f"Slot {new_slot}")
+            if new_slot == 2:
+                # Falls du Styles definiert hast:
+                if hasattr(self.gpx_control, "_slot2_style"):
+                    btn.setStyleSheet(self.gpx_control._slot2_style)
+                btn.setChecked(True)
+            else:
+                if hasattr(self.gpx_control, "_slot1_style"):
+                    btn.setStyleSheet(self.gpx_control._slot1_style)
+                btn.setChecked(False)
+            btn.blockSignals(False)
+        except Exception as e:
+            print(f"[DEBUG] Could not update slot_button UI: {e}")
 
         print(f"[DEBUG] Switched to Slot {new_slot} – Sync = {sync_state}")
 
