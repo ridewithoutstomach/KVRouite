@@ -386,7 +386,12 @@ class MapWidget(QWidget):
         self._color_point(idx, "blue", None, False)  # ← blau färben
         js = f"selectPointByIndex({idx});"
         self.view.page().runJavaScript(js)
-        
+    
+    def zoom_to_index(self, idx: int, zoom: int = 18):
+        print(f"[DEBUG] MapWidget.zoom_to_index idx={idx} zoom={zoom}")
+        js = f"zoomToIndex({idx}, {int(zoom)});"
+        self.view.page().runJavaScript(js)
+    
     def _on_mapbox_profile_changed(self, profile: str):
         print(f"[DEBUG] MapWidget: mapboxProfileChanged => profile={profile}")
         self._curr_mapbox_profile = profile

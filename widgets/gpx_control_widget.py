@@ -246,6 +246,9 @@ class GPXControlWidget(QWidget):
         self.slot_button.setMaximumWidth(70)
         self.slot_button.setCheckable(True)  # checked => Slot 2
         self._buttons_layout.addWidget(self.slot_button)
+        self.slot_button.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.slot_button.customContextMenuRequested.connect(self._on_slot_button_right_click)
+        
 
         # Farben initial: Slot 1 = grün, Slot 2 = gelb
         self._slot1_style = "background-color:#2ecc71; color:black;"
@@ -922,6 +925,22 @@ class GPXControlWidget(QWidget):
 
         if hasattr(mw.video_control, "update_set_sync_highlight"):
             mw.video_control.update_set_sync_highlight()
+
+    def _on_slot_button_right_click(self, _pos):
+        """
+        Rechtsklick auf den Slot-Button:
+        - Nimmt den aktuell selektierten GPX-Punkt des AKTIVEN Slots,
+        - sucht im ANDEREN Slot den nächstgelegenen Punkt (nach Lat/Lon),
+        - wenn nahe genug: Slot wechseln und dort den Punkt selektieren & zoomen.
+        - wenn nicht: Hinweisdialog, kein Umschalten.
+        """
+        mw = getattr(self, "_mainwindow", None)
+        if not mw:
+            return
+        # Wir delegieren die Logik vollständig ans MainWindow, weil dort
+        # die Slot-Daten liegen und das Umschalten + UI-Selektieren passiert.
+        mw.jump_to_nearest_point_in_other_slot()
+
 
     # ----------------------------------------------------------
     # Methode zum Aktualisieren der Info-Zeile

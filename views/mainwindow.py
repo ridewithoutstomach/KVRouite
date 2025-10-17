@@ -5378,6 +5378,88 @@ class MainWindow(QMainWindow):
         # or do nothing if you prefer just highlighting
         
         
+    def _haversine_m(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        from math import radians, sin, cos, sqrt, atan2
+        R = 6371000.0  # Erdradius in m
+        dlat = radians(lat2 - lat1)
+        dlon = radians(lon2 - lon1)
+        a = sin(dlat/2.0)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon/2.0)**2
+        c = 2.0 * atan2(sqrt(a), sqrt(1.0 - a))
+        return R * c
+
+    # ⬇️⬇️⬇️ NEU: Rechtsklick-Logik – im anderen Slot nächsten Punkt finden und springen
+    def jump_to_nearest_point_in_other_slot(self, max_distance_m: float = 40.0):
+        """
+        Wird vom GPXControlWidget bei Rechtsklick auf den Slot-Button aufgerufen.
+        - Nimmt den selektierten Punkt (Lat/Lon) im AKTIVEN Slot,
+        - sucht im ANDEREN Slot den nächstgelegenen Punkt,
+        - wenn <= max_distance_m: Slot wechseln + dort selektieren & zoomen,
+        - sonst Hinweis und NICHT umschalten.
+        """
+        # 0) Beide Slots müssen Daten haben
+        if not self._gpx_slots[1]["gpx_data"] or not self._gpx_slots[2]["gpx_data"]:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.information(self, "No data in both slots",
+                                    "This action requires GPX data in Slot 1 and Slot 2.")
+            return
+
+        src_slot = self._active_gpx_slot
+        dst_slot = 2 if src_slot == 1 else 1
+        src_data = self._gpx_slots[src_slot]["gpx_data"]
+        dst_data = self._gpx_slots[dst_slot]["gpx_data"]
+
+        # 1) Welcher Punkt ist im aktiven Slot selektiert?
+        row = self.gpx_widget.gpx_list.table.currentRow()
+        if row < 0 or row >= len(src_data):
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.information(self, "No selection",
+                                    f"Please select a GPX point in Slot {src_slot} first.")
+            return
+
+        try:
+            src_lat = float(src_data[row]["lat"])
+            src_lon = float(src_data[row]["lon"])
+        except Exception:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Invalid point", "Selected GPX point has no valid lat/lon.")
+            return
+
+        # 2) Suche im Ziel-Slot den nächstgelegenen Punkt
+        best_idx = -1
+        best_dist = float("inf")
+        for i, pt in enumerate(dst_data):
+            try:
+                d = self._haversine_m(src_lat, src_lon, float(pt["lat"]), float(pt["lon"]))
+            except Exception:
+                continue
+            if d < best_dist:
+                best_dist = d
+                best_idx = i
+
+        # 3) Schwellwert prüfen
+        if best_idx < 0 or best_dist > max_distance_m:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.information(
+                self,
+                "Out of range",
+                (f"No nearby point found in Slot {dst_slot}.\n\n"
+                 f"Nearest distance: {best_dist:.1f} m (limit: {max_distance_m:.0f} m)\n"
+                 "I won't switch the slot.")
+            )
+            return
+
+        # 4) Slot wechseln und Zielpunkt anzeigen
+        self.switch_gpx_slot(dst_slot)  # stellt UI/Daten/Sync des Slots her
+        self._go_to_gpx_index(best_idx) # selektiert/zoomt (Liste, Map, Chart)    
+        from PySide6.QtCore import QTimer
+        def _refocus():
+            # Punkt erneut als "selected" setzen (blau) UND dann hart ranzoomen
+            self.map_widget.set_selected_point(best_idx)
+            self.map_widget.zoom_to_index(best_idx, 18)
+            #self.on_map_sync_any()
+
+        QTimer.singleShot(200, _refocus)
+        
     def on_markB_clicked_gpx(self):
         
         """

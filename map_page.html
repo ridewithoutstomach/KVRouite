@@ -1320,6 +1320,15 @@
       }
     }
     
+	
+	
+	
+	function zoomToIndex(index, zoomLevel){
+		let f = featuresMapIndex[index];
+		if(!f) return;
+			let c = f.getGeometry().getCoordinates();
+			map.getView().animate({center: c, zoom: zoomLevel, duration: 300});
+	}
 
     function setVideoPlayState(isPlaying){
       videoIsPlaying= isPlaying;
