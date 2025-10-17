@@ -516,14 +516,16 @@ class MainWindow(QMainWindow):
                 "gpx_video_shift": None,
                 "markB": None,
                 "markE": None,
-                "sync_enabled": False,   # NEU: eigener Sync-Status
+                "sync_enabled": False,         # per-Slot „Sync all with video“
+                "sync_marker": None,           # per-Slot „Set Sync“ (Index)
             },
             2: {
                 "gpx_data": [],
                 "gpx_video_shift": None,
                 "markB": None,
                 "markE": None,
-                "sync_enabled": True,    # NEU: GoPro-Slot startet standardmäßig ON
+                "sync_enabled": True,          # GoPro-Slot startet ON
+                "sync_marker": None,
             }
         }
 
@@ -3676,35 +3678,59 @@ class MainWindow(QMainWindow):
         return self._gpx_slots[self._active_gpx_slot]
 
     def _apply_slot_to_ui(self):
-        """
-        Lädt den aktiven Slot in die UI (Liste/Map/Chart) und setzt
-        den slot-spezifischen Video<->GPX-Shift.
-        """
         store = self._get_active_slot_store()
         data = store["gpx_data"] or []
-        print(f"[DEBUG] Applying Slot {self._active_gpx_slot}, GPX-Points = {len(data)}")
+
+        # 1) Shift ZUERST setzen, damit nachfolgende Widgets korrekt rechnen/färben
+        from core.gpx_parser import set_gpx_video_shift
+        set_gpx_video_shift(store["gpx_video_shift"])
+
+        # 2) Interne Referenz aktualisieren
         self._gpx_data = data
 
+        # 3) Jetzt erst Widgets mit Daten versorgen (Liste, Chart, Mini-Chart)
         self.gpx_widget.set_gpx_data(data)
         self.chart.set_gpx_data(data)
         if self.mini_chart_widget:
             self.mini_chart_widget.set_gpx_data(data)
 
+        # 4) Map zuletzt – sie benutzt nun den korrekten Shift
         route_geojson = self._build_route_geojson_from_gpx(data)
         self.map_widget.loadRoute(route_geojson, do_fit=True)
 
-        from core.gpx_parser import set_gpx_video_shift
-        set_gpx_video_shift(store["gpx_video_shift"])
-
-        # Markierungen je Slot wiederherstellen
+        # 5) Slot-spezifische B/E-Markierungen wiederherstellen
         lw = self.gpx_widget.gpx_list
-        lw.clear_marked_range()
+        lw.clear_marked_range()  # einmal zu Beginn, NICHT später nochmal löschen
         if store["markB"] is not None:
             lw.set_markB_row(store["markB"])
         if store["markE"] is not None:
             lw.set_markE_row(store["markE"])
 
+        # 6) Übersicht updaten
         self._update_gpx_overview()
+
+        # 7) Nur Auswahl/visuelle Highlights neutralisieren (NICHT clear_marked_range!)
+        try:
+            lw.clearSelection()
+            if hasattr(self.map_widget, "clear_selected_point"):
+                self.map_widget.clear_selected_point()
+            if hasattr(self.chart, "clear_highlight"):
+                self.chart.clear_highlight()
+        except Exception as e:
+            print(f"[DEBUG] clear visuals in _apply_slot_to_ui failed: {e}")
+
+        # 8) Slot-spezifischen „Set Sync“-Marker (Index) wiederherstellen, falls vorhanden
+        marker_idx = store.get("sync_marker")
+        if marker_idx is not None:
+            try:
+                lw.select_row_in_pause(marker_idx)
+                self.map_widget.show_blue(marker_idx, do_center=True)
+                self.chart.highlight_gpx_index(marker_idx)
+                print(f"[DEBUG] Restored sync marker for Slot {self._active_gpx_slot}: idx={marker_idx}")
+            except Exception as e:
+                print(f"[DEBUG] Restore sync marker failed: {e}")
+
+        # 9) VideoControl-Icon aktualisieren (falls vorhanden)
         if hasattr(self.video_control, "update_set_sync_highlight"):
             self.video_control.update_set_sync_highlight()
 
@@ -3727,32 +3753,32 @@ class MainWindow(QMainWindow):
             store["gpx_video_shift"] = None
 
     def switch_gpx_slot(self, new_slot: int):
-        """Slot 1 ↔ 2 umschalten: Speichert und lädt GPX + Sync-Status."""
+        """Slot 1 ↔ 2 umschalten: speichert/restauriert GPX- und Sync-Zustände."""
         if new_slot not in (1, 2):
             return
         if new_slot == self._active_gpx_slot:
             return
 
-        # 1️⃣ Vorherigen Slot-Status speichern
+        # 1) Vorherigen Slot-Status sichern
         prev_slot = self._active_gpx_slot
         prev_sync = self.action_new_pts_video_time.isChecked()
         self._gpx_slots[prev_slot]["sync_enabled"] = prev_sync
-        print(f"[DEBUG] Saved sync for Slot {prev_slot} = {prev_sync}")
+        # GPX/Markierungen usw. sichern
+        self._save_ui_into_current_slot()
 
-        # 2️⃣ Umschalten auf neuen Slot
+        # 2) Slot umschalten
         self._active_gpx_slot = new_slot
-        self._apply_slot_to_ui()  # zeigt Karte + GPX sofort korrekt an
 
-        # 3️⃣ Status des neuen Slots wiederherstellen
-        sync_state = self._gpx_slots[new_slot].get("sync_enabled", False)
-        print(f"[DEBUG] Restoring sync for Slot {new_slot} = {sync_state}")
+        # 3) UI für neuen Slot anwenden (lädt Daten, Karte, Markierungen)
+        self._apply_slot_to_ui()
 
-        # Verhindere Rückkopplung durch blockSignals()
+        # 4) Sync-Action programmgesteuert setzen – ohne Rückkopplung
+        sync_state = bool(self._gpx_slots[new_slot].get("sync_enabled", False))
         self.action_new_pts_video_time.blockSignals(True)
         self.action_new_pts_video_time.setChecked(sync_state)
         self.action_new_pts_video_time.blockSignals(False)
 
-        # Setze internen Zustand und VideoSync ohne Rückkopplung
+        # internen Zustand und Engine schalten (ohne _on_sync_point_video_time_toggled aufzurufen!)
         self._autoSyncVideoEnabled = sync_state
         self.enableVideoGpxSync(sync_state)
 
@@ -4774,7 +4800,9 @@ class MainWindow(QMainWindow):
 
         # 6) Falls du dein Chart mitziehen möchtest:
         self.chart.highlight_gpx_index(best_idx)
-
+                
+        self._gpx_slots[self._active_gpx_slot]["sync_marker"] = best_idx
+        print(f"[DEBUG] Slot {self._active_gpx_slot}: saved sync_marker idx={best_idx}")
 
         
     def on_map_sync_any(self):
