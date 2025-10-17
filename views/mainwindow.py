@@ -6600,6 +6600,13 @@ class MainWindow(QMainWindow):
         """
         Wird aufgerufen, wenn 'Extract GoPro-GPS' im Menü geklickt wird.
         """
+        from PySide6.QtWidgets import (
+            QDialog, QVBoxLayout, QLabel, QListWidget, QListWidgetItem,
+            QHBoxLayout, QPushButton, QMessageBox
+        )
+        from PySide6.QtCore import Qt
+        import os
+
         # Prüfe nur SLOT 2 (Extractor-Slot) – Slot 1 bleibt unberührt
         slot2_has_gpx = False
         try:
@@ -6632,10 +6639,9 @@ class MainWindow(QMainWindow):
                 self._gpx_slots[2]["markB"] = None
                 self._gpx_slots[2]["markE"] = None
                 self._gpx_slots[2]["gpx_video_shift"] = None
-        
+
                 # Falls aktuell Slot 2 aktiv ist, UI entsprechend leeren
                 if getattr(self, "_active_gpx_slot", 1) == 2:
-                    # Nur UI leeren – ohne andere Slots anzutasten
                     self.gpx_widget.set_gpx_data([])
                     self.chart.set_gpx_data([])
                     if self.mini_chart_widget:
@@ -6648,7 +6654,7 @@ class MainWindow(QMainWindow):
                 # Keep & Append: nichts leeren, einfach fortfahren
                 pass
 
-        # (unverändert) – jetzt erst prüfen, ob Videos geladen sind
+        # jetzt erst prüfen, ob Videos geladen sind
         if not self.playlist:
             QMessageBox.warning(
                 self,
@@ -6657,7 +6663,7 @@ class MainWindow(QMainWindow):
             )
             return
 
-        # (ab hier bleibt dein Code unverändert)
+        # Warnhinweis
         reply = QMessageBox.warning(
             self,
             "Experimental Feature",
@@ -6669,15 +6675,86 @@ class MainWindow(QMainWindow):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
-
         if reply != QMessageBox.Yes:
             return
 
-        # Starte den Extraktionsprozess - Dialog sofort anzeigen
-        dlg = GoProExtractorDialog(self.playlist, self)
-        dlg.show()  # Dialog sofort anzeigen
-        QApplication.processEvents()  # GUI sofort aktualisieren
-        dlg.start_extraction()  # Dann die Extraktion starten
+        # === Inline-Auswahldialog (KEINE neue Klasse/Datei) ===
+        selection_dlg = QDialog(self)
+        selection_dlg.setWindowTitle("GoPro Extraction Selection")
+        selection_dlg.setModal(True)
+        selection_dlg.resize(520, 460)
+
+        vbox = QVBoxLayout(selection_dlg)
+        vbox.addWidget(QLabel("Detected GoPro videos:"))
+
+        lw = QListWidget(selection_dlg)
+        for p in self.playlist:
+            it = QListWidgetItem(os.path.basename(p))
+            it.setCheckState(Qt.Checked)
+            lw.addItem(it)
+        vbox.addWidget(lw)
+
+        hbox = QHBoxLayout()
+        btn_first = QPushButton("Only First Video", selection_dlg)
+        btn_sel = QPushButton("Selected", selection_dlg)
+        btn_all = QPushButton("All", selection_dlg)
+        btn_cancel = QPushButton("Cancel", selection_dlg)
+        hbox.addWidget(btn_all)
+        hbox.addWidget(btn_sel)
+        hbox.addWidget(btn_first)
+        hbox.addWidget(btn_cancel)
+        vbox.addLayout(hbox)
+
+        # Ergebniscontainer
+        chosen_files = []
+
+        def _choose_all():
+            nonlocal chosen_files
+            chosen_files = list(self.playlist)
+            selection_dlg.accept()
+
+        def _choose_first():
+            nonlocal chosen_files
+            chosen_files = [self.playlist[0]]
+            selection_dlg.accept()
+
+        def _choose_selected():
+            nonlocal chosen_files
+            checked = []
+            for i in range(lw.count()):
+                it = lw.item(i)
+                if it.checkState() == Qt.Checked:
+                    checked.append(it.text())
+            if not checked:
+                QMessageBox.warning(selection_dlg, "No Selection", "Please select at least one file or use 'All' / 'Only First'.")
+                return
+            # Basenames -> Full paths
+            base_set = set(checked)
+            chosen_files = [p for p in self.playlist if os.path.basename(p) in base_set]
+            selection_dlg.accept()
+
+        btn_all.clicked.connect(_choose_all)
+        btn_first.clicked.connect(_choose_first)
+        btn_sel.clicked.connect(_choose_selected)
+        btn_cancel.clicked.connect(selection_dlg.reject)
+
+        if selection_dlg.exec() != QDialog.Accepted:
+            print("[DEBUG] Extraction cancelled by user in selection dialog")
+            return
+
+        if not chosen_files:
+            QMessageBox.information(self, "Nothing selected", "No video selected for extraction.")
+            return
+
+        print(f"[DEBUG] Extracting {len(chosen_files)} videos")
+
+        # Starte den Extraktionsprozess - benutze DEINEN existierenden Dialog
+        dlg = GoProExtractorDialog(chosen_files, self)
+        dlg.show()
+        QApplication.processEvents()
+        dlg.start_extraction()
+
+    
 
     
     
