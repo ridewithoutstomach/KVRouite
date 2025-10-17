@@ -21,7 +21,7 @@
 from PySide6.QtWidgets import QWidget
 from PySide6.QtCore import Qt, QPoint, Signal, QPointF
 from PySide6.QtGui import (
-    QPainter, QPen, QBrush, QColor, QWheelEvent, QPolygonF
+    QPainter, QPen, QBrush, QColor, QWheelEvent, QPolygonF, QFont
 )
                            
 
@@ -354,16 +354,46 @@ class ChartWidget(QWidget):
                 if (x1 > w + 50 and x2 > w + 50):
                     continue
                 painter.drawLine(x1, y1, x2, y2)
-    
+
         # 1) Elevation-Linie (gelb, 2px)
         draw_polyline(painter, path_ele, QColor(255, 255, 0), thickness=2)
-    
+
+        # --- NEU: 0-Meter-Linie im Höhenbereich --------------------------------
+        # Fälle:
+        #  - min_ele <= 0 <= max_ele  -> Linie exakt bei 0 m (deutlich, gestrichelt)
+        #  - min_ele > 0              -> dezente Linie am unteren Rand des Höhenplots
+        #  - max_ele < 0              -> dezente Linie am oberen Rand des Höhenplots
+        any_below_zero = (min_ele < 0.0)
+        any_above_zero = (max_ele > 0.0)
+        if any_below_zero and any_above_zero:
+            zero_y = y_for_ele(0.0)
+            pen = QPen(QColor(255, 80, 80), 1, Qt.DashLine)  # gut sichtbar (leicht rötlich)
+        elif min_ele > 0.0:
+            zero_y = top_height - 1  # untere Kante des Höhenbereichs
+            pen = QPen(QColor(140, 140, 140), 1, Qt.DashLine)  # dezent
+        else:  # max_ele < 0.0
+            zero_y = 20  # obere Kante (wir zeichnen ab "20" nach unten)
+            pen = QPen(QColor(140, 140, 140), 1, Qt.DashLine)  # dezent
+
+        painter.setPen(pen)
+        painter.drawLine(0, zero_y, w, zero_y)
+        
+        try:
+            lab_font = QFont(self.font().family(), max(4, int(h * 0.025)))
+            painter.setFont(lab_font)
+        except Exception:
+            pass
+        painter.drawText(4, int(zero_y) - 2, "0 m")
+        # ------------------------------------------------------------------------
+
         # 2) Speed-Linie (cyan, 1px)
         draw_polyline(painter, path_spd, QColor(0, 255, 255), thickness=1)
     
+        
         # ------------------------------------------------------
         # Null-Linie (0 km/h) dünn weiß
         # ------------------------------------------------------
+        
         painter.setPen(QPen(QColor("white"), 1))
         zero_speed_y = y_for_speed(0.0)
         painter.drawLine(0, zero_speed_y, w, zero_speed_y)
@@ -459,7 +489,62 @@ class ChartWidget(QWidget):
         for (xx, yy) in path_spd:
             if -10 < xx < w + 10:
                 painter.drawEllipse(QPointF(xx, yy), speed_radius, speed_radius)
-    
+        
+        # --- Label links an der Speed-Basislinie: "0 km/h" ---
+        try:
+            lab_font = QFont(self.font().family(), max(8, int(h * 0.025)))
+            painter.setFont(lab_font)
+        except Exception:
+            pass
+        # y-Position der 0-km/h-Linie: nutze die gleiche Skalierung wie für die Speed-Kurve
+        y0_spd = int(y_for_speed(0.0))
+        # Falls 0 außerhalb des sichtbaren Speed-Bereichs liegen sollte, am unteren Rand einklemmen:
+        y0_spd = max(top_height, min(h - 1, y0_spd))
+        painter.setPen(QColor(180, 180, 180))
+        painter.drawText(6, y0_spd - 2, "0 km/h")
+
+        
+        # ------------------------------------------------------
+        # Marker-Linie und Info-Texte
+        # ------------------------------------------------------
+        m_x = x_for_index(self._marker_index)
+        # ... dein bestehender Marker-Zeichencode ...
+
+        # === NEU: Warn-Badge "unter 0 m" einblenden, wenn min_ele < 0 ===
+        if min_ele < 0.0:
+            # Text & Style
+            badge_text = "⚠ under Seelevel (0m)"
+            try:
+                lab_font = QFont(self.font().family(), max(8, int(h * 0.025)))
+                painter.setFont(lab_font)
+            except Exception:
+                pass
+            fm = painter.fontMetrics()
+
+            # Position: links oben UNTER der Legende (3 Zeilen * Schrift-Höhe)
+            margin = 8
+            legend_lines = 3  # "Speed:", "Height:", + Werteblock
+            y_top = margin + legend_lines * fm.height() + 6
+            x_left = margin
+
+            pad_x = 8
+            pad_y = 4
+            tw = fm.horizontalAdvance(badge_text)
+            th = fm.height()
+            rect_w = tw + 2 * pad_x
+            rect_h = th + 2 * pad_y
+
+            # Kapsel (halbtransparent), rote Kontur, gut lesbarer Text
+            painter.setBrush(QColor(60, 20, 20, 200))
+            painter.setPen(QPen(QColor(255, 80, 80), 1))
+            painter.drawRoundedRect(x_left, y_top, rect_w, rect_h, 6, 6)
+
+            painter.setPen(QColor(255, 160, 160))
+            painter.drawText(x_left + pad_x, y_top + pad_y + fm.ascent(), badge_text)
+
+        
+        
+        
         # ------------------------------------------------------
         # Marker-Linie und Info-Texte
         # ------------------------------------------------------
