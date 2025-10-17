@@ -926,6 +926,30 @@ class GPXControlWidget(QWidget):
         if hasattr(mw.video_control, "update_set_sync_highlight"):
             mw.video_control.update_set_sync_highlight()
 
+        # --- NEU: Optik/Status des Slot-Buttons zentral setzen ---
+    def apply_slot_button_style(self, active_slot: int):
+        btn = self.slot_button
+
+        # Falls Styles vordefiniert sind, nehmen wir sie. Sonst einfache Defaults.
+        slot1_style = getattr(self, "_slot1_style", "QPushButton{background:#2e7d32;color:white;}")  # grün
+        slot2_style = getattr(self, "_slot2_style", "QPushButton{background:#f9a825;color:black;}")  # gelb
+
+        btn.blockSignals(True)
+        btn.setText(f"Slot {active_slot}")
+        if active_slot == 1:
+            btn.setChecked(False)              # (bei dir ist Slot2 "checked")
+            btn.setStyleSheet(slot1_style)
+        else:
+            btn.setChecked(True)
+            btn.setStyleSheet(slot2_style)
+        btn.blockSignals(False)
+
+        # Hart refreshen, damit Styles sofort greifen:
+        s = btn.style()
+        s.unpolish(btn)
+        s.polish(btn)
+        btn.update()
+
     def _on_slot_button_right_click(self, _pos):
         """
         Rechtsklick auf den Slot-Button:
