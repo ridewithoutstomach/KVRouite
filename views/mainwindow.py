@@ -4980,9 +4980,16 @@ class MainWindow(QMainWindow):
         label3.setAlignment(Qt.AlignCenter)
         label3.setStyleSheet("color: lightgray; font-size: 12px; padding: 5px;")
         
+        label4 = QLabel("(Don´t work with VideoSpeed greater than 2x) ")
+        label4.setAlignment(Qt.AlignCenter)
+        label4.setStyleSheet("color: white; font-size: 14px; padding: 8px;")
+        
+        
         layout.addWidget(label1)
         layout.addWidget(label2)
         layout.addWidget(label3)
+        layout.addWidget(label4)
+        
         
         # HÖHERES FENSTER
         popup.resize(300, 140)  # Breite: 300px, Höhe: 140px
