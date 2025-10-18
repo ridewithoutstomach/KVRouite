@@ -3917,6 +3917,8 @@ class MainWindow(QMainWindow):
     
     def update_timeline_marker(self):
         
+        self.check_and_handle_video_end()        
+        
         """
         Wird periodisch aufgerufen (z.B. alle 200ms) und aktualisiert:
         - Timeline:   Setzt den Marker
@@ -4271,56 +4273,28 @@ class MainWindow(QMainWindow):
         self._video_at_end = True
     """
     def on_play_ended(self):
-        # 1) Interne Player-Zustände zuerst sauber auf Pause setzen
+        """Wird aufgerufen, wenn das Video natürlich endet"""
+        # Stelle sicher, dass alle Zustände korrekt zurückgesetzt werden
+        self.video_editor.is_playing = False
         try:
             self.video_editor._player.pause = True
         except Exception:
             pass
-        self.video_editor.is_playing = False
-
-        # 2) UI: Toggle definitiv auf "Play"-Zustand bringen
-        #    a) Falls dein Control einen Setter hat
-        if hasattr(self.video_control, "set_playing"):
-            try:
-                self.video_control.set_playing(False)   # sorgt für Icon + Toggle-State
-            except Exception:
-                pass
-
-        #    b) Falls der Button direkt existiert (häufiger Fall)
-        if hasattr(self.video_control, "play_button"):
-            try:
-                self.video_control.play_button.setChecked(False)
-            except Exception:
-                pass
-
-        #    c) Falls eine QAction genutzt wird
-        if hasattr(self, "action_play_pause"):
-            try:
-                self.action_play_pause.setChecked(False)
-            except Exception:
-                pass
-
-        #    d) Icon explizit setzen (so machst du es bisher)
+        
         self.video_control.update_play_pause_icon(False)
-
-        #    e) Kleiner „Nachschlag“ nach ein paar ms (Race mit mpv-Events entschärfen)
-        try:
-            QTimer.singleShot(50, lambda: self.video_control.update_play_pause_icon(False))
-        except Exception:
-            pass
-
-        # 3) GPX/Map => wir sind in Pause
         self.gpx_widget.set_video_playing(False)
         self.map_widget.set_video_playing(False)
-
-        # 4) Gelben Marker entfernen
+        
+        # Gelben Marker entfernen
         lw = self.gpx_widget.gpx_list
         if lw._last_video_row is not None:
             lw._mark_row_bg_except_markcol(lw._last_video_row, Qt.white)
             lw._last_video_row = None
-
-        # 5) Merken: wir sind am Ende (wird in on_play_pause bereits behandelt)
+            
         self._video_at_end = True
+        
+        # Zusätzlich: Stelle sicher, dass der Player wirklich pausiert ist
+        QTimer.singleShot(50, lambda: self.video_control.update_play_pause_icon(False))
 
 
     def on_step_mode_changed(self, new_value):
@@ -4904,6 +4878,23 @@ class MainWindow(QMainWindow):
                 # User confirmed selecting the last frame
                 self.end_manager.go_to_end()
 
+
+    def check_and_handle_video_end(self):
+        """
+        Überprüft, ob das Video das Ende erreicht hat und setzt den Zustand korrekt zurück.
+        Wird regelmäßig aufgerufen, um das Ende zu erkennen.
+        """
+        if self.video_editor.is_playing:
+            current_pos = self.video_editor.get_current_position_s()
+            total_duration = self.real_total_duration
+            
+            # Prüfe, ob wir am Ende sind (mit einer kleinen Toleranz)
+            if current_pos >= total_duration - 0.1:  # 0.1 Sekunden Toleranz
+                # Video-Ende erkannt - setze Zustand zurück
+                self.video_editor.is_playing = False
+                self.video_control.update_play_pause_icon(False)
+                self.gpx_widget.set_video_playing(False)
+                self.map_widget.set_video_playing(False)
 
     def _save_gpx_to_file(self, gpx_points, out_file: str):
         """
