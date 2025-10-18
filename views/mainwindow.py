@@ -55,6 +55,7 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtGui import QIcon
 from PySide6.QtGui import QKeySequence
+from PySide6.QtCore import QPoint
 
 
 from PySide6.QtWidgets import (
@@ -4895,7 +4896,141 @@ class MainWindow(QMainWindow):
                 self.video_control.update_play_pause_icon(False)
                 self.gpx_widget.set_video_playing(False)
                 self.map_widget.set_video_playing(False)
+                
+                # NEU: Prüfe auf Endcut und springe zum wirklichen Ende
+                self._handle_endcut_if_present()
 
+    
+    
+    
+    def _handle_endcut_if_present(self):
+        """
+        Prüft, ob ein Endcut vorhanden ist und springt dann zum wirklichen Ende des Videos.
+        """
+        total_duration = self.real_total_duration
+        cut_intervals = self.cut_manager._cut_intervals
+        
+        if not cut_intervals:
+            return
+        
+        # Verwende die gleiche Logik wie in on_goto_video_end_clicked
+        if not cut_intervals:
+            final_position = total_duration
+        else:
+            # Sortiere Schnitte nach Endzeit absteigend
+            sorted_cuts = sorted(cut_intervals, key=lambda x: x[1], reverse=True)
+            current_end = total_duration
+            
+            # Toleranz für Fließkomma-Vergleiche
+            TOLERANCE = 0.001
+            
+            for cut_start, cut_end in sorted_cuts:
+                # Prüfe ob dieser Schnitt das aktuelle Ende beeinflusst
+                if abs(cut_end - current_end) < TOLERANCE or cut_end >= current_end:
+                    # Dieser Schnitt beeinflusst das Ende - setze Ende auf Schnittstart
+                    current_end = cut_start
+            
+            final_position = current_end
+        
+        # Prüfe, ob wir uns nicht bereits am richtigen Ende befinden
+        current_pos = self.video_editor.get_current_position_s()
+        if abs(final_position - current_pos) > 0.1 and abs(final_position - total_duration) > 0.001:
+            print(f"[DEBUG] Endcut erkannt: springe von {current_pos:.2f}s zu {final_position:.2f}s")
+            
+            # 1. Popup SOFORT anzeigen
+            self._show_endcut_popup(final_position)
+            
+            # 2. Player-Zustand korrekt setzen (wichtig!)
+            self.video_editor.is_playing = False
+            self.video_control.update_play_pause_icon(False)
+            
+            # 3. Sprung mit Timer (wie in der funktionierenden Version)
+            QTimer.singleShot(100, lambda: self.video_editor._jump_to_global_time(final_position))
+            QTimer.singleShot(350, lambda: self.video_editor._jump_to_global_time(final_position))
+    
+    def _show_endcut_popup(self, end_position: float):
+        """
+        Zeigt ein höheres Popup-Fenster mit mehr Informationen.
+        """
+        popup = QDialog(self.video_editor)
+        popup.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        popup.setStyleSheet("""
+            QDialog {
+                background-color: rgba(0, 0, 0, 180);
+                border: 3px solid orange;
+                border-radius: 10px;
+                color: white;
+                font-size: 14px;
+                font-weight: bold;
+            }
+        """)
+        
+        layout = QVBoxLayout(popup)
+        
+        # Mehrzeiliger Text mit verschiedenen Schriftgrößen
+        label1 = QLabel("🎬 Endcut Reached")
+        label1.setAlignment(Qt.AlignCenter)
+        label1.setStyleSheet("color: white; font-size: 16px; padding: 5px;")
+        
+        label2 = QLabel(f"New last frame: {end_position:.1f}s")
+        label2.setAlignment(Qt.AlignCenter)
+        label2.setStyleSheet("color: white; font-size: 14px; padding: 5px;")
+        
+        label3 = QLabel("(Auto-jumped to actual end)")
+        label3.setAlignment(Qt.AlignCenter)
+        label3.setStyleSheet("color: lightgray; font-size: 12px; padding: 5px;")
+        
+        layout.addWidget(label1)
+        layout.addWidget(label2)
+        layout.addWidget(label3)
+        
+        # HÖHERES FENSTER
+        popup.resize(300, 140)  # Breite: 300px, Höhe: 140px
+        
+        video_rect = self.video_editor.rect()
+        popup_x = video_rect.center().x() - popup.width() // 2
+        popup_y = video_rect.center().y() - popup.height() // 2
+        
+        popup.move(self.video_editor.mapToGlobal(QPoint(popup_x, popup_y)))
+        popup.show()
+        
+        QTimer.singleShot(2500, popup.close)
+        
+        return popup
+    
+    def _fade_popup_in(self, popup):
+        """Fade-In Animation für das Popup"""
+        current_opacity = popup.windowOpacity()
+        if current_opacity < 1.0:
+            popup.setWindowOpacity(current_opacity + 0.1)
+        else:
+            # Stoppe den Timer wenn maximale Opazität erreicht
+            popup.findChild(QTimer).stop()
+
+    def _fade_popup_out(self, popup):
+        """Fade-Out Animation für das Popup"""
+        fade_out = QTimer(popup)
+        fade_out.timeout.connect(lambda: self._fade_popout_out_step(popup, fade_out))
+        fade_out.start(50)
+
+    def _fade_popout_out_step(self, popup, timer):
+        """Ein Schritt der Fade-Out Animation"""
+        current_opacity = popup.windowOpacity()
+        if current_opacity > 0.1:
+            popup.setWindowOpacity(current_opacity - 0.1)
+        else:
+            timer.stop()
+            popup.close()
+
+    def _show_endcut_notification(self, end_position):
+        """
+        Zeigt eine kurze Benachrichtigung über den Endcut.
+        """
+        # Nur zeigen, wenn das Fenster aktiv ist
+        if self.isActiveWindow():
+            self.statusBar().showMessage(f"Endcut: Zum wirklichen Ende bei {end_position:.1f}s gesprungen", 3000)
+    
+    
     def _save_gpx_to_file(self, gpx_points, out_file: str):
         """
         Schreibt gpx_points als valides GPX 1.1 in die Datei `out_file`.
