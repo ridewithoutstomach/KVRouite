@@ -4248,7 +4248,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(250, lambda: self.video_editor._jump_to_global_time(final_position))
     
         print(f"[DEBUG] === GOTO END DEBUG END ===")
-            
+    """        
     def on_play_ended(self):
         self.video_editor.media_player
         self.video_control.update_play_pause_icon(False)
@@ -4269,7 +4269,59 @@ class MainWindow(QMainWindow):
             lw._last_video_row = None
         
         self._video_at_end = True
-    
+    """
+    def on_play_ended(self):
+        # 1) Interne Player-Zustände zuerst sauber auf Pause setzen
+        try:
+            self.video_editor._player.pause = True
+        except Exception:
+            pass
+        self.video_editor.is_playing = False
+
+        # 2) UI: Toggle definitiv auf "Play"-Zustand bringen
+        #    a) Falls dein Control einen Setter hat
+        if hasattr(self.video_control, "set_playing"):
+            try:
+                self.video_control.set_playing(False)   # sorgt für Icon + Toggle-State
+            except Exception:
+                pass
+
+        #    b) Falls der Button direkt existiert (häufiger Fall)
+        if hasattr(self.video_control, "play_button"):
+            try:
+                self.video_control.play_button.setChecked(False)
+            except Exception:
+                pass
+
+        #    c) Falls eine QAction genutzt wird
+        if hasattr(self, "action_play_pause"):
+            try:
+                self.action_play_pause.setChecked(False)
+            except Exception:
+                pass
+
+        #    d) Icon explizit setzen (so machst du es bisher)
+        self.video_control.update_play_pause_icon(False)
+
+        #    e) Kleiner „Nachschlag“ nach ein paar ms (Race mit mpv-Events entschärfen)
+        try:
+            QTimer.singleShot(50, lambda: self.video_control.update_play_pause_icon(False))
+        except Exception:
+            pass
+
+        # 3) GPX/Map => wir sind in Pause
+        self.gpx_widget.set_video_playing(False)
+        self.map_widget.set_video_playing(False)
+
+        # 4) Gelben Marker entfernen
+        lw = self.gpx_widget.gpx_list
+        if lw._last_video_row is not None:
+            lw._mark_row_bg_except_markcol(lw._last_video_row, Qt.white)
+            lw._last_video_row = None
+
+        # 5) Merken: wir sind am Ende (wird in on_play_pause bereits behandelt)
+        self._video_at_end = True
+
 
     def on_step_mode_changed(self, new_value):
         self.step_manager.set_step_mode(new_value)
@@ -4320,22 +4372,7 @@ class MainWindow(QMainWindow):
         #
     
     
-    
-    def _after_hms_switch(self, local_s):
-        """
-        1) Setzt die local_s
-        2) Startet kurz das Abspielen (ohne is_playing=True zu setzen), 
-        damit VLC das Frame dekodieren kann.
-        3) Ein kleiner Timer pausiert wieder => Frame ist sichtbar.
-        """
-        # mpv self.video_editor.media_player.set_time(int(local_s * 1000))
-        self.video_editor.set_time(local_s)  # (float Sek in MPV)
-        self.video_editor.media_player.play()
-    
         
-        #QTimer.singleShot(80, lambda: self._really_pause)
-        QTimer.singleShot(80, lambda: self._really_pause())
-    
 
     def _really_pause(self):
         """
