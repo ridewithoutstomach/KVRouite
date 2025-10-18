@@ -5261,12 +5261,14 @@ class MainWindow(QMainWindow):
         self.map_widget.view.page().runJavaScript(js_code)
 
     
-    
     def _on_new_project_triggered(self):
         """
-        Setzt das Projekt zurück für einen neuen Start.
-        (Originalstruktur beibehalten, nur Overlay und mpv-Stop fixen)
+        Vollständiger Reset für 'New Project'.
+        Setzt Video, GPX, Timeline, Overlays, Marker, Slots, Sync/Prompts,
+        Edit-Mode, Zeitmodus (global) und UI-Zustände zurück.
         """
+        from PySide6.QtWidgets import QMessageBox
+
         reply = QMessageBox.question(
             self,
             "New Project",
@@ -5277,19 +5279,39 @@ class MainWindow(QMainWindow):
         if reply != QMessageBox.Yes:
             return
 
-        # mpv Player stoppen und leeren
-        if self.video_editor._player:
-            try:
-                self.video_editor._player.command("stop")  # <<< neu ergänzt
-                self.video_editor._player.command("playlist-clear")
-            except Exception as e:
-                print(f"[WARN] Could not clear playlist: {e}")
+        # --- 1) Video/mpv hart stoppen & leeren ---
+        try:
+            if getattr(self.video_editor, "_player", None):
+                try:
+                    self.video_editor._player.command("stop")
+                except Exception:
+                    pass
+                try:
+                    self.video_editor._player.command("playlist-clear")
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"[WARN] NewProject: mpv cleanup: {e}")
 
-        # interne Video-Infos leeren
-        self.playlist.clear()
-        self.video_durations.clear()
-        self.global_keyframes.clear()
-    
+        # Zeitmodus/Callback zurück auf "global"/None
+        try:
+            self._time_mode = "global"
+            self.video_editor.set_time_mode("global")      # VideoEditorWidget API
+            self.video_editor.set_final_time_callback(None)
+        except Exception:
+            pass
+
+        # --- 2) Interne Video-State-Container leeren ---
+        try:
+            self.playlist.clear()
+        except Exception:
+            pass
+        try:
+            self.video_durations.clear()
+        except Exception:
+            pass
+
+        self.global_keyframes = []
         self.video_editor.playlist = []
         self.video_editor.multi_durations = []
         self.video_editor.boundaries = []
@@ -5299,63 +5321,130 @@ class MainWindow(QMainWindow):
         self.video_editor.set_cut_time(0.0)
         self.video_editor.current_time_label.setText("")
 
-        # Timeline löschen
-        self.timeline.clear_all_cuts()
-        self.timeline.clear_overlay_intervals()  # <<< richtig ersetzt
-        self.timeline.set_total_duration(0.0)
-        self.timeline.set_boundaries([])
+        # --- 3) Timeline & Cuts vollständig zurücksetzen ---
+        try:
+            self.cut_manager._cut_intervals.clear()
+            self.cut_manager.markB_time_s = -1.0
+            self.cut_manager.markE_time_s = -1.0
 
-        # GPX Daten löschen
-        self._gpx_data.clear()
-        self.gpx_widget.set_gpx_data([])
-        self.chart.set_gpx_data([])
-        if self.mini_chart_widget:
-            self.mini_chart_widget.set_gpx_data([])
-        set_gpx_video_shift(None) # reset GPX-Video shift
-        self.enableVideoGpxSync(False)  
-             
-        
-        self.map_widget.loadRoute({"type": "FeatureCollection", "features": []}, do_fit=True)
-        
-        for s in (1, 2):
-            self._gpx_slots[s]["gpx_data"] = []
-            self._gpx_slots[s]["gpx_video_shift"] = None
-            self._gpx_slots[s]["markB"] = None
-            self._gpx_slots[s]["markE"] = None
-        self._active_gpx_slot = 1
-        # (Optional) UI auf Slot 1 synchronisieren:
-        self._apply_slot_to_ui()
-    
-        # Cuts löschen
-        self.cut_manager._cut_intervals.clear()
-        self.cut_manager.markB_time_s = -1.0
-        self.cut_manager.markE_time_s = -1.0
+            self.timeline.clear_all_cuts()
+            self.timeline.clear_overlay_intervals()
+            self.timeline.set_total_duration(0.0)
+            self.timeline.set_boundaries([])
+        except Exception as e:
+            print(f"[WARN] NewProject: timeline/cuts reset: {e}")
 
-        # Overlays löschen
-        self._overlay_manager._overlays.clear()
+        # --- 4) Overlays sauber löschen (über Manager-API) ---
+        try:
+            self._overlay_manager.clear_overlays()  # bevorzugt API verwenden
+        except Exception:
+            try:
+                self._overlay_manager._overlays.clear()
+                self.timeline.clear_overlay_intervals()
+            except Exception:
+                pass
 
-        # Undo-Stack löschen
-        self._undo_stack.clear()
+        # --- 5) GPX-Daten, Marker, UI, Sync-Shift ---
+        try:
+            # GPX Array + Widgets
+            self._gpx_data.clear()
+            self.gpx_widget.set_gpx_data([])
+            self.chart.set_gpx_data([])
+            if getattr(self, "mini_chart_widget", None):
+                self.mini_chart_widget.set_gpx_data([])
 
-        # interne Zustände
+            # Tabellen-Selektion & Marker im List-Widget löschen
+            try:
+                gl = self.gpx_widget.gpx_list
+                if hasattr(gl, "_markB_idx"): gl._markB_idx = None
+                if hasattr(gl, "_markE_idx"): gl._markE_idx = None
+                if hasattr(gl, "table"):
+                    try:
+                        gl.table.clearSelection()
+                    except Exception:
+                        pass
+            except Exception as e:
+                print(f"[WARN] NewProject: clear GPX markers: {e}")
+
+            # Map leeren
+            try:
+                self.map_widget.loadRoute(
+                    {"type": "FeatureCollection", "features": []}, do_fit=True
+                )
+                # Optional: Directions/Profile-Buttons verstecken
+                try:
+                    self.map_widget.view.page().runJavaScript("setDirectionsEnabled(false);")
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+            # absolut alle Sync-Zustände deaktivieren
+            from core.gpx_parser import set_gpx_video_shift
+            set_gpx_video_shift(None)
+            self.enableVideoGpxSync(False)
+            self._sync_prompt_answer = None
+            self._last_gpx_load_mode = None
+        except Exception as e:
+            print(f"[WARN] NewProject: gpx reset: {e}")
+
+        # --- 6) GPX-Slots DEFINITIV auf Werkseinstellung ---
+        try:
+            for s in (1, 2):
+                self._gpx_slots[s]["gpx_data"] = []
+                self._gpx_slots[s]["gpx_video_shift"] = None
+                self._gpx_slots[s]["markB"] = None
+                self._gpx_slots[s]["markE"] = None
+                # Werkseinstellung: Slot1 False, Slot2 True
+                self._gpx_slots[s]["sync_enabled"] = (s == 2)
+            self._active_gpx_slot = 1
+            self._apply_slot_to_ui()
+        except Exception as e:
+            print(f"[WARN] NewProject: slots reset: {e}")
+
+        # --- 7) Edit-Mode & UI-Toggles neutralisieren ---
+        try:
+            if getattr(self, "_edit_mode", None) != "off":
+                self._set_edit_mode("off")
+            self.video_control.activate_controls(False)
+            if hasattr(self, "action_auto_sync_video"):
+                self.action_auto_sync_video.setChecked(False)
+                try:
+                    self._on_auto_sync_video_toggled(False)
+                except Exception:
+                    pass
+
+            if hasattr(self, "action_new_pts_video_time"):
+                self.action_new_pts_video_time.setChecked(False)
+                try:
+                    self._on_sync_point_video_time_toggled(False)
+                except Exception:
+                    pass
+            
+            self.update_timeline_marker()
+        except Exception as e:
+            print(f"[WARN] NewProject: edit/toggles: {e}")
+
+        # --- 8) Undo-Stack & interne Flags ---
+        try:
+            self._undo_stack.clear()
+        except Exception:
+            pass
         self.first_video_frame_shown = False
         self.real_total_duration = 0.0
         self.playlist_counter = 0
 
-        # Timeline und Editor neu zeichnen
-        self.timeline.update()
-        self.video_editor.update()
-        # Playlist
-        
-        self.playlist.clear()
-        self.video_durations.clear()
-        self.playlist_menu.clear()
-        self._sync_prompt_answer = None
-        self._last_gpx_load_mode = None
-        self._gpx_slots[s]["sync_enabled"] = (s == 2)  
-    
-            
-    
+        # --- 9) Menüs & Views aktualisieren ---
+        try:
+            self.playlist_menu.clear()
+        except Exception:
+            pass
+        try:
+            self.timeline.update()
+            self.video_editor.update()
+        except Exception:
+            pass
+
     
         
     def _go_to_gpx_index(self, idx: int):
