@@ -42,6 +42,15 @@ Die Blende liegt MITTIG auf der Schnittkante - bei 2 s je 1 s davor und
 dahinter, wie in Schnittprogrammen ueblich. Der Export macht es genauso, damit
 Vorschau und Ergebnis an derselben Stelle dasselbe zeigen.
 
+Jede Seite der Blende besteht aus STUECKEN (Datei, Sekunde darin, Dauer), die
+hintereinander die volle Blendenlaenge ergeben. Meist ist das ein einziges
+Stueck. Laeuft das Fenster ueber eine Dateigrenze, sind es zwei - dieselbe
+Zerlegung, die der Export macht (ges_encoder_manager._Quellen.stuecke). Bis
+6.11 kannte ein Auftrag je Seite nur EINE Datei, und die Vorschau fiel an
+jeder Dateigrenze stumm auf einen harten Schnitt zurueck, waehrend der Export
+die Blende rendert. Gesehen am 06.09.2026 am Projekt Stelvio: Schnitt exakt
+1 s vor bis 1 s nach der Grenze, Vorgabe 2 s, Vorschau ohne Blende.
+
 Die Dateien liegen im Instanz-Temp-Ordner (config.TMP_FADE_DIR) und
 verschwinden mit ihm. Der Name enthaelt einen Hash ueber alles, was das
 Ergebnis bestimmt - aendert sich nichts, wird nicht neu gerendert.
@@ -57,7 +66,8 @@ import config
 
 # Aendert sich die Art, wie gerendert wird, muss der Zwischenspeicher
 # ungueltig werden. Deshalb geht diese Marke in den Namen ein.
-_RENDER_VERSION = "2"
+# 3: Stuecke je Seite statt einer Datei je Seite.
+_RENDER_VERSION = "3"
 
 _rotation_cache = {}
 
@@ -93,13 +103,18 @@ def source_rotation(path, ffprobe=None):
 
 
 class FadeJob:
-    """Eine zu rendernde Blende."""
+    """Eine zu rendernde Blende.
 
-    def __init__(self, src_a, in_a, src_b, in_b, duration, width, fps):
-        self.src_a = src_a          # Datei mit dem abgehenden Bild
-        self.in_a = float(in_a)     # Sekunde darin
-        self.src_b = src_b          # Datei mit dem ankommenden Bild
-        self.in_b = float(in_b)
+    seite_a / seite_b: Liste von (Datei, Sekunde darin, Dauer) - die Stuecke
+    der abgehenden und der ankommenden Seite, in Abspielreihenfolge. Ihre
+    Dauern ergeben zusammen `duration`. Ein Stueck ohne ganzes Bild - etwa
+    ein Rest von Nanosekunden an einer Dateigrenze - faellt beim Rastern in
+    _ges_start weg.
+    """
+
+    def __init__(self, seite_a, seite_b, duration, width, fps):
+        self.a = [(p, float(i), float(d)) for (p, i, d) in seite_a]
+        self.b = [(p, float(i), float(d)) for (p, i, d) in seite_b]
         self.duration = float(duration)
         self.width = int(width)
         self.fps = fps              # (zaehler, nenner)
@@ -107,16 +122,26 @@ class FadeJob:
     def key(self):
         """Erkennungsmerkmal. Aendert sich eine Quelldatei, aendert sich der Hash."""
         teile = []
-        for p in (self.src_a, self.src_b):
-            try:
-                st = os.stat(p)
-                teile.append(f"{p}|{st.st_size}|{int(st.st_mtime)}")
-            except OSError:
-                teile.append(f"{p}|?")
-        teile.append(f"{self.in_a:.6f}|{self.in_b:.6f}|{self.duration:.6f}"
+        for seite in (self.a, self.b):
+            for (p, inp, d) in seite:
+                try:
+                    st = os.stat(p)
+                    teile.append(f"{p}|{st.st_size}|{int(st.st_mtime)}"
+                                 f"|{inp:.6f}|{d:.6f}")
+                except OSError:
+                    teile.append(f"{p}|?|{inp:.6f}|{d:.6f}")
+            teile.append("/")
+        teile.append(f"{self.duration:.6f}"
                      f"|{self.width}|{self.fps[0]}/{self.fps[1]}|v{_RENDER_VERSION}")
         h = hashlib.sha1("||".join(teile).encode("utf-8")).hexdigest()[:16]
         return h
+
+    def beschreibung(self):
+        """Fuer das Protokoll: die Stuecke beider Seiten, kurz."""
+        def kurz(seite):
+            return " + ".join(f"{os.path.basename(p)}@{i:.2f}s/{d:.2f}s"
+                              for (p, i, d) in seite)
+        return f"A: {kurz(self.a)} | B: {kurz(self.b)}"
 
     def path(self):
         return os.path.join(config.TMP_FADE_DIR, f"fade_{self.key()}.mp4")
@@ -300,8 +325,13 @@ class FadeRenderer(QObject):
     #
     # Aufbau der Miniatur-Timeline, gleich der im Encoder:
     #
-    #     untere Ebene:  A, `duration` lang, ab in_a
-    #     obere Ebene:   B, `duration` lang, ab in_b, Deckkraft 0 -> 1
+    #     untere Ebene:  die Stuecke von A hintereinander, `duration` lang
+    #     obere Ebene:   die Stuecke von B hintereinander, Deckkraft 0 -> 1
+    #
+    # Die Deckkraftrampe laeuft ueber die GANZE Blende. Besteht B aus zwei
+    # Stuecken, bekommt jedes den Abschnitt der Rampe, der auf seinen Platz
+    # entfaellt - Stuetzstellen in Medienzeit, ab dem inpoint des Stuecks,
+    # wie _alpha_rampe() im Encoder.
     #
     # NICHT gedreht wird dabei mit Absicht. Die Vorschau legt jedem Clip die
     # Drehung des Quellmaterials auf, auch dem Schnipsel (siehe
@@ -346,14 +376,21 @@ class FadeRenderer(QObject):
         bilder = max(1, int(round(job.duration * num / den)) - 1)
         dauer_ns = bilder * den * ns // num
 
+        def raster(sekunden):
+            """Auf das Bildraster legen, in ns - wie _raster() im Encoder."""
+            return int(round(sekunden * num / den)) * den * ns // num
+
+        # Jede Datei einmal laden, auch wenn sie auf beiden Seiten vorkommt.
+        assets = {}
         try:
-            a = GES.UriClipAsset.request_sync(
-                GLib.filename_to_uri(os.path.abspath(job.src_a), None))
-            b = GES.UriClipAsset.request_sync(
-                GLib.filename_to_uri(os.path.abspath(job.src_b), None))
+            for (pfad, _i, _d) in job.a + job.b:
+                if pfad not in assets:
+                    assets[pfad] = GES.UriClipAsset.request_sync(
+                        GLib.filename_to_uri(os.path.abspath(pfad), None))
         except Exception as exc:
             print(f"[FADE] Quelle nicht ladbar: {exc}")
             return False
+        a = assets[job.a[0][0]]
 
         # Zielhoehe aus dem ROHEN Bild, weil nicht gedreht wird.
         hoehe = 0
@@ -387,19 +424,55 @@ class FadeRenderer(QObject):
                                       GstVideo.VideoOrientationMethod.IDENTITY)
             return clip
 
-        in_a = int(round(job.in_a * num / den)) * den * ns // num
-        in_b = int(round(job.in_b * num / den)) * den * ns // num
+        def stuecke_legen(layer, seite, mit_rampe):
+            """Die Stuecke einer Seite luecklos hintereinander auf die Ebene.
 
-        ohne_drehung(unten.add_asset(a, 0, in_a, dauer_ns, GES.TrackType.UNKNOWN))
-        clip_b = ohne_drehung(
-            oben.add_asset(b, 0, in_b, dauer_ns, GES.TrackType.UNKNOWN))
-        for el in clip_b.find_track_elements(None, GES.TrackType.VIDEO,
-                                             GES.VideoSource):
-            quelle = GstController.InterpolationControlSource()
-            quelle.props.mode = GstController.InterpolationMode.LINEAR
-            el.set_control_source(quelle, "alpha", "direct")
-            quelle.set(in_b, 0.0)
-            quelle.set(in_b + dauer_ns, 1.0)
+            Jedes Stueck endet dort, wo es laut Blende enden soll, gerastert
+            auf ganze Bilder. Reicht die Quelle nicht so weit - die Laenge
+            aus der Playlist kann um ein Bild von dem abweichen, was GES in
+            der Datei sieht -, wird es gekuerzt, und das naechste Stueck
+            schliesst direkt an. Die Blende wird dann hoechstens ein Bild
+            kuerzer; die Vorschau richtet sich ohnehin nach der WIRKLICHEN
+            Laenge der Datei (ges_backend._rebuild).
+            """
+            lage = 0            # Platz auf der Timeline, ns
+            versatz = 0.0       # Sekunde in der Blende, an der das Stueck beginnt
+            for (pfad, inpoint_s, dauer_s) in seite:
+                von = raster(versatz)
+                bis = min(raster(versatz + dauer_s), dauer_ns)
+                versatz += dauer_s
+                if bis <= von:
+                    continue    # kein ganzes Bild - Rest an einer Dateigrenze
+                asset = assets[pfad]
+                inpoint = raster(inpoint_s)
+                rest = asset.get_duration() - inpoint
+                if rest <= 0:
+                    continue
+                laenge = min(bis - von, rest)
+                clip = layer.add_asset(asset, lage, inpoint, laenge,
+                                       GES.TrackType.UNKNOWN)
+                if clip is None:
+                    raise RuntimeError(
+                        f"Stueck nicht einsetzbar: {os.path.basename(pfad)}"
+                        f"@{inpoint_s:.3f}s")
+                ohne_drehung(clip)
+                if mit_rampe:
+                    for el in clip.find_track_elements(None, GES.TrackType.VIDEO,
+                                                       GES.VideoSource):
+                        quelle = GstController.InterpolationControlSource()
+                        quelle.props.mode = GstController.InterpolationMode.LINEAR
+                        el.set_control_source(quelle, "alpha", "direct")
+                        quelle.set(inpoint, lage / dauer_ns)
+                        quelle.set(inpoint + laenge, (lage + laenge) / dauer_ns)
+                lage += laenge
+            return lage
+
+        if stuecke_legen(unten, job.a, False) <= 0:
+            print("[FADE] abgehende Seite ohne Material")
+            return False
+        if stuecke_legen(oben, job.b, True) <= 0:
+            print("[FADE] ankommende Seite ohne Material")
+            return False
         timeline.commit_sync()
 
         behaelter = GstPbutils.EncodingContainerProfile.new(
@@ -454,8 +527,7 @@ class FadeRenderer(QObject):
         self._ges_letzte_pos = -1
         self._ges_still_seit = self._ges_start_zeit
         self._ges_gemeldet = self._ges_start_zeit
-        print(f"[FADE] GES rendert {os.path.basename(job.src_a)}@{job.in_a:.2f}s + "
-              f"{os.path.basename(job.src_b)}@{job.in_b:.2f}s, {job.duration:.2f}s, "
+        print(f"[FADE] GES rendert {job.beschreibung()}, {job.duration:.2f}s, "
               f"{job.width}x{hoehe} @ {num}/{den} "
               f"[{job.key()[:8]}, Anlauf {self._anlaeufe.get(job.key(), 1)}]")
         self._ges_timer.start(50)

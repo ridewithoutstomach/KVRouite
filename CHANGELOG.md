@@ -155,6 +155,33 @@ duration of the check, so the same calculation also asks whether *it* still
 fits at the new place; nothing is shortened silently. A cut without its own
 setting is not touched and keeps following the default.
 
+**Preview: a crossfade at a file boundary was silently dropped**
+
+The preview renders each crossfade once as a small clip
+(`core/fade_cache.py`). A job knew one source file per side, and
+`_make_fade_job()` gave up as soon as the 2 s window of either side ran into
+the next file - a `[DEBUG]` line in the console, a hard cut in the preview,
+no message. The export has no such limit: it splits every range across files
+(`_Quellen.stuecke`) and renders the fade. So at exactly these places the
+preview did not show what the export produces.
+
+Seen on 2026-09-06 in the Stelvio project: a cut from 1 s before to 1 s
+after the boundary between two GoPro chapters, default 2 s. The incoming
+window started 0.3 ns before the boundary, was assigned to the first file,
+and "ran into the next file". With 1 s it fit, so the fade only appeared
+after shortening it.
+
+A `FadeJob` now carries a list of pieces `(file, in-point, duration)` per
+side, and `_make_fade_job()` splits each window across files the way the
+export does. `_ges_start()` lays the pieces back to back on their layer; the
+opacity ramp runs over the whole fade, each piece of the incoming side gets
+the section of the ramp that falls on its place (support points in media
+time, as `_alpha_rampe()` in the encoder). A piece without a whole frame - a
+nanosecond remainder at a boundary - is dropped at rasterisation; a piece
+whose source is a frame shorter than the playlist duration says is clamped,
+and the next one follows without a gap. The cache key includes every piece;
+the render version is bumped to 3.
+
 ## 6.10 - 2026-09-04
 
 Why 6.10 and not 6.04: version numbers are compared part by part - by the

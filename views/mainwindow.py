@@ -7018,9 +7018,9 @@ class MainWindow(QMainWindow):
         einzigen Blende; fuer einen inneren Schnitt einzeln zu rechnen ergaebe
         die Grenze 0, obwohl an dieser Stelle sehr wohl Platz ist.
 
-        Die Dateigrenzen sind nicht mitgerechnet: laeuft ein Fenster in die
-        naechste Datei, faellt _make_fade_job() von sich aus auf einen harten
-        Schnitt zurueck und sagt es im Protokoll.
+        Dateigrenzen spielen keine Rolle: laeuft ein Fenster in die naechste
+        Datei, rendert _make_fade_job() die Blende dateiuebergreifend, so
+        wie der Export.
         """
         gesamt = float(getattr(self, "real_total_duration", 0.0) or 0.0)
         try:
@@ -7339,35 +7339,55 @@ class MainWindow(QMainWindow):
         behaltenen Material - so machen es Schnittprogramme ueblicherweise,
         und die Gesamtlaenge aendert sich dadurch nicht.
 
-        None, wenn keine Blende noetig ist oder eine der beiden Stellen ueber
-        eine Dateigrenze laeuft - dann bleibt es beim harten Schnitt.
+        Ein Fenster darf ueber eine Dateigrenze laufen. Es wird dann in
+        Stuecke je Datei zerlegt - dieselbe Zerlegung, die der Export macht
+        (ges_encoder_manager._Quellen.stuecke). Bis 6.11 fiel die Vorschau
+        hier an jeder Dateigrenze stumm auf einen harten Schnitt zurueck,
+        waehrend der Export die Blende rendert; an dieser Stelle zeigte sie
+        also nicht das, was hinterher herauskommt.
+
+        None, wenn keine Blende noetig ist oder ein Fenster ueber den Anfang
+        oder das Ende des Videos hinausreicht - dann bleibt es beim harten
+        Schnitt.
         """
         if fade <= 0 or not getattr(self, "playlist", None):
             return None
         durations = getattr(self, "video_durations", None) or []
         if len(durations) != len(self.playlist):
             return None
+        gesamt = sum(durations)
 
-        def datei_und_offset(t, laenge):
-            """(Datei, Sekunde darin) - None, wenn das Fenster die Datei verlaesst."""
-            if t < 0:
+        def stuecke(t, laenge):
+            """[(Datei, Sekunde darin, Dauer)] fuer das Fenster [t, t+laenge].
+
+            Ein Rest von Nanosekunden an einer Dateigrenze ergibt ein Stueck
+            ohne ganzes Bild; fade_cache laesst es beim Rastern weg. Genau
+            so ein Rest war der Ausloeser am 06.09.2026: Fensteranfang
+            1953.117833333 gegen eine Grenze bei 1953.1178333333332 - das
+            Fenster galt damit als "laeuft in die naechste Datei".
+            """
+            if t < -1e-6 or t + laenge > gesamt + 1e-6:
                 return None
+            teile = []
             start = 0.0
             for pfad, d in zip(self.playlist, durations):
-                if start <= t < start + d:
-                    if t - start + laenge > d:
-                        return None       # laeuft in die naechste Datei
-                    return pfad, t - start
+                von = max(t, start)
+                bis = min(t + laenge, start + d)
+                if bis - von > 0:
+                    teile.append((pfad, von - start, bis - von))
                 start += d
-            return None
+            return teile or None
 
         halb = fade / 2.0
-        a = datei_und_offset(cstart - halb, fade)
-        b = datei_und_offset(cend - halb, fade)
+        a = stuecke(cstart - halb, fade)
+        b = stuecke(cend - halb, fade)
         if a is None or b is None:
-            print(f"[DEBUG] Blende {cstart:.2f}-{cend:.2f}: Material liegt an einer "
-                  f"Dateigrenze, bleibt harter Schnitt")
+            print(f"[DEBUG] Blende {cstart:.2f}-{cend:.2f}: Fenster reicht ueber "
+                  f"Anfang oder Ende des Videos hinaus, bleibt harter Schnitt")
             return None
+        if len(a) > 1 or len(b) > 1:
+            print(f"[DEBUG] Blende {cstart:.2f}-{cend:.2f}: Material liegt ueber "
+                  f"einer Dateigrenze, wird dateiuebergreifend gerendert")
 
         # Bildrate als exakter BRUCH, gelesen aus der Quelldatei der
         # abgehenden Seite. Frueher stand hier (int(fps * 1000), 1000), also
@@ -7375,8 +7395,8 @@ class MainWindow(QMainWindow):
         # 29970/1000 statt 30000/1001. Der Schnipsel lief dann minimal zu
         # langsam, und weil die Bildrate im Schluessel des Zwischenspeichers
         # steckt, konnte derselbe Schnitt mehrfach gerendert werden.
-        fps = framerate.lesen(a[0]) or (30000, 1001)
-        return FadeJob(a[0], a[1], b[0], b[1], float(fade),
+        fps = framerate.lesen(a[0][0]) or (30000, 1001)
+        return FadeJob(a, b, float(fade),
                        self.video_editor.preview_width(), fps)
 
     def _on_fades_progress(self, fertig, gesamt):
