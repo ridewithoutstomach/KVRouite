@@ -116,7 +116,10 @@ class GPXListWidget(QWidget):
         
         self._markB_idx = None
         self._markE_idx = None
-        
+        # Die Luecke des letzten Schnitts: (Punkt davor, Punkt danach,
+        # Punktzahl der Spur danach). Rechtsklick auf [- / -] markiert sie.
+        self._luecke = None
+
         self._marked_rows = set()
         # Schriftfarben, die der gelbe Balken ueberdeckt - je Zeile gemerkt,
         # damit sie danach wieder gelten.
@@ -380,11 +383,36 @@ class GPXListWidget(QWidget):
         elif self._markB_idx is not None:
             # Falls nur B existiert
             self._color_mark_cell(self._markB_idx, QColor("white"))
-        
+
         self._markB_idx = None
         self._markE_idx = None
         print("[DEBUG] clear_marked_range => done")
         self.markRangeCleared.emit()
+
+    def luecke_merken(self, b):
+        """Nach einem Schnitt: b ist der erste Punkt HINTER der Luecke in der
+        neuen Spur, b-1 der letzte davor. Rechtsklick auf [- / -] markiert die
+        beiden wieder, etwa fuer chT oder die Nahtglaettung ueber die Luecke.
+        Ruft der Schnitt in der GPX-Leiste wie der Video-Cut mit V&G On auf.
+        Am Anfang oder Ende der Spur gibt es keine Luecke."""
+        n = len(self._gpx_data)
+        self._luecke = (b - 1, b, n) if 0 < b < n else None
+
+    def restore_markB(self):
+        """Markiert den Punkt vor der Luecke des letzten Schnitts als MarkB."""
+        self._luecke_markieren(0, self.set_markB_row)
+
+    def restore_markE(self):
+        """Markiert den Punkt nach der Luecke des letzten Schnitts als MarkE."""
+        self._luecke_markieren(1, self.set_markE_row)
+
+    def _luecke_markieren(self, seite, setzen):
+        # Nur solange die Spur noch so viele Punkte hat wie nach dem Schnitt:
+        # chT, chEle, Smooth aendern die Zaehlung nicht, ein weiterer Schnitt,
+        # Undo oder eine andere Spur schon - dann zeigt der Index irgendwohin.
+        if self._luecke is None or self._luecke[2] != self.table.rowCount():
+            return
+        setzen(self._luecke[seite])
 
     # ---------------------------------------------------------
     # Helper-Funktionen
@@ -753,7 +781,11 @@ class GPXListWidget(QWidget):
     
         # 5) Tabelle updaten
         self.set_gpx_data(self._gpx_data)
-    
+
+        # 5b) Die Luecke merken: der Bereich ist weg, davor liegt b-1, danach
+        # rueckt b nach.
+        self.luecke_merken(b)
+
         # 6) Markierung entfernen
         self.clear_marked_range()
         print("[DEBUG] delete_selected_range => fertig.")
@@ -816,6 +848,9 @@ class GPXListWidget(QWidget):
             self._last_video_row = None
     
             if n == 0:
+                # Keine Spur mehr (Projekt geschlossen): die gemerkte Luecke
+                # gehoerte zu ihr.
+                self._luecke = None
                 if hasattr(self, "_dnd_overlay"):
                     self._dnd_overlay.setText("Drag & Drop 1 GPX/FIT here")
                     self._dnd_overlay.show()

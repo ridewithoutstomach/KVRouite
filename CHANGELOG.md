@@ -97,6 +97,17 @@ be changed in the dialog, which shows before and after. Applying takes a
 GPX undo snapshot; as with chT, video cuts can no longer be undone
 afterwards. The computation lives in `core/naht_glaetten.py` without Qt.
 
+**GPX: right-click on `[-` / `-]` marks the gap of the last cut**
+
+After a cut the marks are gone, and the next step is usually on the gap it
+left - chT or the seam fix over the two neighbours. Right-click on `[-`
+marks the point before the removed range, right-click on `-]` the point
+after it. The gap comes from Cut and Remove in the GPX bar as well as from
+the video cut with V&G on; marking it is done in the GPX bar with V&G off,
+the buttons are hidden otherwise. The gap is remembered as long as the
+track keeps its point count; after another cut, Undo or a new track it is
+forgotten.
+
 ### Changed
 
 **Crossfade dialog steps in 0.1 s**
@@ -168,6 +179,17 @@ it created its own file and loaded 462 modules from its bundle, none from
 Program Files.
 
 ### Fixed
+
+**Clicking the seam point of a video cut said "inside a cut segment"**
+
+The point a video cut interpolates at the seam sits exactly on the cut
+edge, but after the round trip through `datetime` it comes back up to half
+a microsecond off. The jump from the GPX row to the video treated "exactly
+at the segment end" with 1 ns tolerance, so depending on the direction the
+point counted as just before the cut, was rounded to the cut start and
+refused. The tolerance is now 1 µs, the resolution of the GPX times, and
+the cut check compares on milliseconds like the jump time itself. Only the
+jump changed; track and export are untouched.
 
 **Moving a cut kept the crossfade setting**
 

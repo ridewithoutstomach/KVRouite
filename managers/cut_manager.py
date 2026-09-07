@@ -869,10 +869,16 @@ class VideoCutManager(QObject):
     
     def is_in_cut_segment(self, time_s: float) -> bool:
         """
-        Returns True, wenn 'time_s' innerhalb eines vorhandenen 
+        Returns True, wenn 'time_s' innerhalb eines vorhandenen
         Schnittbereichs (start_s <= time_s < end_s) liegt.
+
+        Verglichen wird auf Millisekunden: die Sprungzeit kommt auf ms
+        gerundet an, die Schnittzeiten aus dem Player nicht. Eine Sprungzeit
+        genau auf dem Schnittende rutschte so durch die Rundung knapp davor
+        und galt als drinnen. Nur die Pruefung vor dem Sprung, nicht der Export.
         """
+        t = round(time_s, 3)
         for (start_s, end_s) in self._cut_intervals:
-            if start_s <= time_s < end_s:
+            if round(start_s, 3) <= t < round(end_s, 3):
                 return True
         return False

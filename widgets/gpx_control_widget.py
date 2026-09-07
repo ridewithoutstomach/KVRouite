@@ -251,20 +251,30 @@ class GPXControlWidget(QWidget):
 
         # 1) MarkB
         self.markB_button = QPushButton("[-", self)
-        self.markB_button.setToolTip("Mark the Begin of the Cut in the GPX")
-        
+        self.markB_button.setToolTip("Mark the Begin of the Cut in the GPX\n"
+                                     "Right-click: mark the point before the last cut")
+
         self.markB_button.setMaximumWidth(40)
         self.markB_button.clicked.connect(self.markBClicked.emit)
+        # Rechtsklick markiert die Luecke des letzten Schnitts (Punkt davor
+        # bzw. danach) - fuer eine zweite Aktion ueber die Luecke.
+        self.markB_button.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.markB_button.customContextMenuRequested.connect(
+            lambda _pos: self._on_markB_restore())
         self._buttons_layout.addWidget(self.markB_button)
-        
+
         self._default_markB_style = self.markB_button.styleSheet() or ""
 
         # 2) MarkE
         self.markE_button = QPushButton("-]", self)
-        self.markE_button.setToolTip("Mark the End of the Cut in the GPX")
-        
+        self.markE_button.setToolTip("Mark the End of the Cut in the GPX\n"
+                                     "Right-click: mark the point after the last cut")
+
         self.markE_button.setMaximumWidth(40)
         self.markE_button.clicked.connect(self.markEClicked.emit)
+        self.markE_button.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.markE_button.customContextMenuRequested.connect(
+            lambda _pos: self._on_markE_restore())
         self._buttons_layout.addWidget(self.markE_button)
         
         self._default_markE_style = self.markE_button.styleSheet() or ""
@@ -3336,6 +3346,23 @@ class GPXControlWidget(QWidget):
         """Setzt MarkB- und MarkE-Button auf ihr ursprüngliches StyleSheet zurück."""
         self.markB_button.setStyleSheet(self._default_markB_style)
         self.markE_button.setStyleSheet(self._default_markE_style)
+
+    def _on_markB_restore(self):
+        """Rechtsklick auf [-: den Punkt vor der Luecke des letzten Schnitts
+        markieren. Karte, Chart und Button-Farbe folgen ueber markBSet wie
+        beim Setzen. Nur bei V&G Off - mit V&G On sind die Buttons ohnehin
+        versteckt, und die Video-Buttons haben keinen Rechtsklick."""
+        mw = self._mainwindow
+        if not mw or getattr(mw, "_autoSyncVideoEnabled", False):
+            return
+        mw.gpx_widget.gpx_list.restore_markB()
+
+    def _on_markE_restore(self):
+        """Rechtsklick auf -]: den Punkt nach der Luecke des letzten Schnitts markieren."""
+        mw = self._mainwindow
+        if not mw or getattr(mw, "_autoSyncVideoEnabled", False):
+            return
+        mw.gpx_widget.gpx_list.restore_markE()
         
         
     def _close_gaps_local_interpolation(self, b_idx: int, e_idx: int, dt: float):

@@ -3826,7 +3826,13 @@ class MainWindow(QMainWindow):
                 entfernte_punkte.append(copy.deepcopy(gpx_data[i]))
                 i += 1
             interpolierter_punkt = copy.deepcopy(new_start_pt) if new_start_pt else None
-            
+
+            # Hier sitzt die Naht: alles davor ist behalten (ggf. mit dem
+            # interpolierten Punkt), ab hier rueckt der Rest nach. Die
+            # Ordnungspruefung unten wirft hoechstens Punkte ab hier weg, der
+            # Index bleibt also der erste Punkt hinter der Luecke.
+            naht_idx = len(new_gpx)
+
             # now append remaining points shifted backward by delta_to_remove
             for j in range(i, n):
                 pt = copy.deepcopy(gpx_data[j])
@@ -3867,9 +3873,12 @@ class MainWindow(QMainWindow):
                 recalc_gpx_data(new_gpx)
             else:
                 print("[WARN] on_cut_clicked_video: recalc_gpx_data not available; times changed but metrics not recalculated.")
-            
+
             self.gpx_widget.set_gpx_data(new_gpx)
             self._gpx_data = new_gpx
+            # Rechtsklick auf [- / -] in der GPX-Leiste (V&G Off) markiert
+            # nachher die beiden Nachbarn dieser Luecke.
+            self.gpx_widget.gpx_list.luecke_merken(naht_idx)
             
             # UI updates
             self._update_gpx_overview()
@@ -7773,7 +7782,13 @@ class MainWindow(QMainWindow):
 
         keep_list = self._compute_keep_intervals(cut_intervals, total_dur)
         remaining = final_s
-        EPS = 1e-9
+        # Eine Mikrosekunde: feiner sind GPX-Zeiten nicht (datetime). Der
+        # Nahtpunkt eines Video-Cuts liegt genau auf dem Segmentende, kommt
+        # aber ueber datetime mit bis zu 0.5 us Abweichung zurueck. Mit 1 ns
+        # Toleranz galt er je nach Richtung als "kurz davor" und landete nach
+        # der ms-Rundung auf dem Schnittbeginn - "inside a cut segment".
+        # Nur der Sprung Zeile -> Video rechnet hier, der Export nicht.
+        EPS = 1e-6
 
         for (seg_start, seg_end) in keep_list:
             seg_len = (seg_end - seg_start)
