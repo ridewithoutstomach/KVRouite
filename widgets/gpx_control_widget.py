@@ -42,8 +42,145 @@ from PySide6.QtGui import QIcon
 from datetime import timedelta
 from core.gpx_parser import recalc_gpx_data, get_gpx_video_shift, set_gpx_video_shift
 from core import theme
+from core import naht_glaetten
 
 MAX_LOGO_H = 48
+
+
+class NahtDialog(QDialog):
+    """Diagnose, Vorschlag und Vorher/Nachher fuer 'Fix speed spike'.
+
+    Eigenstaendig, damit er sich ohne MainWindow oeffnen laesst - so wurde
+    er am 06.09.2026 mit den Stelvio-Daten ohne Oberflaeche geprueft. Die
+    Bereichsgroessen lassen sich verstellen; jede Aenderung rechnet den
+    Vorschlag und die Tabelle neu. `vorschlag` ist nach Accept der Stand,
+    der uebernommen werden soll.
+    """
+
+    def __init__(self, gpx_data, vorschlag, parent=None):
+        super().__init__(parent)
+        from PySide6.QtWidgets import (QSpinBox, QTableWidget, QTableWidgetItem,
+                                       QDialogButtonBox, QFormLayout, QHeaderView)
+        self._g = gpx_data
+        self.vorschlag = vorschlag
+        self._QTableWidgetItem = QTableWidgetItem
+
+        self.setWindowTitle("Fix speed spike")
+        aussen = QVBoxLayout(self)
+
+        self._diagnose = QLabel(self)
+        self._diagnose.setWordWrap(True)
+        aussen.addWidget(self._diagnose)
+
+        self._vorschlag_text = QLabel(self)
+        self._vorschlag_text.setWordWrap(True)
+        aussen.addWidget(self._vorschlag_text)
+
+        form = QFormLayout()
+        self._sb_davor = QSpinBox(self)
+        self._sb_davor.setRange(1, max(1, vorschlag.max_davor))
+        self._sb_davor.setValue(vorschlag.davor)
+        self._sb_davor.setSuffix(" points")
+        self._sb_danach = QSpinBox(self)
+        self._sb_danach.setRange(1, max(1, vorschlag.max_danach))
+        self._sb_danach.setValue(vorschlag.danach)
+        self._sb_danach.setSuffix(" points")
+        self._halt_davor = QLabel(self)
+        self._halt_danach = QLabel(self)
+        zeile1 = QHBoxLayout()
+        zeile1.addWidget(self._sb_davor)
+        zeile1.addWidget(self._halt_davor)
+        zeile2 = QHBoxLayout()
+        zeile2.addWidget(self._sb_danach)
+        zeile2.addWidget(self._halt_danach)
+        form.addRow("Range before the seam", zeile1)
+        form.addRow("Range after the seam", zeile2)
+        aussen.addLayout(form)
+
+        self._tabelle = QTableWidget(0, 4, self)
+        self._tabelle.setHorizontalHeaderLabels(
+            ["Points", "Gradient", "Speed before", "Speed after"])
+        self._tabelle.verticalHeader().setVisible(False)
+        self._tabelle.setEditTriggers(QTableWidget.NoEditTriggers)
+        self._tabelle.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        aussen.addWidget(self._tabelle)
+
+        fest = QLabel("Positions, elevations and gradients are not touched. "
+                      "Points after the range keep their times, the video "
+                      "stays in sync.\n\n"
+                      "Like chT, this changes point times: video cuts can no "
+                      "longer be undone afterwards. Set all cuts first, then "
+                      "fix the seams. GPX undo is available.", self)
+        fest.setWordWrap(True)
+        aussen.addWidget(fest)
+
+        self._fehler = QLabel(self)
+        self._fehler.setWordWrap(True)
+        self._fehler.setStyleSheet("color: #c00;")
+        aussen.addWidget(self._fehler)
+
+        self._knoepfe = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=self)
+        self._knoepfe.button(QDialogButtonBox.Ok).setText("Apply")
+        self._knoepfe.accepted.connect(self.accept)
+        self._knoepfe.rejected.connect(self.reject)
+        aussen.addWidget(self._knoepfe)
+
+        self._sb_davor.valueChanged.connect(self._neu_rechnen)
+        self._sb_danach.valueChanged.connect(self._neu_rechnen)
+        self._anzeigen(automatisch=True)
+        self.resize(640, 520)
+
+    def _neu_rechnen(self):
+        try:
+            self.vorschlag = naht_glaetten.vorschlagen(
+                self._g, self.vorschlag.idx,
+                davor=self._sb_davor.value(), danach=self._sb_danach.value())
+        except naht_glaetten.NahtFehler as exc:
+            self.vorschlag = None
+            self._fehler.setText(str(exc))
+            self._knoepfe.button(self._knoepfe.StandardButton.Ok).setEnabled(False)
+            self._tabelle.setRowCount(0)
+            return
+        self._anzeigen(automatisch=False)
+
+    def _anzeigen(self, automatisch):
+        v = self.vorschlag
+        g = self._g
+        self._fehler.setText("")
+        self._knoepfe.button(self._knoepfe.StandardButton.Ok).setEnabled(True)
+
+        self._diagnose.setText(
+            "<b>Row %d:</b> %.1f m in %.3f s = %.0f km/h. The surroundings "
+            "run %.1f km/h (median of %d points each side). About %.1f s of "
+            "riding are missing here - typically a cut seam after a camera "
+            "failure."
+            % (v.idx + 1, v.dm, v.dt_alt, v.v_spitze, v.v_umfeld,
+               naht_glaetten.UMFELD, v.naht_s - v.dt_alt))
+        self._vorschlag_text.setText(
+            "<b>Proposal:</b> give the seam %.1f s and take that time back "
+            "from the %d points before and %d after by dividing every step "
+            "there by %.3f (a 1.000 s step becomes %.3f s). Everything in the "
+            "range runs %.0f %% faster, in its real proportions - the flatter "
+            "part stays the faster one, and a short step stays short."
+            % (v.naht_s, v.davor, v.danach, v.faktor, v.schritt,
+               (v.faktor - 1.0) * 100.0))
+        praefix = "auto: " if automatisch else ""
+        self._halt_davor.setText(praefix + v.halt_davor)
+        self._halt_danach.setText(praefix + v.halt_danach)
+
+        neu = naht_glaetten.vorschau(g, v)
+        zeilen = naht_glaetten.zeilen(g, neu, v)
+        self._tabelle.setRowCount(len(zeilen))
+        for r, (bez, steig, v_alt, v_neu) in enumerate(zeilen):
+            werte = [bez,
+                     "" if bez == "max in range" else "%.1f %%" % steig,
+                     "%.1f km/h" % v_alt, "%.1f km/h" % v_neu]
+            for c, text in enumerate(werte):
+                item = self._QTableWidgetItem(text)
+                if c > 0:
+                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self._tabelle.setItem(r, c, item)
 
 
 class GPXControlWidget(QWidget):
@@ -196,7 +333,10 @@ class GPXControlWidget(QWidget):
         
         action_avgspeed = self.more_menu.addAction("Set AverageSpeed")
         action_avgspeed.triggered.connect(self.averageSpeedClicked.emit)
-        
+
+        action_fix_spike = self.more_menu.addAction("Fix speed spike (cut seam)")
+        action_fix_spike.triggered.connect(self.on_fix_spike_clicked)
+
         self._action_closegaps = self.more_menu.addAction("Close Gaps")
         self._action_closegaps.triggered.connect(self.closeGapsClicked.emit)
         
@@ -1504,6 +1644,91 @@ class GPXControlWidget(QWidget):
         )
         
         
+
+    # ------------------------------------------------------------------
+    # Geschwindigkeitsspitze an einer Schnittnaht glaetten
+    # ------------------------------------------------------------------
+    def on_fix_spike_clicked(self):
+        """Menue '...' -> 'Fix speed spike (cut seam)'.
+
+        Arbeitet auf der angeklickten Zeile. Ist die keine Spitze, werden
+        die gefundenen Spitzen zur Auswahl angeboten. Die Rechnung steht in
+        core/naht_glaetten.py, hier ist nur der Dialog und das Uebernehmen -
+        das Uebernehmen genauso wie bei chT, denn es ist dieselbe Art
+        Aenderung: nur Zeiten.
+        """
+        from PySide6.QtWidgets import QInputDialog
+
+        mw = self._mainwindow
+        gpx_data = mw.gpx_widget.gpx_list._gpx_data if mw else None
+        if not gpx_data or len(gpx_data) < 3:
+            QMessageBox.warning(self, "No GPX Data", "No GPX data available.")
+            return
+
+        spitzen = naht_glaetten.spitzen_finden(gpx_data)
+        row = mw.gpx_widget.gpx_list.table.currentRow()
+        if row not in spitzen:
+            if not spitzen:
+                QMessageBox.information(
+                    self, "No speed spike",
+                    "No speed spike found in this track.\n\n"
+                    "A spike is a segment longer than %.0f m that is at least "
+                    "%.0f times faster than its surroundings - what a cut "
+                    "after a camera failure leaves behind."
+                    % (naht_glaetten.MIN_SPRUNG_M, naht_glaetten.SPITZE_FAKTOR))
+                return
+            eintraege = ["Row %d: %.0f km/h, %.0f m in %.3f s"
+                         % (i + 1, gpx_data[i].get("speed_kmh", 0.0),
+                            gpx_data[i].get("delta_m", 0.0),
+                            naht_glaetten._dt(gpx_data, i))
+                         for i in spitzen]
+            text, ok = QInputDialog.getItem(
+                self, "Speed spikes found",
+                "The selected row is not a speed spike.\n"
+                "These were found in the track - pick one:",
+                eintraege, 0, False)
+            if not ok or text not in eintraege:
+                return
+            row = spitzen[eintraege.index(text)]
+            mw.gpx_widget.gpx_list.select_row_in_pause(row)
+
+        try:
+            vorschlag = naht_glaetten.vorschlagen(gpx_data, row)
+        except naht_glaetten.NahtFehler as exc:
+            QMessageBox.warning(self, "Fix speed spike", str(exc))
+            return
+
+        dlg = NahtDialog(gpx_data, vorschlag, self)
+        if dlg.exec() != QDialog.Accepted or dlg.vorschlag is None:
+            return
+        v = dlg.vorschlag
+
+        self.register_gpx_undo_snapshot()
+        naht_s = naht_glaetten.anwenden(gpx_data, v)
+        recalc_gpx_data(gpx_data)
+        mw.gpx_widget.set_gpx_data(gpx_data)
+        mw._gpx_data = gpx_data
+        mw._update_gpx_overview()
+        mw.chart.set_gpx_data(gpx_data)
+        if mw.mini_chart_widget:
+            mw.mini_chart_widget.set_gpx_data(gpx_data)
+        mw.gpx_widget.gpx_list.clear_marked_range()
+        mw.map_widget.clear_marked_range()
+        if hasattr(mw, "_autoSyncVideoEnabled") and mw._autoSyncVideoEnabled:
+            mw.cut_manager.on_markClear_clicked()
+        mw.gpx_widget.gpx_list.select_row_in_pause(v.idx)
+
+        print("[NAHT] Zeile %d: %.1f m, %.0f -> %.1f km/h; Naht %.3f s, "
+              "%d + %d Punkte, Schritte durch %.3f (1 s -> %.3f s)"
+              % (v.idx + 1, v.dm, v.v_spitze, gpx_data[v.idx].get("speed_kmh", 0.0),
+                 naht_s, v.davor, v.danach, v.faktor, v.schritt))
+        QMessageBox.information(
+            self, "Speed spike fixed",
+            "Row %d now has %.1f km/h (was %.0f km/h).\n"
+            "%d points before and %d after run %.0f %% faster, in their "
+            "real proportions. Points after the range kept their times."
+            % (v.idx + 1, gpx_data[v.idx].get("speed_kmh", 0.0), v.v_spitze,
+               v.davor, v.danach, (v.faktor - 1.0) * 100.0))
 
     def on_show_average_speed_info(self):
         mw = self._mainwindow

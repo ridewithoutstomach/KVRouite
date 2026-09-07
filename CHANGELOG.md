@@ -25,6 +25,12 @@ imported Qt modules reach through their import tables, and check afterwards
 that nothing left behind points into a hole. GStreamer is deliberately left
 complete: which decoder a user's camera needs cannot be measured here.
 
+A third strand came from cutting a ride where the camera had failed twice.
+In the preview, a crossfade at a GoPro chapter boundary was replaced by a
+hard cut while the export rendered it; the preview now splits the fade
+across files the way the export does. In the GPX track, each cut left a
+speed spike at the seam; a new menu entry fixes it.
+
 ### Added
 
 **Timeline: the numbers while dragging a cut or an overlay**
@@ -70,6 +76,26 @@ all, a mix (listing the cuts without record - this also happens in new
 projects when a cut was set with AutoCutVideo+GPX off), or records whose
 track no longer matches. Nothing is changed; the same text goes to the log
 under `[CUT-REC]`.
+
+**GPX: fix the speed spike a cut seam leaves behind**
+
+When a camera failure is cut out of the video, the GPX points of that time
+go with it, but the distance ridden in the meantime stays as one segment -
+100 m in one second at the seam. New entry in the `...` menu of the GPX
+bar: **Fix speed spike (cut seam)**. It works on the selected row, or lists
+the spikes found in the track (segment longer than 20 m, at least three
+times faster than the surroundings) and lets the user pick one.
+
+The seam gets the missing time (distance divided by the surrounding speed),
+and the same time is taken back from a range of points before and after by
+dividing every step there by one factor. Speeds in the range rise by that
+factor in their real proportions; positions, elevations and gradients are
+untouched, and no point after the range moves, so the video stays in sync.
+The range starts at 60 points per side and grows while the factor is above
+15 % and the gradient stays within 2 percentage points of the seam; it can
+be changed in the dialog, which shows before and after. Applying takes a
+GPX undo snapshot; as with chT, video cuts can no longer be undone
+afterwards. The computation lives in `core/naht_glaetten.py` without Qt.
 
 ### Changed
 
