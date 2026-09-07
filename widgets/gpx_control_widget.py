@@ -791,6 +791,25 @@ class GPXControlWidget(QWidget):
         dlg.exec()
     
     
+    @staticmethod
+    def _bilinear(x0, y0, tx, ty, wert):
+        """Gewichtetes Mittel der vier Pixel (x0,y0), (x0+1,y0), (x0,y0+1),
+        (x0+1,y0+1) mit den Anteilen tx, ty in [0, 1). 'wert(px, py)' liefert
+        den Pixelwert oder None; ein fehlendes Pixel faellt aus dem Mittel,
+        fehlen alle, kommt None. Ohne Qt und ohne Netz, damit es sich ohne
+        Fenster nachrechnen laesst."""
+        summe = gewicht = 0.0
+        for px, py, g in ((x0, y0, (1 - tx) * (1 - ty)),
+                          (x0 + 1, y0, tx * (1 - ty)),
+                          (x0, y0 + 1, (1 - tx) * ty),
+                          (x0 + 1, y0 + 1, tx * ty)):
+            v = wert(px, py)
+            if v is None:
+                continue
+            summe += v * g
+            gewicht += g
+        return summe / gewicht if gewicht > 0 else None
+
     def update_elevation_from_mapbox(self, latlon_list):
         """
         Holt Elevation für latlon_list via Mapbox Terrain-RGB Tiles.
@@ -812,30 +831,38 @@ class GPXControlWidget(QWidget):
             return (0, 0)
 
         gpx_data = mw.gpx_widget.gpx_list._gpx_data
-        ZOOM = 14
+        # Zoom 15 ist die feinste Stufe, die das Terrain-RGB-Tileset hat.
+        # Vorher Zoom 14 und je Punkt das naechste Pixel: auf 46 Grad Breite
+        # ist ein Pixel dort 6.6 m breit, die Punkte liegen 3.3 m auseinander.
+        # Zwei, drei Punkte bekamen denselben Wert, dann ein Sprung um 1.5 m,
+        # und aus dem Sprung wurden 50 bis 130 % Steigung. Jetzt liegt die
+        # Hoehe zwischen den vier Nachbarpixeln (bilinear): eine durchgehende
+        # Linie ohne Treppen. Die Aufloesung der Quelle selbst bleibt.
+        ZOOM = 15
+        TILE = 256  # pngraw-Kacheln von terrain-rgb v4 sind 256 px
 
-        # Hilfsfunktionen
-        def latlon_to_tile(lat, lon, zoom):
-            n = 2 ** zoom
-            x_tile = int((lon + 180.0) / 360.0 * n)
-            y_tile = int((1.0 - math.log(math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))) / math.pi) / 2.0 * n)
-            return x_tile, y_tile
-
-        def latlon_to_pixel(lat, lon, zoom, tile_size):
-            n = 2 ** zoom * tile_size
+        def latlon_to_pixel(lat, lon):
+            """Weltweite Pixelkoordinate auf ZOOM, mit Nachkommastellen."""
+            n = 2 ** ZOOM * TILE
             x = (lon + 180.0) / 360.0 * n
             y = (1.0 - math.log(math.tan(math.radians(lat)) + 1 / math.cos(math.radians(lat))) / math.pi) / 2.0 * n
-            return int(x), int(y)
+            return x, y
 
-        # Schritt 1: alle benötigten Tiles ermitteln
+        # Schritt 1: Stuetzpixel je Punkt und die Kacheln dazu. Ein Pixel
+        # steht fuer seine Mitte (+0.5). Die vier Nachbarn koennen in der
+        # Nachbarkachel liegen, deshalb je Stuetzpixel die Kachel bestimmen.
+        stuetzen = []   # (gpx_i, x0, y0, tx, ty): Pixel links oben und Anteile
         needed_tiles = set()
-        for _, lat, lon in latlon_list:
-            xt, yt = latlon_to_tile(lat, lon, ZOOM)
-            needed_tiles.add((xt, yt))
+        for gpx_i, lat, lon in latlon_list:
+            x, y = latlon_to_pixel(lat, lon)
+            fx, fy = x - 0.5, y - 0.5
+            x0, y0 = math.floor(fx), math.floor(fy)
+            stuetzen.append((gpx_i, x0, y0, fx - x0, fy - y0))
+            for px, py in ((x0, y0), (x0 + 1, y0), (x0, y0 + 1), (x0 + 1, y0 + 1)):
+                needed_tiles.add((px // TILE, py // TILE))
 
         # Schritt 2: Tiles herunterladen
         tile_images = {}
-        tile_size = 256  # Standard
         tile_count = 0
 
         for (xtile, ytile) in needed_tiles:
@@ -845,7 +872,6 @@ class GPXControlWidget(QWidget):
                     img_bytes = response.read()
                     img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
                     tile_images[(xtile, ytile)] = img
-                    tile_size = img.size[0]  # z. B. 256
                     tile_count += 1
             except Exception as e:
                 QMessageBox.warning(self, "Tile Load Error",
@@ -858,22 +884,22 @@ class GPXControlWidget(QWidget):
         # Schritt 3: Höhenwerte extrahieren
         successful_points = 0
     
-        for gpx_i, lat, lon in latlon_list:
-            x_pix, y_pix = latlon_to_pixel(lat, lon, ZOOM, tile_size)
-            xtile, ytile = x_pix // tile_size, y_pix // tile_size
-            x_in_tile, y_in_tile = x_pix % tile_size, y_pix % tile_size
+        def hoehe(px, py):
+            """Hoehe des Pixels (px, py) in Weltkoordinaten; None ohne Kachel."""
+            img = tile_images.get((px // TILE, py // TILE))
+            if img is None or px % TILE >= img.width or py % TILE >= img.height:
+                return None
+            r, g, b = img.getpixel((px % TILE, py % TILE))
+            return -10000 + ((r * 256 * 256 + g * 256 + b) * 0.1)
 
-            img = tile_images.get((xtile, ytile))
-            if img is None:
+        # bilinear aus den vier Nachbarpixeln
+        for gpx_i, x0, y0, tx, ty in stuetzen:
+            ele = self._bilinear(x0, y0, tx, ty, hoehe)
+            if ele is None:
+                print(f"[WARN] Terrain tile missing for point {gpx_i}")
                 continue
-
-            if 0 <= x_in_tile < img.width and 0 <= y_in_tile < img.height:
-                r, g, b = img.getpixel((x_in_tile, y_in_tile))
-                elevation = -10000 + ((r * 256 * 256 + g * 256 + b) * 0.1)
-                gpx_data[gpx_i]["ele"] = elevation
-                successful_points += 1
-            else:
-                print(f"[WARN] Out-of-bounds pixel: {x_in_tile},{y_in_tile} in tile {xtile},{ytile}")
+            gpx_data[gpx_i]["ele"] = ele
+            successful_points += 1
 
         return (successful_points, tile_count)
 

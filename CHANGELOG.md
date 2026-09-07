@@ -138,6 +138,17 @@ own remains what the timeline's right-click offers.
 
 ### Changed
 
+**Elevation from Mapbox: between the pixels, at zoom 15**
+
+The elevation fetch read the nearest pixel of a zoom-14 terrain tile. At
+46° a pixel is 6.6 m wide, the points 3.3 m apart: two or three points got
+the same value, then a step of 1.5 m, and the step became 50 to 130 %
+slope. The height is now interpolated between the four neighbouring
+pixels, and the tiles are zoom 15, the finest the tileset has. The result
+is a continuous line without stairs; the resolution of the source itself
+is unchanged, and an offset against the recorded track is still shifted
+with Set height B..E.
+
 **Crossfade dialog steps in 0.1 s**
 
 The spin box stepped by 0.5 s while 1.3 s could be typed. 0.1 s is the
