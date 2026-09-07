@@ -387,6 +387,8 @@ class GPXControlWidget(QWidget):
             "Rebuild the heights between markB and markE by hand: support points, grades, rounding")
         action_profil.triggered.connect(self.on_height_profile_clicked)
         self._profil_editor = None
+        # Stand nach dem letzten Smooth (core.hoehen_glaetten.Stand), None ohne
+        self._glaettung = None
         
         action_resample = self.more_menu.addAction("Resample to 1s")
         action_resample.triggered.connect(self._on_resample_to_1s_clicked)
@@ -2105,19 +2107,75 @@ class GPXControlWidget(QWidget):
         """
         Wird aufgerufen, wenn im GPXControlWidget der 'Smooth' Button gedrückt wird.
         - Öffnet einen Dialog mit 2 Parametern: Box_Smoothing (default=10), Flatten_Value (default=2)
-        - Bei OK => ruft _apply_smoothing(...) auf, das die komplette GPX glättet
+        - Bei OK => core.hoehen_glaetten.glaetten() fuer B..E oder die ganze Spur
         - Schreibt Undo-History, damit man zurück kann
         """
         
+        from core import hoehen_glaetten as hg
+
         gpx_data = mw.gpx_widget.gpx_list._gpx_data
-        if not gpx_data:
+        if not gpx_data or len(gpx_data) < 3:
             QMessageBox.warning(self, "No GPX", "No GPX data available for smoothing!")
             return
+        n = len(gpx_data)
+
+        # Bereich: B..E wenn markiert, sonst die ganze Spur - und das steht
+        # im Dialog, bisher stand es nirgends.
+        gl = mw.gpx_widget.gpx_list
+        b, e = gl._markB_idx, gl._markE_idx
+        bereich = b is not None and e is not None and abs(e - b) >= 2
+        if bereich:
+            b, e = min(b, e), max(b, e)
+        else:
+            b, e = 0, n - 1
+
+        # Der Stand vom letzten Smooth: nochmal ueber dasselbe flacht weiter
+        # ab, und wurden seither nur einige Zeilen geaendert (Profil-Editor,
+        # chEle), sind die der eigentliche Kandidat.
+        stand = self._glaettung
+        art, za, zz = hg.geaenderte_zeilen(stand, gpx_data)
+        if art == "gleich":
+            antwort = QMessageBox.warning(
+                self, "Already smoothed",
+                f"This track was already smoothed at {stand.wann()} with Box {stand.box}, "
+                f"Flatten {stand.flatten:.2f}: the climb went from {stand.anstieg_vorher:.0f} m "
+                f"to {stand.anstieg_nachher:.0f} m.\nSmoothing again flattens it further.\n\n"
+                "Continue?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if antwort != QMessageBox.Yes:
+                return
+        elif art == "geaendert" and not bereich:
+            frage = QMessageBox(self)
+            frage.setIcon(QMessageBox.Question)
+            frage.setWindowTitle("Heights changed since the last smooth")
+            frage.setText(
+                f"Since the last smooth at {stand.wann()} the heights changed in rows "
+                f"{za}..{zz} only.\nSmooth only that range, or the whole track again? "
+                "The whole track was already smoothed once; doing it again flattens it further.")
+            knopf_nur = frage.addButton(f"Only rows {za}..{zz}", QMessageBox.AcceptRole)
+            knopf_ganz = frage.addButton("Whole track", QMessageBox.ActionRole)
+            frage.addButton(QMessageBox.Cancel)
+            frage.setDefaultButton(knopf_nur)
+            frage.exec()
+            if frage.clickedButton() is knopf_nur:
+                # mindestens ein Punkt dazwischen, sonst gibt es nichts zu mitteln
+                b, e = max(0, min(za, zz - 2)), min(n - 1, max(zz, za + 2))
+                bereich = True
+            elif frage.clickedButton() is not knopf_ganz:
+                return
 
         # 1) Dialog
         dlg = QDialog(self)
         dlg.setWindowTitle("GPX Smoothing Parameters")
         vbox = QVBoxLayout(dlg)
+
+        if bereich:
+            wo = f"Rows {b}..{e} only ({e - b + 1} points). Heights of B and E stay."
+        else:
+            wo = f"No range marked: the WHOLE track ({n} points) will be smoothed."
+        lbl_wo = QLabel(wo)
+        lbl_wo.setStyleSheet("font-weight: bold;")
+        vbox.addWidget(lbl_wo)
 
         lbl_info = QLabel(
             "Apply Slope Box Smoothing + Flatten Value\n\n"
@@ -2172,89 +2230,52 @@ class GPXControlWidget(QWidget):
         flatten_val   = spin_flat.value()
     
         # 2) Undo => Kopie
-        self.register_gpx_undo_snapshot("Smooth (whole track)")
-        
-        # 3) => smoothing
-        self._apply_smoothing(gpx_data, box_smoothing, flatten_val)
-    
+        if bereich:
+            self.register_gpx_undo_snapshot(self._schritt("Smooth", b, e))
+        else:
+            self.register_gpx_undo_snapshot("Smooth (whole track)")
+
+        # 3) => smoothing, Rechnung in core/hoehen_glaetten.py
+        vorher = hg.anstieg(gpx_data)
+        hoehen = hg.glaetten(gpx_data, b, e, box_smoothing, flatten_val)
+        for i, h in enumerate(hoehen):
+            gpx_data[b + i]["ele"] = h
+
         # 4) => Neu set + recalc
-        from core.gpx_parser import recalc_gpx_data
         recalc_gpx_data(gpx_data)
         mw.gpx_widget.set_gpx_data(gpx_data)
         mw._gpx_data = gpx_data
         mw._update_gpx_overview()
-    
-        # => evtl. Map + Chart
-        #route_geojson = self._build_route_geojson_from_gpx(gpx_data)
-        #self.map_widget.loadRoute(route_geojson, do_fit=False)
         mw.chart.set_gpx_data(gpx_data)
         if mw.mini_chart_widget:
             mw.mini_chart_widget.set_gpx_data(gpx_data)
-            
+        if bereich:
+            gl.clear_marked_range()
+            mw.map_widget.clear_marked_range()
+
+        nachher = hg.anstieg(gpx_data)
+        self._glaettung = hg.Stand([float(p.get("ele", 0.0)) for p in gpx_data],
+                                   box_smoothing, flatten_val, b, e, vorher, nachher)
+        print(f"[SMOOTH] {'Zeilen %d..%d' % (b, e) if bereich else 'ganze Spur'}, "
+              f"Box {box_smoothing}, Flatten {flatten_val:.2f}, Anstieg {vorher:.1f} -> {nachher:.1f} m")
         QMessageBox.information(
             self, "Smooth done",
-            f"Smoothing applied with Box={box_smoothing}, Flatten={flatten_val:.2f}"
-        )    
+            (f"Smoothed rows {b}..{e}" if bereich else f"Smoothed the whole track ({n} points)")
+            + f" with Box={box_smoothing}, Flatten={flatten_val:.2f}.\n"
+            f"Climb of the track: {vorher:.0f} m before, {nachher:.0f} m after.")
+
+    def glaettung_als_dict(self):
+        """Fuer die Projektdatei: Zusammenfassung des letzten Smooth, ohne Hoehen."""
+        return self._glaettung.als_dict() if self._glaettung is not None else None
+
+    def glaettung_aus_dict(self, d):
+        """Aus der Projektdatei. Ohne Hoehen: die Warnung 'already smoothed'
+        gibt es dann, die geaenderten Zeilen nicht."""
+        from core import hoehen_glaetten as hg
+        self._glaettung = hg.Stand.aus_dict(d)    
         
-    def _apply_smoothing(self, gpx_data, box_size=10, flatten_val=2.0):
-        """
-        wendet 2-stufiges Smoothing an:
-        1) Box slope smoothing
-        2) Flatten Value => wenn slope-Änderung > flatten_val => clamp
-        => hinterher reconstruct elevation
-        """
-        import math
-    
-        n = len(gpx_data)
-        if n < 2:
-            return
+    # Die Glaettung selbst steht seit 6.11 in core/hoehen_glaetten.py.
 
-        # 1) Dist2D:
-        dist2d = [0.0]*n
-        for i in range(1, n):
-            lat1, lon1 = gpx_data[i-1]["lat"], gpx_data[i-1]["lon"]
-            lat2, lon2 = gpx_data[i]["lat"],  gpx_data[i]["lon"]
-            dist2d[i] = self._haversine_m(lat1, lon1, lat2, lon2)
-
-        # 2) slope[i] = (ele[i]-ele[i-1]) / dist2d[i] * 100
-        slope = [0.0]*n
-        for i in range(1, n):
-            d2 = dist2d[i]
-            if d2 > 0.01:
-                slope[i] = ((gpx_data[i]["ele"] - gpx_data[i-1]["ele"]) / d2)*100
-            else:
-                slope[i] = 0.0
-
-        # 3) Box smoothing => slope_smooth[i] = average of slope[i-box..i+box], clamp 0..n-1
-        slope_smooth = slope[:]  # copy
-        for i in range(n):
-            start_i = max(0, i-box_size)
-            end_i   = min(n-1, i+box_size)
-            count   = (end_i - start_i + 1)
-            if count < 1:
-                continue
-            ssum = 0.0
-            for j in range(start_i, end_i+1):
-                ssum += slope[j]
-            slope_smooth[i] = ssum / count
-
-        # 4) Flatten => wir gehen i=1..n-1, check delta to slope_smooth[i-1]
-        for i in range(1, n):
-            delta_slope = slope_smooth[i] - slope_smooth[i-1]
-            if abs(delta_slope) > flatten_val:
-                # clamp => slope_smooth[i] = slope_smooth[i-1] + sign(delta)*flatten_val
-                sign_ = 1.0 if delta_slope>0 else -1.0
-                slope_smooth[i] = slope_smooth[i-1] + sign_*flatten_val
-    
-        # 5) Nun reconstruct elevation => 
-        #    ele[0] bleibt wie es war
-        #    ele[i] = ele[i-1] + dist2d[i] * (slope_smooth[i]/100)
-        new_ele = gpx_data[0]["ele"]
-        for i in range(1, n):
-            old_ele = gpx_data[i]["ele"]  # nur debug
-            new_ele = gpx_data[i-1]["ele"] + (dist2d[i]*(slope_smooth[i]/100))
-            gpx_data[i]["ele"] = new_ele
-        
     # ===========  NEU am Ende von mainwindow.py ============    
     
     

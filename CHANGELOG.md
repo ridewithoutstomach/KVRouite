@@ -163,6 +163,25 @@ own remains what the timeline's right-click offers.
 
 ### Changed
 
+**Smooth: a range when marked, and it says what it does**
+
+Smooth always took the whole track, ignored markB and markE, said nothing
+about it, and rebuilt the heights from point 0 - so the end of the track
+drifted, and every further run flattened the track a little more without
+anyone noticing. Now: with markB and markE set, only that range is
+smoothed; the neighbours outside go into the averaging so the edges do not
+kink, and the height of E stays - what the rebuild leaves over is spread
+evenly along the distance. Without marks it is still the whole track, but
+the dialog says so in its first line, with the point count, and the end
+point stays too. The app remembers the last smooth: run it again on the
+same heights and it warns, with time, parameters and the climb before and
+after; change some heights in between - profile editor, chEle - and it
+finds those rows itself and offers to smooth only them. The result message
+shows the climb before and after. The summary goes into the project file
+(not the heights), so the warning survives a reload; the changed-rows
+offer needs the heights and does not. The calculation lives in
+`core/hoehen_glaetten.py` without Qt.
+
 **Elevation from Mapbox: between the pixels, at zoom 15**
 
 The elevation fetch read the nearest pixel of a zoom-14 terrain tile. At
@@ -243,6 +262,14 @@ it created its own file and loaded 462 modules from its bundle, none from
 Program Files.
 
 ### Fixed
+
+**Project load: markB and markE came back invisible**
+
+The project file stores markB and markE, and loading put only the two
+indices back into the list widget: no red rows, no red buttons, no red
+points on the map. Smooth, chT, ch% or Cut then worked on a range nobody
+could see. Loading now sets the marks the same way as clicking does, after
+the table and the map are built, so they show everywhere.
 
 **Clicking the seam point of a video cut said "inside a cut segment"**
 

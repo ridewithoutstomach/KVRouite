@@ -936,13 +936,31 @@
 
         vectorLayer.getSource().addFeatures(neueFeatures);
 
+        // Die Punkte sind neu, ihre Farbe ist die Vorgabe. Stehen B/E
+        // gesetzt, wieder rot faerben. Noetig, weil dieser Aufbau um 100 ms
+        // verzoegert laeuft: set_markB_point/E, die direkt nach loadRoute
+        // kommen (Projekt laden), traf sonst noch die alten Punkte, und das
+        // Rot ging mit ihnen verloren.
+        mark_new_range_markB_E();
+
         if (doFit) {
           let ext = vectorLayer.getSource().getExtent();
+          // Sind B und E gesetzt (Projekt laden), soll der markierte Bereich
+          // das Bild fuellen, nicht die ganze Strecke - sonst sucht man ihn.
+          if (markB_idx >= 0 && markE_idx >= 0) {
+            let s = Math.min(markB_idx, markE_idx), e = Math.max(markB_idx, markE_idx);
+            let extBE = ol.extent.createEmpty();
+            for (let i = s; i <= e; i++) {
+              let f = featuresMapIndex[i];
+              if (f) ol.extent.extend(extBE, f.getGeometry().getExtent());
+            }
+            if (!ol.extent.isEmpty(extBE)) ext = extBE;
+          }
           if (!ol.extent.isEmpty(ext)) {
             map.getView().fit(ext, {padding:[30,30,30,30], maxZoom: 20});
           }
         }
- 
+
         hideLoading();
       }, 100);  // gibt dem Browser 100 ms Vorlauf für sichtbare Anzeige
     } 

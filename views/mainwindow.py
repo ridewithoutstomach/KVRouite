@@ -2262,6 +2262,39 @@ class MainWindow(QMainWindow):
         """
         self._fps_nach_laden()
         self._maybe_ask_index()
+        self._liste_auf_zeile_nach_laden()
+
+    def _liste_auf_zeile_nach_laden(self):
+        """Nach dem Projektladen und den Fragen: die GPX-Liste auf MarkB.
+
+        Zwei Anlaeufe davor griffen nicht (07.09.2026): einer waehrend des
+        Ladens hinter dem modalen Ladefenster, einer per Timer, der in die
+        Bildraten-Frage hineinfiel. Hier ist alles vorbei, die Tabelle steht.
+        Ohne Vorbedingung: select_row_in_pause() steigt aus, wenn die Liste
+        das Video fuer laufend haelt - hier soll die Zeile in jedem Fall
+        gezeigt werden. Die Konsolenzeilen bleiben, bis es gesehen ist.
+        """
+        zeile = getattr(self, "_liste_zeile_nach_laden", None)
+        if zeile is None:
+            return
+        self._liste_zeile_nach_laden = None
+        from PySide6.QtWidgets import QAbstractItemView
+        gl = self.gpx_widget.gpx_list
+        it = gl.table.item(zeile, 0)
+        print(f"[LADEN] Liste auf B={zeile}: item={'ja' if it else 'nein'}, "
+              f"rows={gl.table.rowCount()}, playing={gl._video_is_playing}, "
+              f"viewport={gl.table.viewport().height()}px")
+        if it is None:
+            return
+        gl.table.blockSignals(True)
+        gl.table.setCurrentCell(zeile, 0)
+        gl.table.selectRow(zeile)
+        gl.table.blockSignals(False)
+        gl.table.scrollToItem(it, QAbstractItemView.PositionAtCenter)
+        print(f"[LADEN] Liste gescrollt: currentRow={gl.table.currentRow()}, "
+              f"rowAt(0)={gl.table.rowAt(0)}, "
+              f"scroll={gl.table.verticalScrollBar().value()}/"
+              f"{gl.table.verticalScrollBar().maximum()}")
 
     def _maybe_ask_index(self):
         """
@@ -8727,6 +8760,7 @@ class MainWindow(QMainWindow):
             self._undo_stack.clear()
         except Exception:
             pass
+        self.gpx_control._glaettung = None
         self.first_video_frame_shown = False
         self.real_total_duration = 0.0
         self.playlist_counter = 0
@@ -9185,6 +9219,10 @@ class MainWindow(QMainWindow):
             # passen und damit jede Aufzeichnung ungeprueft freigeben - auch
             # nach einem chT oder Close Gaps zwischen Schnitt und Speichern.
             "gpx_fingerabdruck": self.cut_manager.get_gpx_abdruck(),
+            # Der letzte Smooth als Zusammenfassung (Parameter, Zeit, Bereich,
+            # Hoehenmeter), damit ein zweiter Durchlauf auch nach dem Laden
+            # gewarnt wird. Die Hoehen selbst stehen nicht drin.
+            "gpx_smooth": self.gpx_control.glaettung_als_dict(),
             "gpx_markers": {
                 "markB_idx": self.gpx_widget.gpx_list._markB_idx,
                 "markE_idx": self.gpx_widget.gpx_list._markE_idx
@@ -9369,6 +9407,7 @@ class MainWindow(QMainWindow):
             # immer und gaebe jede Aufzeichnung ungeprueft frei.
             hat_abdruck = self.cut_manager.set_gpx_abdruck(
                 project_data.get("gpx_fingerabdruck"))
+            self.gpx_control.glaettung_aus_dict(project_data.get("gpx_smooth"))
             passt = (hat_abdruck
                      and self.cut_manager.zeiten_unveraendert(self._gpx_data))
             print(f"[CUT-REC] {anzahl_aufz} Aufzeichnung(en) aus dem Projekt "
@@ -9390,10 +9429,12 @@ class MainWindow(QMainWindow):
                 self.timeline.set_boundaries(boundaries)
             
 
-            # 4. GPX Markierungen B/E laden
-            gpx_markers = project_data.get("gpx_markers", {})
-            self.gpx_widget.gpx_list._markB_idx = gpx_markers.get("markB_idx", None)
-            self.gpx_widget.gpx_list._markE_idx = gpx_markers.get("markE_idx", None)
+            # 4. GPX Markierungen B/E: nur lesen. Gesetzt werden sie unten,
+            # nach Tabelle und Karte, und zwar sichtbar. Bisher standen hier
+            # nur die Indizes im Widget - Zeilen, Buttons und Karte wussten
+            # nichts davon, aber Smooth, chT oder Cut arbeiteten auf dem
+            # unsichtbaren Bereich.
+            gpx_markers = project_data.get("gpx_markers", {}) or {}
 
             # GPX/Video shift (s)
             set_gpx_video_shift(project_data.get("gpx_video_shift", None))
@@ -9486,6 +9527,38 @@ class MainWindow(QMainWindow):
 
             route_geojson = self._build_route_geojson_from_gpx(gpx_data)
             self.map_widget.loadRoute(route_geojson, do_fit=True)
+
+            # Gespeicherte Marken B/E wiederherstellen - ueber denselben Weg
+            # wie beim Setzen: Zeilen rot, Buttons rot, Punkte in der Karte
+            # rot. Die Karte baut ihre Punkte um 100 ms verzoegert neu auf
+            # und faerbt B..E dabei selbst wieder rot (loadRoute in
+            # map_page.html), deshalb kommt das Rot dort auch an.
+            gl = self.gpx_widget.gpx_list
+            gl.clear_marked_range()
+            n_pkt = len(gpx_data)
+            b_gesp = gpx_markers.get("markB_idx")
+            e_gesp = gpx_markers.get("markE_idx")
+            if isinstance(b_gesp, int) and 0 <= b_gesp < n_pkt:
+                gl.set_markB_row(b_gesp)
+            if isinstance(e_gesp, int) and 0 <= e_gesp < n_pkt:
+                gl.set_markE_row(e_gesp)
+            # Und hinfahren: Liste auf B gescrollt, Chart auf B, die Karte
+            # zoomt beim Aufbau der Route selbst auf B..E (loadRoute in
+            # map_page.html). Sonst sieht man zwar rote Buttons, muss den
+            # Bereich aber in 17.000 Zeilen suchen.
+            if gl._markB_idx is not None:
+                b_zeile = gl._markB_idx
+                gl.select_row_in_pause(b_zeile)
+                self.chart.highlight_gpx_index(b_zeile)
+                if self.mini_chart_widget:
+                    self.mini_chart_widget.set_current_index(b_zeile)
+
+                # Das Scrollen greift hier noch nicht: das Ladefenster ist
+                # modal, die Tabelle hat ihre Groesse noch nicht, und danach
+                # kommen noch die Fragen (Bildrate, Index) mit eigenen
+                # Ereignisschleifen. Deshalb erst NACH den Fragen, in
+                # _fragen_nach_dem_laden() - siehe _liste_auf_zeile_nach_laden().
+                self._liste_zeile_nach_laden = b_zeile
 
             self._update_gpx_overview()
 
