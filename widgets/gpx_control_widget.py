@@ -367,6 +367,11 @@ class GPXControlWidget(QWidget):
         self._action_set_gpx2video = self.more_menu.addAction("SetGPX2VideoTime")
         self._action_set_gpx2video.setEnabled(False)  # standard aus
         self._action_set_gpx2video.triggered.connect(self._on_set_gpx2video_triggered)
+
+        action_cut_to_video = self.more_menu.addAction("Cut GPX to video (B..E)")
+        action_cut_to_video.setStatusTip(
+            "Camera was off: cut as much GPX after markB that markE lands on the current video time")
+        action_cut_to_video.triggered.connect(self.on_cut_gpx_to_video_clicked)
         
         
         
@@ -1735,6 +1740,136 @@ class GPXControlWidget(QWidget):
             "real proportions. Points after the range kept their times."
             % (v.idx + 1, gpx_data[v.idx].get("speed_kmh", 0.0), v.v_spitze,
                v.davor, v.danach, (v.faktor - 1.0) * 100.0))
+
+    # ------------------------------------------------------------------
+    # Kamera war aus: GPX ab B so weit kuerzen, dass E auf die Videozeit faellt
+    # ------------------------------------------------------------------
+    @staticmethod
+    def gpx_ab_punkt_kuerzen(gpx_data, b_idx, dauer_s):
+        """Nimmt ab Punkt b_idx genau dauer_s Sekunden aus der Spur.
+
+        Punkte mit Zeit in (t_B, t_B + dauer_s] fallen weg, alle danach
+        ruecken um dauer_s vor; Punkt b_idx selbst bleibt und wird die Naht.
+        Ein Punkt genau auf t_B + dauer_s faellt mit weg, er laege sonst nach
+        dem Vorruecken zeitgleich auf B. Rueckgabe: Anzahl entfernter Punkte.
+        Ohne Qt, damit es sich ohne Fenster nachrechnen laesst.
+        """
+        t_b = gpx_data[b_idx]["time"]
+        ende = t_b + timedelta(seconds=dauer_s)
+        k = b_idx + 1
+        while k < len(gpx_data) and gpx_data[k]["time"] <= ende:
+            k += 1
+        entfernt = k - (b_idx + 1)
+        del gpx_data[b_idx + 1:k]
+        d = timedelta(seconds=dauer_s)
+        for pt in gpx_data[b_idx + 1:]:
+            pt["time"] = pt["time"] - d
+        return entfernt
+
+    def on_cut_gpx_to_video_clicked(self):
+        """Menue '...' -> 'Cut GPX to video (B..E)'.
+
+        Lage: an einer Merge-Kante war die Kamera aus, die GPX lief weiter.
+        Der Video-Cut hat nur die Sekunden um die Kante aus der GPX genommen,
+        die Aus-Zeit steckt noch drin, ab der Naht laeuft die GPX dem Video
+        davon. Ablauf: MarkB auf die Naht (Rechtsklick [- nach dem Cut),
+        im Video zu einem markanten Punkt fahren, dessen GPX-Punkt als MarkE
+        markieren, dann dieser Eintrag. Er rechnet Tabellenzeit von E minus
+        aktuelle Videozeit = Aus-Zeit der Kamera und nimmt genau so viel
+        GPX-Zeit ab B heraus. Danach steht E auf der Videozeit, alles
+        dahinter ist wieder synchron. An der Naht bleibt der Sprung in der
+        Strecke - dafuer danach Rechtsklick [- / -] und Fix speed spike.
+        Nur bei V&G Off: mit V&G On setzen die Video-Buttons den GPX-Punkt
+        immer auf die Videozeit, nicht auf den gewaehlten Punkt.
+        """
+        mw = self._mainwindow
+        gpx_data = mw.gpx_widget.gpx_list._gpx_data if mw else None
+        if not gpx_data or len(gpx_data) < 3:
+            QMessageBox.warning(self, "No GPX Data", "No GPX data available.")
+            return
+        if getattr(mw, "_autoSyncVideoEnabled", False):
+            QMessageBox.warning(self, "Cut GPX to video",
+                                "Switch V&G off first: markB and markE must be GPX points, "
+                                "not video times.")
+            return
+        if not getattr(mw, "playlist_counter", 0):
+            QMessageBox.warning(self, "Cut GPX to video", "No video loaded.")
+            return
+
+        gl = mw.gpx_widget.gpx_list
+        b_idx, e_idx = gl._markB_idx, gl._markE_idx
+        if b_idx is None or e_idx is None:
+            QMessageBox.warning(
+                self, "Cut GPX to video",
+                "Please mark the seam with markB and the GPX point where the "
+                "video now stands with markE.")
+            return
+        if b_idx > e_idx:
+            b_idx, e_idx = e_idx, b_idx
+        if e_idx - b_idx < 2:
+            QMessageBox.warning(self, "Cut GPX to video",
+                                "There must be at least one point between markB and markE.")
+            return
+
+        fmt = gl._format_hhmmss_milli
+        # Tabellenzeit von E = Zeit im geschnittenen Video, auf der E heute
+        # liegt. Die Videozeit ebenso im geschnittenen Video (final).
+        e_tabelle_s = gl._gpx_times[e_idx]
+        video_s = mw.get_final_time_for_global(mw.video_editor.get_current_position_s())
+        dauer_s = e_tabelle_s - video_s
+        if dauer_s <= 0.0005:
+            QMessageBox.warning(
+                self, "Cut GPX to video",
+                f"GPX point {e_idx} is at {fmt(e_tabelle_s)}, the video at {fmt(video_s)}.\n"
+                "The point is not later than the video, there is nothing to cut.")
+            return
+        abstand_s = (gpx_data[e_idx]["time"] - gpx_data[b_idx]["time"]).total_seconds()
+        if abstand_s <= dauer_s:
+            QMessageBox.warning(
+                self, "Cut GPX to video",
+                f"{dauer_s:.3f} s would have to go, but markB and markE are only "
+                f"{abstand_s:.3f} s apart. The cut would reach markE itself.\n"
+                "Move markE further along the track, or check the video position.")
+            return
+
+        reply = QMessageBox.question(
+            self, "Cut GPX to video",
+            f"Video is at {fmt(video_s)}, GPX point {e_idx} at {fmt(e_tabelle_s)}.\n\n"
+            f"Cut {dauer_s:.3f} s of GPX after point {b_idx} so that point {e_idx} "
+            "lands on the video time? Everything after the cut moves up by that time.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+
+        self.register_gpx_undo_snapshot(self._schritt("Cut GPX to video", b_idx, e_idx))
+        n = self.gpx_ab_punkt_kuerzen(gpx_data, b_idx, dauer_s)
+        e_neu = e_idx - n
+        recalc_gpx_data(gpx_data)
+        mw.gpx_widget.set_gpx_data(gpx_data)
+        mw._gpx_data = gpx_data
+        mw._update_gpx_overview()
+        mw.chart.set_gpx_data(gpx_data)
+        if mw.mini_chart_widget:
+            mw.mini_chart_widget.set_gpx_data(gpx_data)
+        route_geojson = mw._build_route_geojson_from_gpx(gpx_data)
+        mw.map_widget.loadRoute(route_geojson, do_fit=False)
+        gl.clear_marked_range()
+        mw.map_widget.clear_marked_range()
+        # Die Naht als Luecke merken: Rechtsklick [- / -] markiert B und den
+        # nachgerueckten Punkt fuer Fix speed spike.
+        gl.luecke_merken(b_idx + 1)
+        gl.select_row_in_pause(e_neu)
+
+        print(f"[CUT2VIDEO] {n} Punkte nach Zeile {b_idx} entfernt, {dauer_s:.3f} s; "
+              f"Zeile {e_idx} -> {e_neu} jetzt bei {fmt(gl._gpx_times[e_neu])}, "
+              f"Video bei {fmt(video_s)}")
+        QMessageBox.information(
+            self, "Cut GPX to video",
+            f"{n} point(s) removed after row {b_idx}, {dauer_s:.3f} s.\n"
+            f"Row {e_neu} (was {e_idx}) is now at {fmt(gl._gpx_times[e_neu])}, "
+            f"the video at {fmt(video_s)}.\n\n"
+            "The seam keeps the distance ridden while the camera was off: "
+            "right-click [- and -], then 'Fix speed spike (cut seam)'.")
 
     def on_show_average_speed_info(self):
         mw = self._mainwindow

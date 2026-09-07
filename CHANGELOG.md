@@ -110,6 +110,20 @@ the buttons are hidden otherwise. The gap is remembered as long as the
 track keeps its point count; after another cut, Undo or a new track it is
 forgotten.
 
+**GPX: "Cut GPX to video (B..E)" - the camera was off, the track went on**
+
+At a merge edge where the camera had been off, the video cut takes only
+the seconds around the edge out of the track; the time the camera was off
+is still in it, and from the seam on the track runs ahead of the video.
+New entry in the `...` menu, V&G off: markB on the seam (right-click `[-`
+after the cut), drive the video to a landmark, mark its GPX point as
+markE. The entry takes the table time of markE minus the current video
+time - the time the camera was off - and removes exactly that much track
+after markB; everything behind moves up. markE then sits on the video
+time. The seam keeps the distance ridden meanwhile, so the two right-clicks
+and "Fix speed spike" follow. Refused when the point is not later than the
+video or the cut would reach markE.
+
 **Edit: Undo history**
 
 Ctrl+Z went back one step, but nothing said which step, or where to stop.
