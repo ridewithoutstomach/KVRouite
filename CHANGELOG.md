@@ -108,6 +108,18 @@ the buttons are hidden otherwise. The gap is remembered as long as the
 track keeps its point count; after another cut, Undo or a new track it is
 forgotten.
 
+**Edit: Undo history**
+
+Ctrl+Z went back one step, but nothing said which step, or where to stop.
+Every undo step now carries a name and a time - "Cut 1952.118-1954.118 s
+(video + GPX)", "chT rows 1890..1893 (00:32:30.011 - 00:32:33.011)",
+"Fix speed spike row 1892 (00:32:32.118)", "Smooth (whole track)" - and
+Edit > Undo history lists them, newest first. Selecting an entry and pressing
+"Undo to here" undoes that step and every step above it, after a
+confirmation that says how many. The stack holds states, not actions, so a
+single step cannot be taken out of the middle; taking back one cut on its
+own remains what the timeline's right-click offers.
+
 ### Changed
 
 **Crossfade dialog steps in 0.1 s**

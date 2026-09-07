@@ -633,6 +633,14 @@ class MainWindow(QMainWindow):
         undo_action.setStatusTip("Revert the last action.")
         undo_action.setShortcut(QKeySequence("Ctrl+Z"))
         shortcuts_menu.addAction(undo_action)
+
+        # Die Schritte mit Namen, und "bis hierher zurueck" - siehe
+        # _show_undo_history().
+        undo_history_action = QAction("Undo history...", self)
+        undo_history_action.setStatusTip(
+            "Show the steps Ctrl+Z would undo, and undo back to one of them.")
+        undo_history_action.triggered.connect(self._show_undo_history)
+        shortcuts_menu.addAction(undo_history_action)
         # (Deine bestehende Zeile unten im Code behalten:)
         # undo_action.triggered.connect(self.on_global_undo)
 
@@ -2438,8 +2446,8 @@ class MainWindow(QMainWindow):
             
             if gpx_data and len(gpx_data) >= 2:
                 # Undo-Snapshots erstellen
-                self.register_gpx_undo_snapshot()
-                self.register_video_undo_snapshot(True)
+                self.register_gpx_undo_snapshot("Set begin (video + GPX)")
+                self.register_video_undo_snapshot(True, "Set begin (video + GPX)")
                     
                 # Finalzeit berechnen
                 final_s = self.get_final_time_for_global(global_video_s)
@@ -2582,7 +2590,7 @@ class MainWindow(QMainWindow):
     
         else:
             # Nur Video-Cut (kein AutoSync)
-            self.register_video_undo_snapshot(False)
+            self.register_video_undo_snapshot(False, "Set begin (video)")
     
         # Video-Cut durchführen (0 bis global_video_s)
         if global_video_s <= 0.01:
@@ -2659,7 +2667,7 @@ class MainWindow(QMainWindow):
         Dadurch wird die Route – je nach gewähltem Startpunkt (B/E) – vorn oder hinten angefügt.
         """
         old_data = copy.deepcopy(self._gpx_data)
-        self._undo_stack.append(lambda: self._restore_gpx_data(old_data))
+        self._undo_ablegen(lambda: self._restore_gpx_data(old_data), "Insert point")
         print("[UNDO] InsertPoint => alter Zustand gesichert")
 
         gpx_data = self._gpx_data
@@ -2668,8 +2676,8 @@ class MainWindow(QMainWindow):
         insert_pos = -1
         if self._autoSyncNewPointsWithVideoTime and self.playlist_counter > 0: #if video loaded, insert a new point at current video time without shift
             # Undo-Snapshot
-            self.register_gpx_undo_snapshot()
-            
+            self.register_gpx_undo_snapshot("Insert point")
+
             video_time = self.video_editor.get_current_position_s()
             final_s = self.get_final_time_for_global(video_time)
             insert_pos = self.ordered_insert_new_point(lat,lon,final_s)
@@ -2716,7 +2724,7 @@ class MainWindow(QMainWindow):
         
             # --- Nun das "alte" Einfüge-Verhalten ---
             # Undo-Snapshot
-            self.register_gpx_undo_snapshot()
+            self.register_gpx_undo_snapshot("Insert point")
 
             now = datetime.now()  # Fallback, falls Zeit gar nicht existiert
 
@@ -3511,14 +3519,14 @@ class MainWindow(QMainWindow):
             if not hasattr(self.cut_manager, "markB_time_s") or not hasattr(self.cut_manager, "markE_time_s"):
                 print("[WARN] on_cut_clicked_video: cut_manager missing mark times, skipping GPX cut.")
                 # trotzdem Video-Cut ausführen (kein GPX)
-                self.register_video_undo_snapshot(False)
+                self.register_video_undo_snapshot(False, "Cut (video)")
                 self.cut_manager.on_cut_clicked()
                 return
 
             if self.cut_manager.markB_time_s < 0 or self.cut_manager.markE_time_s < 0:
                 print("[WARN] on_cut_clicked_video: mark times missing, skipping GPX cut.")
                 # Video-Cut trotzdem ausführen
-                self.register_video_undo_snapshot(False)
+                self.register_video_undo_snapshot(False, "Cut (video)")
                 self.cut_manager.on_cut_clicked()
                 return
     
@@ -3552,11 +3560,12 @@ class MainWindow(QMainWindow):
             print(f"[DEBUG] on_cut_clicked_video => captured marks: global [{start_global:.3f}..{end_global:.3f}] -> final [{final_start:.3f}..{final_end:.3f}], is_end_cut={is_end_cut}")
         
             # Undo-Snapshots (GPX + Video)
-            self.register_gpx_undo_snapshot()
-            self.register_video_undo_snapshot(True)
+            schritt = f"Cut {start_global:.3f}-{end_global:.3f} s (video + GPX)"
+            self.register_gpx_undo_snapshot(schritt)
+            self.register_video_undo_snapshot(True, schritt)
         else:
             # nur Video-Undo
-            self.register_video_undo_snapshot(False)
+            self.register_video_undo_snapshot(False, "Cut (video)")
         
         # --- 1) Video-Cut anlegen (macht auch timeline update, reset MarkB/E intern) ---
         self.cut_manager.on_cut_clicked()
@@ -4232,8 +4241,9 @@ class MainWindow(QMainWindow):
                 return
 
         # Beides zusammen ist EIN Schritt fuer Strg+Z.
-        self.register_gpx_undo_snapshot()
-        self.register_video_undo_snapshot(True)
+        schritt = f"Take back cut {start_s:.3f}-{end_s:.3f} s"
+        self.register_gpx_undo_snapshot(schritt)
+        self.register_video_undo_snapshot(True, schritt)
 
         if not self._ruecknahme_ausfuehren(start_s, end_s):
             QMessageBox.warning(self, "Undo failed",
@@ -4481,8 +4491,9 @@ class MainWindow(QMainWindow):
             return False
 
         # Ein Schritt fuer Strg+Z, angelegt bevor irgendetwas passiert.
-        self.register_gpx_undo_snapshot()
-        self.register_video_undo_snapshot(True)
+        schritt = f"Move cut to {neu_start:.3f}-{neu_ende:.3f} s"
+        self.register_gpx_undo_snapshot(schritt)
+        self.register_video_undo_snapshot(True, schritt)
 
         self._verschiebe_schritt = True
         try:
@@ -5061,8 +5072,9 @@ class MainWindow(QMainWindow):
             return
     
         # 1) Undo-Snapshot (gesamte GPX-Daten kopieren)
-        
-        self.register_gpx_undo_snapshot()
+
+        self.register_gpx_undo_snapshot(
+            self.gpx_widget.gpx_list.schritt_text("Move point on map", index))
         
         """
         Wird aufgerufen, wenn der User in der Karte einen GPX-Punkt verschoben hat.
@@ -6928,7 +6940,7 @@ class MainWindow(QMainWindow):
         def zuruecknehmen():
             self._overlay_manager.set_all_overlays(stand)
 
-        self._undo_stack.append(zuruecknehmen)
+        self._undo_ablegen(zuruecknehmen, "Overlay")
 
     def _overlay_im_bild_geaendert(self, index, x, y, skalierung):
         """Ein Overlay wurde im Vorschaubild verschoben oder skaliert.
@@ -7826,7 +7838,8 @@ class MainWindow(QMainWindow):
                 QMessageBox.No
             )
         if reply == QMessageBox.Yes:
-            self.register_gpx_undo_snapshot()
+            self.register_gpx_undo_snapshot(
+                self.gpx_widget.gpx_list.schritt_text("Set video-GPX sync", row))
             set_gpx_video_shift(new_shift)
             #recalc_gpx_data(self._gpx_data) #to refresh list
             self.gpx_widget.gpx_list.set_gpx_data(self._gpx_data)
@@ -8963,19 +8976,90 @@ class MainWindow(QMainWindow):
         
     def on_global_undo(self):
         if self._undo_stack:
+            self._undo_schritte(1)
+        else:
+            QMessageBox.warning(self,"Undo ignored","Undo stack is empty.")
+
+    def _undo_ablegen(self, fn, name):
+        """Einen Undo-Schritt auf den Stapel legen - mit Namen und Uhrzeit,
+        damit Edit > Undo history ihn zeigen kann. Jede Stelle, die etwas auf
+        den Stapel legt, geht hier durch."""
+        fn.undo_name = name
+        # 'datetime' ist hier die Klasse (from datetime import datetime, Zeile 120).
+        fn.undo_zeit = datetime.now()
+        self._undo_stack.append(fn)
+
+    def _undo_schritte(self, anzahl):
+        """'anzahl' Schritte vom Stapel nehmen und ausfuehren, neuester zuerst."""
+        for _ in range(anzahl):
+            if not self._undo_stack:
+                break
             undo_fn = self._undo_stack.pop()
             undo_fn()  # Die gespeicherte Undo-Funktion ausführen
-            self._update_gpx_overview()
-            # Strg+Z ist eine eigene Aktion: der Zustand danach ist einer, den
-            # wir selbst hergestellt haben. Ohne das Nachziehen waeren
-            # anschliessend alle Schnitte gesperrt, weil der Fingerabdruck noch
-            # vom Zustand davor stammt.
-            self.cut_manager.fingerabdruck_merken(self._gpx_data)
+        self._update_gpx_overview()
+        # Strg+Z ist eine eigene Aktion: der Zustand danach ist einer, den
+        # wir selbst hergestellt haben. Ohne das Nachziehen waeren
+        # anschliessend alle Schnitte gesperrt, weil der Fingerabdruck noch
+        # vom Zustand davor stammt.
+        self.cut_manager.fingerabdruck_merken(self._gpx_data)
 
-        else:
-            QMessageBox.warning(self,"Undo ignored","Undo stack is empty.")    
-    
-    def register_gpx_undo_snapshot(self):
+    def _show_undo_history(self):
+        """Edit > Undo history: die Schritte, die Strg+Z zuruecknimmt, mit Namen.
+
+        Der Stapel kennt nur Zustaende, keine Aktionen - ein Schritt aus der
+        Mitte laesst sich deshalb nicht einzeln herausnehmen. Was geht: bis zu
+        einem Schritt zurueck, also ihn und alles Neuere. Genau das bietet die
+        Liste, und sie zeigt vorher, wie weit das reicht.
+        """
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Undo history")
+        dlg.setMinimumSize(440, 380)
+        v = QVBoxLayout(dlg)
+        v.addWidget(QLabel(
+            "Newest first. Ctrl+Z undoes the top entry.\n"
+            "Select an entry and press 'Undo to here': that step and every "
+            "step above it are undone."))
+
+        liste = QListWidget()
+        for fn in reversed(self._undo_stack):
+            zeit = getattr(fn, "undo_zeit", None)
+            name = getattr(fn, "undo_name", "Edit")
+            wann = zeit.strftime("%H:%M:%S") if zeit else "--:--:--"
+            liste.addItem(f"{wann}   {name}")
+        if not self._undo_stack:
+            liste.addItem("(nothing to undo)")
+            liste.setEnabled(False)
+        v.addWidget(liste)
+
+        knoepfe = QDialogButtonBox()
+        bis_hier = knoepfe.addButton("Undo to here", QDialogButtonBox.AcceptRole)
+        knoepfe.addButton(QDialogButtonBox.Close)
+        bis_hier.setEnabled(False)
+        liste.currentRowChanged.connect(
+            lambda zeile: bis_hier.setEnabled(bool(self._undo_stack) and zeile >= 0))
+
+        def zurueck():
+            zeile = liste.currentRow()
+            if zeile < 0 or not self._undo_stack:
+                return
+            schritte = zeile + 1
+            if schritte > 1:
+                antwort = QMessageBox.question(
+                    dlg, "Undo to here",
+                    f"This also undoes the {schritte - 1} later step(s) "
+                    f"above it.\nContinue?",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                if antwort != QMessageBox.Yes:
+                    return
+            self._undo_schritte(schritte)
+            dlg.accept()
+
+        knoepfe.accepted.connect(zurueck)
+        knoepfe.rejected.connect(dlg.reject)
+        v.addWidget(knoepfe)
+        dlg.exec()
+
+    def register_gpx_undo_snapshot(self, name="GPX edit"):
         # Waehrend eines Umzugs legt der Umzug selbst EINEN Schnappschuss an.
         # Die beiden Teilschritte duerfen keine eigenen dazulegen, sonst
         # braeuchte Strg+Z drei Anlaeufe fuer eine Aktion.
@@ -8998,9 +9082,9 @@ class MainWindow(QMainWindow):
             route_geojson = self._build_route_geojson_from_gpx(gpx_snapshot)
             self.map_widget.loadRoute(route_geojson, do_fit=False)
 
-        self._undo_stack.append(undo)
+        self._undo_ablegen(undo, name)
 
-    def register_video_undo_snapshot(self,appendToLast: bool = False):
+    def register_video_undo_snapshot(self, appendToLast: bool = False, name="Video cut"):
         # Waehrend eines Umzugs legt der Umzug selbst EINEN Schnappschuss an.
         # Die beiden Teilschritte duerfen keine eigenen dazulegen, sonst
         # braeuchte Strg+Z drei Anlaeufe fuer eine Aktion.
@@ -9050,9 +9134,9 @@ class MainWindow(QMainWindow):
                 undo()
                 print("[DEBUG] Combined with video undo snapshot.")
 
-            self._undo_stack.append(combined_undo)
+            self._undo_ablegen(combined_undo, name)
         else:
-            self._undo_stack.append(undo)
+            self._undo_ablegen(undo, name)
 
     def save_project(self):
         """
@@ -10792,7 +10876,7 @@ class MainWindow(QMainWindow):
 
         
         try:
-            self.register_gpx_undo_snapshot()
+            self.register_gpx_undo_snapshot("Raise track above sea")
         except Exception:
             pass
 

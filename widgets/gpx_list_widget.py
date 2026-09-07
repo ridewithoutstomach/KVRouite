@@ -398,6 +398,23 @@ class GPXListWidget(QWidget):
         n = len(self._gpx_data)
         self._luecke = (b - 1, b, n) if 0 < b < n else None
 
+    def schritt_text(self, name, b_idx=None, e_idx=None):
+        """Name eines Undo-Schritts fuer Edit > Undo history: mit Zeile(n)
+        und der GPX-Zeit aus der Tabelle, damit man sieht, WO er war.
+        Ohne Zeilen bleibt es beim Namen (ganze Spur)."""
+        def zeit(i):
+            try:
+                return self._format_hhmmss_milli(self._gpx_times[i])
+            except Exception:
+                return "?"
+        if b_idx is None and e_idx is None:
+            return name
+        if b_idx is None or e_idx is None or b_idx == e_idx:
+            i = b_idx if b_idx is not None else e_idx
+            return f"{name} row {i} ({zeit(i)})"
+        b, e = sorted((b_idx, e_idx))
+        return f"{name} rows {b}..{e} ({zeit(b)} - {zeit(e)})"
+
     def restore_markB(self):
         """Markiert den Punkt vor der Luecke des letzten Schnitts als MarkB."""
         self._luecke_markieren(0, self.set_markB_row)
