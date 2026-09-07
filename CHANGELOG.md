@@ -97,6 +97,17 @@ be changed in the dialog, which shows before and after. Applying takes a
 GPX undo snapshot; as with chT, video cuts can no longer be undone
 afterwards. The computation lives in `core/naht_glaetten.py` without Qt.
 
+**Export: a running encode can be stopped**
+
+There was no way to stop an export once it ran: Close only closed the
+window, the encoder kept the machine busy until it was done, and closing
+the main window did not help either. Close on the encoder window now asks
+"Stop the export?"; Yes stops the pipeline within 200 ms, deletes the
+incomplete output file and closes the window, No leaves it running. The
+main window's close button goes through the same question while an export
+runs. The encoder window also reacts while rendering - it used to wake up
+only with each percent line.
+
 **Import: several videos go into the playlist in recording order**
 
 The file dialog hands the files over in the order they were clicked, and

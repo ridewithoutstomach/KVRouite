@@ -3368,6 +3368,15 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, self.video_editor._hoehen_overlay_platzieren)
 
     def closeEvent(self, event):
+        # Laeuft ein Export, entscheidet der Encoder-Dialog: er fragt nach
+        # und stoppt bei Ja. Solange er laeuft, bleibt das Hauptfenster
+        # offen - sonst rechnete der Encoder ohne Fenster weiter.
+        enc = getattr(self, "_encoder_dialog", None)
+        if enc is not None and enc.laeuft():
+            enc.close()
+            if enc.laeuft():
+                event.ignore()
+                return
         try:
             self._save_window_layout()
         except Exception as e:
@@ -7651,6 +7660,7 @@ class MainWindow(QMainWindow):
             #self.setWindowTitle("Encoding in progress – please wait…")
             
             dlg = EncoderDialog(parent=self)
+            self._encoder_dialog = dlg      # fuer closeEvent(): laeuft ein Export?
             dlg.show()  # ⬅️ Fenster sofort zeigen!
             QApplication.processEvents()  # ⬅️ wichtig, damit GUI reagiert
 

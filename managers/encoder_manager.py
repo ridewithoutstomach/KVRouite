@@ -433,6 +433,39 @@ class EncoderDialog(QDialog):
         self.setLayout(layout)
         self.resize(800, 600)
 
+        # Laeuft gerade ein Export? Dann fragt closeEvent() nach, und der
+        # Encoder bekommt den Abbruchwunsch ueber _abbruch_pruefen().
+        self._laeuft = False
+        self._abbruch_gewuenscht = False
+
+    def laeuft(self) -> bool:
+        return self._laeuft
+
+    def _abbruch_pruefen(self) -> bool:
+        """Vom Encoder alle 200 ms gerufen. Pumpt die Ereignisse, damit der
+        Dialog und sein Close-Knopf waehrend des Renderns reagieren - bisher
+        kam die Oberflaeche nur bei jeder Prozentzeile zum Zug."""
+        QApplication.processEvents()
+        return self._abbruch_gewuenscht
+
+    def closeEvent(self, event):
+        if self._laeuft:
+            if not self._abbruch_gewuenscht:
+                antwort = QMessageBox.question(
+                    self, "Stop the export?",
+                    "The export is still running.\n\nStop it? The output file "
+                    "is incomplete and will be deleted.",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                if antwort == QMessageBox.Yes:
+                    self._abbruch_gewuenscht = True
+                    self.btn_close.setEnabled(False)
+                    self._on_new_text("[GES] Stopping the export...\n")
+            # Das Fenster bleibt, bis der Encoder wirklich steht; run_encoding()
+            # schliesst es dann.
+            event.ignore()
+            return
+        super().closeEvent(event)
+
     def run_encoding(self, json_path: str):
         """
         1) Wir lesen json_path => c 
@@ -485,10 +518,23 @@ class EncoderDialog(QDialog):
                 # Der Encode-Mode rendert ueber GES. ffmpeg wird in KVRouite
                 # nur noch fuer den Copy-Mode gebraucht, und der hat seinen
                 # eigenen Weg in mainwindow.on_render_clicked().
-                from managers.ges_encoder_manager import ges_xfade_main
-                ges_xfade_main(temp_cfg)
-                
-                    
+                from managers.ges_encoder_manager import ges_xfade_main, GesRenderAbgebrochen
+                self._laeuft = True
+                self._abbruch_gewuenscht = False
+                try:
+                    ges_xfade_main(temp_cfg, abbruch=self._abbruch_pruefen)
+                except GesRenderAbgebrochen:
+                    self._laeuft = False
+                    QMessageBox.information(
+                        self, "Export stopped",
+                        "The export was stopped. The incomplete output file was deleted.")
+                    self.close()
+                    return
+                finally:
+                    self._laeuft = False
+                    self.btn_close.setEnabled(True)
+
+
                 QMessageBox.information(
                      self,
                     "Done",

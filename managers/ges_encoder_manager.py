@@ -58,6 +58,11 @@ class GesRenderError(RuntimeError):
     pass
 
 
+class GesRenderAbgebrochen(GesRenderError):
+    """Der Nutzer hat den Export abgebrochen - kein Fehler, aber kein Ergebnis."""
+    pass
+
+
 # ---------------------------------------------------------------------------
 # GStreamer wird bewusst erst beim Aufruf geladen. Wer den ffmpeg-Weg benutzt,
 # soll ohne installiertes GStreamer weiterarbeiten koennen.
@@ -877,7 +882,15 @@ def _diagnose(profil, uri, log):
 # Rendern
 # ---------------------------------------------------------------------------
 
-def _rendern(timeline, profil, ziel, gesamt_ns, log):
+def _rendern(timeline, profil, ziel, gesamt_ns, log, abbruch=None):
+    """Rendert die Timeline nach 'ziel'.
+
+    abbruch: optionale Funktion ohne Argumente. Sie wird bei jedem Durchlauf
+    der Warteschleife gerufen (alle 200 ms); liefert sie True, wird die
+    Pipeline angehalten und GesRenderAbgebrochen ausgeloest. Bis 6.11 gab es
+    keinen Weg, einen laufenden Export anzuhalten - "Close" schloss nur das
+    Fenster, der Encoder rechnete weiter, bis der Rechner wieder frei war.
+    """
     pipeline = GES.Pipeline()
     pipeline.set_timeline(timeline)
     uri = GLib.filename_to_uri(os.path.abspath(ziel), None)
@@ -895,6 +908,8 @@ def _rendern(timeline, profil, ziel, gesamt_ns, log):
     begonnen = time.time()
     zuletzt = -1
     fehler = None
+    abgebrochen = False
+    frist = None
     try:
         while True:
             msg = bus.timed_pop_filtered(
@@ -905,6 +920,23 @@ def _rendern(timeline, profil, ziel, gesamt_ns, log):
                     err, dbg = msg.parse_error()
                     fehler = f"{err.message} ({dbg})"
                 break
+
+            if abgebrochen:
+                # Auf das EOS warten, das der Abbruch geschickt hat. Die
+                # Pipeline laeuft damit geordnet leer; ein hartes NULL mitten
+                # im Rendern liess GStreamer am 07.09.2026 im Videokonverter
+                # abstuerzen (gst_parallelized_task_runner_run: task != NULL).
+                if time.time() > frist:
+                    log("[GES] Pipeline did not drain in time, forcing stop")
+                    break
+                continue
+
+            if abbruch is not None and abbruch():
+                abgebrochen = True
+                log("[GES] Export stopped by user, draining the pipeline...")
+                pipeline.send_event(Gst.Event.new_eos())
+                frist = time.time() + 10.0
+                continue
 
             ok, pos = pipeline.query_position(Gst.Format.TIME)
             if ok and gesamt_ns > 0:
@@ -919,6 +951,8 @@ def _rendern(timeline, profil, ziel, gesamt_ns, log):
         pipeline.set_state(Gst.State.NULL)
         pipeline.get_state(5 * Gst.SECOND)
 
+    if abgebrochen:
+        raise GesRenderAbgebrochen("Export stopped by user")
     if fehler:
         raise GesRenderError(fehler)
     log(f"[GES] Done in {time.time() - begonnen:.1f}s")
@@ -1009,7 +1043,9 @@ def probelauf(hw_encode, encoder="libx264"):
 # Einstieg - gleiche Signatur wie xfade_main()
 # ---------------------------------------------------------------------------
 
-def ges_xfade_main(cfg_path):
+def ges_xfade_main(cfg_path, abbruch=None):
+    """Der Export. abbruch: siehe _rendern(); bei Abbruch wird die
+    angefangene Zieldatei geloescht und GesRenderAbgebrochen weitergereicht."""
     _lade_gst()
 
     with open(cfg_path, "r", encoding="utf-8") as f:
@@ -1099,7 +1135,18 @@ def ges_xfade_main(cfg_path):
     if ordner and not os.path.isdir(ordner):
         os.makedirs(ordner, exist_ok=True)
 
-    _rendern(timeline, profil, final_out, gesamt_ns, log)
+    try:
+        _rendern(timeline, profil, final_out, gesamt_ns, log, abbruch)
+    except GesRenderAbgebrochen:
+        # Eine halbe Datei ist keine: weg damit, sonst haelt jemand sie
+        # fuer das Ergebnis.
+        try:
+            if os.path.isfile(final_out):
+                os.remove(final_out)
+                log(f"[GES] Incomplete file deleted: {final_out}")
+        except OSError as exc:
+            log(f"[GES] Incomplete file could not be deleted: {exc}")
+        raise
 
     log(f"\n== DONE == Final video: {final_out}")
     return final_out
