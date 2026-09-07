@@ -416,20 +416,27 @@ class GPXListWidget(QWidget):
         return f"{name} rows {b}..{e} ({zeit(b)} - {zeit(e)})"
 
     def restore_markB(self):
-        """Markiert den Punkt vor der Luecke des letzten Schnitts als MarkB."""
-        self._luecke_markieren(0, self.set_markB_row)
+        """Markiert den Punkt vor der Luecke des letzten Schnitts als MarkB.
+        Rueckgabe: die Zeile, wenn sie markiert wurde, sonst None."""
+        return self._luecke_markieren(0, self.set_markB_row)
 
     def restore_markE(self):
-        """Markiert den Punkt nach der Luecke des letzten Schnitts als MarkE."""
-        self._luecke_markieren(1, self.set_markE_row)
+        """Markiert den Punkt nach der Luecke des letzten Schnitts als MarkE.
+        Rueckgabe: die Zeile, wenn sie markiert wurde, sonst None."""
+        return self._luecke_markieren(1, self.set_markE_row)
 
     def _luecke_markieren(self, seite, setzen):
         # Nur solange die Spur noch so viele Punkte hat wie nach dem Schnitt:
         # chT, chEle, Smooth aendern die Zaehlung nicht, ein weiterer Schnitt,
         # Undo oder eine andere Spur schon - dann zeigt der Index irgendwohin.
         if self._luecke is None or self._luecke[2] != self.table.rowCount():
-            return
-        setzen(self._luecke[seite])
+            return None
+        idx = self._luecke[seite]
+        setzen(idx)
+        # set_markB/E_row lehnt ab, wenn die Zeitreihenfolge nicht passt -
+        # dann steht die Marke nicht auf idx, und es gibt nichts anzufahren.
+        jetzt = self._markB_idx if seite == 0 else self._markE_idx
+        return idx if jetzt == idx else None
 
     # ---------------------------------------------------------
     # Helper-Funktionen

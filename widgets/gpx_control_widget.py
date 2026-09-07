@@ -3330,14 +3330,35 @@ class GPXControlWidget(QWidget):
         mw = self._mainwindow
         if not mw or getattr(mw, "_autoSyncVideoEnabled", False):
             return
-        mw.gpx_widget.gpx_list.restore_markB()
+        self._punkt_anfahren(mw.gpx_widget.gpx_list.restore_markB())
 
     def _on_markE_restore(self):
         """Rechtsklick auf -]: den Punkt nach der Luecke des letzten Schnitts markieren."""
         mw = self._mainwindow
         if not mw or getattr(mw, "_autoSyncVideoEnabled", False):
             return
-        mw.gpx_widget.gpx_list.restore_markE()
+        self._punkt_anfahren(mw.gpx_widget.gpx_list.restore_markE())
+
+    def _punkt_anfahren(self, idx):
+        """Den gerade markierten Punkt zeigen: Zeile selektiert, Karte darauf
+        zentriert, Chart und Mini-Chart darauf, und bei "Sync all with video"
+        auch das Video. Sonst stand das Video irgendwo, und Karte und Chart
+        zeigten den Punkt nicht.
+
+        Bewusst NICHT der Weg des Zeilenklicks (rowClickedInPause): der
+        faerbt den Punkt in der Karte blau und ueberdeckt damit die rote
+        Marke, die der Rechtsklick gerade gesetzt hat. Die Karte wird hier
+        nur zentriert, der Punkt bleibt rot."""
+        if idx is None:
+            return
+        mw = self._mainwindow
+        mw.gpx_widget.gpx_list.select_row_in_pause(idx)
+        mw.map_widget.center_on_index(idx)
+        mw.chart.highlight_gpx_index(idx)
+        if mw.mini_chart_widget:
+            mw.mini_chart_widget.set_current_index(idx)
+        if getattr(mw, "_autoSyncNewPointsWithVideoTime", False) and mw.playlist_counter > 0:
+            mw.on_map_sync_any(idx)
         
         
     def _close_gaps_local_interpolation(self, b_idx: int, e_idx: int, dt: float):

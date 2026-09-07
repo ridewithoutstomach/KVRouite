@@ -102,7 +102,9 @@ afterwards. The computation lives in `core/naht_glaetten.py` without Qt.
 After a cut the marks are gone, and the next step is usually on the gap it
 left - chT or the seam fix over the two neighbours. Right-click on `[-`
 marks the point before the removed range, right-click on `-]` the point
-after it. The gap comes from Cut and Remove in the GPX bar as well as from
+after it, and shows it: row selected, map centred on it, chart on it, and
+with "Sync all with video" the video too - the same as clicking the row.
+The gap comes from Cut and Remove in the GPX bar as well as from
 the video cut with V&G on; marking it is done in the GPX bar with V&G off,
 the buttons are hidden otherwise. The gap is remembered as long as the
 track keeps its point count; after another cut, Undo or a new track it is

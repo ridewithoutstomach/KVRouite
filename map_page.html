@@ -1172,6 +1172,15 @@
 			map.getView().animate({center: c, zoom: zoomLevel, duration: 300});
 	}
 
+	// Nur zentrieren: Zoom und Punktfarben bleiben, wie sie sind. Fuer den
+	// Rechtsklick auf [- / -] in der GPX-Leiste, der eine rote Marke zeigen
+	// soll, ohne sie blau zu ueberdecken.
+	function centerOnIndex(index){
+		let f = featuresMapIndex[index];
+		if(!f) return;
+		map.getView().animate({center: f.getGeometry().getCoordinates(), duration: 300});
+	}
+
     function setVideoPlayState(isPlaying){
       videoIsPlaying= isPlaying;
       dbg("[DEBUG] setVideoPlayState => "+isPlaying);

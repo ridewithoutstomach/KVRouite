@@ -7922,10 +7922,14 @@ class MainWindow(QMainWindow):
         print(f"[DEBUG] Slot {self._active_gpx_slot}: saved sync_marker idx={best_idx}")
         
         
-    def on_map_sync_any(self):
+    def on_map_sync_any(self, idx=None):
         """
         Is called by map_widget._on_sync_noarg_from_js,
         when the sync button in map_page.html is clicked.
+
+        idx: der Punkt, wenn der Aufrufer ihn kennt (Rechtsklick auf [- / -]
+        in der GPX-Leiste). Sonst wie bisher der blaue Punkt der Karte, der
+        dann aber von einem frueheren Klick stammen kann.
 
         1) Index => map_widget._blue_idx or fallback => gpx_list.currentRow()
         2) final_s = gpx_data[idx]["rel_s"]
@@ -7935,7 +7939,7 @@ class MainWindow(QMainWindow):
         print("[DEBUG] on_map_sync_any() aufgerufen (Map-Sync)")
 
         # 1) Welcher Punkt in der Karte? (blau_idx)
-        idx_map = self.map_widget._blue_idx
+        idx_map = idx if idx is not None else self.map_widget._blue_idx
         if idx_map is None or idx_map < 0:
             # fallback => nimm Zeile aus gpx_list
             idx_map = self.gpx_widget.gpx_list.table.currentRow()

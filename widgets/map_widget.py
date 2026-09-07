@@ -467,6 +467,14 @@ class MapWidget(QWidget):
         print(f"[DEBUG] MapWidget.zoom_to_index idx={idx} zoom={zoom}")
         js = f"zoomToIndex({idx}, {int(zoom)});"
         self.view.page().runJavaScript(js)
+
+    def center_on_index(self, idx: int):
+        """Karte auf den Punkt zentrieren, ohne Zoom und Farben anzufassen.
+        show_blue() faerbt den Punkt blau und ueberdeckt damit eine rote
+        Marke - hier soll die Marke sichtbar bleiben."""
+        if idx is None or idx < 0:
+            return
+        self.view.page().runJavaScript(f"centerOnIndex({int(idx)});")
     
     def _on_mapbox_profile_changed(self, profile: str):
         print(f"[DEBUG] MapWidget: mapboxProfileChanged => profile={profile}")
