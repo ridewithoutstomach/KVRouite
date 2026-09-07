@@ -138,7 +138,8 @@ the section. A click on the line adds a support point,
 dragging changes its height - snapping the grade before the point to
 0.1 %, ten times finer with Ctrl held, and the arrow keys step it by
 0.1 % (Shift 1 %, Ctrl 0.01 %) - right-click removes it, double-click on a
-section types its grade. Every section shows its grade, the last one what
+section types its grade. Two support points keep at least 5 m apart, and
+the first half of a double-click no longer leaves a point behind. Every section shows its grade, the last one what
 is left to E - so the first point already shows whether the rest can work
 out. The kink at each support point is replaced by a vertical curve whose
 length is set per point - long where the grade changes slowly, short where

@@ -53,6 +53,9 @@ class ProfilFlaeche(QWidget):
 
     RAND_L, RAND_R, RAND_O, RAND_U = 62, 16, 14, 30
     GRIFF_PX = 9
+    # Naeher zusammen kommen zwei Stuetzpunkte nicht: zwei Klicks 1 m
+    # auseinander ergaben "339.5 % over 1 m" (07.09.2026).
+    MIN_ABSTAND_M = 5.0
 
     def __init__(self, strecke, alt, h_b, h_e, parent=None, vor=(), nach=()):
         super().__init__(parent)
@@ -69,6 +72,10 @@ class ProfilFlaeche(QWidget):
         self._gewaehlt = None       # Index in _stuetzen
         self._ziehen = False
         self._video_s = None
+        # Der Stuetzpunkt, den der letzte Mausdruck angelegt hat. Kommt
+        # danach ein Doppelklick, war der Druck dessen erste Haelfte: der
+        # Punkt geht wieder weg, der Doppelklick meint den Abschnitt.
+        self._neu_durch_klick = None
         self.setMinimumSize(640, 360)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setMouseTracking(True)
@@ -125,7 +132,7 @@ class ProfilFlaeche(QWidget):
         S = self._strecke[-1]
         s = min(max(float(s), 0.0), S)
         for p in self._stuetzen:
-            if abs(p[0] - s) < 0.5:
+            if abs(p[0] - s) < self.MIN_ABSTAND_M:
                 return None
         if h is None:
             h = hoehenprofil.hoehe_bei(s, self._stuetzen, self._ausrundung)
@@ -231,6 +238,7 @@ class ProfilFlaeche(QWidget):
     def mousePressEvent(self, ev):
         pos = ev.position()
         idx = self._treffer(pos)
+        self._neu_durch_klick = None
         if ev.button() == Qt.RightButton:
             if idx is not None:
                 self.entfernen(idx)
@@ -240,9 +248,16 @@ class ProfilFlaeche(QWidget):
         if idx is None:
             if not self._plot().contains(pos):
                 return
-            idx = self.stuetzpunkt_hinzufuegen(self._s_von_x(pos.x()))
+            s = self._s_von_x(pos.x())
+            idx = self.stuetzpunkt_hinzufuegen(s)
             if idx is None:
+                # zu nah an einem vorhandenen Punkt: den waehlen, nicht ziehen
+                idx = min(range(len(self._stuetzen)), key=lambda k: abs(self._stuetzen[k][0] - s))
+                self._auswaehlen(idx)
+                self._ziehen = False
+                self.update()
                 return
+            self._neu_durch_klick = idx
         self._auswaehlen(idx)
         self._ziehen = 0 < idx < len(self._stuetzen) - 1
         # Ausgangslage fuers Feinziehen mit Strg: Maushoehe und Punkthoehe
@@ -253,6 +268,7 @@ class ProfilFlaeche(QWidget):
     def mouseMoveEvent(self, ev):
         if not (self._ziehen and self._gewaehlt is not None):
             return
+        self._neu_durch_klick = None      # gezogen = gewollt, kein Doppelklick
         h = self._h_von_y(ev.position().y())
         if ev.modifiers() & Qt.ControlModifier:
             # Strg: die Maus bewegt den Punkt nur ein Zehntel so weit
@@ -300,7 +316,14 @@ class ProfilFlaeche(QWidget):
         ev.accept()
 
     def mouseDoubleClickEvent(self, ev):
-        if ev.button() != Qt.LeftButton or self._treffer(ev.position()) is not None:
+        if ev.button() != Qt.LeftButton:
+            return
+        if self._neu_durch_klick is not None:
+            # Die erste Haelfte des Doppelklicks hat einen Punkt gesetzt -
+            # weg damit, gemeint ist der Abschnitt darunter.
+            self.entfernen(self._neu_durch_klick)
+            self._neu_durch_klick = None
+        elif self._treffer(ev.position()) is not None:
             return
         i = self._abschnitt_bei(ev.position().x())
         if i is None:
