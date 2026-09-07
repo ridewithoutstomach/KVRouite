@@ -97,6 +97,19 @@ be changed in the dialog, which shows before and after. Applying takes a
 GPX undo snapshot; as with chT, video cuts can no longer be undone
 afterwards. The computation lives in `core/naht_glaetten.py` without Qt.
 
+**Import: several videos go into the playlist in recording order**
+
+The file dialog hands the files over in the order they were clicked, and
+sorted by name GoPro chapters come out wrong: GX020039 after GX010042.
+Several files are now ordered by the recording time from the container
+(the same value ffprobe shows as creation_time; read in a millisecond),
+and GoPro chapters of one recording by their chapter number - all
+chapters carry the recording's time, chapter 2 of GX0042 even two seconds
+before chapter 1. Where the container has no time, the file's creation
+time stands in; the modification time is the copy time and is not used.
+The order is printed to the console. Applies to the file dialog and to
+drag and drop. `core/videoreihenfolge.py`, without Qt.
+
 **GPX: right-click on `[-` / `-]` marks the gap of the last cut**
 
 After a cut the marks are gone, and the next step is usually on the gap it

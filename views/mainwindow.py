@@ -5607,14 +5607,32 @@ class MainWindow(QMainWindow):
         )
         if not files:
             return
-        
+
+        files = self._videos_in_aufnahmefolge(files)
         self.process_open_mp4(files)
         self.save_recent_file(files[0])
+
+    def _videos_in_aufnahmefolge(self, files):
+        """Mehrere Dateien in Aufnahmereihenfolge - siehe core/videoreihenfolge.
+        Der Dateidialog liefert sie in Klickreihenfolge, nach Namen staenden
+        GoPro-Kapitel falsch. Die Folge steht in der Konsole."""
+        if len(files) < 2:
+            return list(files)
+        from core import videoreihenfolge
+        try:
+            sortiert = videoreihenfolge.sortieren(files)
+            for zeile in videoreihenfolge.erklaeren(files):
+                print(f"[IMPORT] {zeile}")
+            return sortiert
+        except Exception as exc:
+            print(f"[IMPORT] Reihenfolge nicht bestimmbar, wie ausgewaehlt: {exc}")
+            return list(files)
 
     def process_open_mp4(self, files):
      # 1) Alle ausgewählten Dateien in die Playlist hängen,
         #    ohne zwischendurch den Player zu starten:
         first_load= self.playlist_counter == 0
+        files = self._videos_in_aufnahmefolge(files)
         for file_path in files:
             self.add_to_playlist(file_path)
 
