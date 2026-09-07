@@ -40,7 +40,7 @@ import os
 from PySide6.QtGui import QIcon
 
 from datetime import timedelta
-from core.gpx_parser import recalc_gpx_data, get_gpx_video_shift, set_gpx_video_shift
+from core.gpx_parser import recalc_gpx_data, get_gpx_video_shift, set_gpx_video_shift, is_gpx_video_shift_set
 from core import theme
 from core import naht_glaetten
 
@@ -381,6 +381,12 @@ class GPXControlWidget(QWidget):
         
         action_set_height_b2e = self.more_menu.addAction("setHeight(B2E)")
         action_set_height_b2e.triggered.connect(self.on_setHeight_B2E_clicked)
+
+        action_profil = self.more_menu.addAction("Height profile editor (B..E)...")
+        action_profil.setStatusTip(
+            "Rebuild the heights between markB and markE by hand: support points, grades, rounding")
+        action_profil.triggered.connect(self.on_height_profile_clicked)
+        self._profil_editor = None
         
         action_resample = self.more_menu.addAction("Resample to 1s")
         action_resample.triggered.connect(self._on_resample_to_1s_clicked)
@@ -1896,6 +1902,85 @@ class GPXControlWidget(QWidget):
             f"the video at {fmt(video_s)}.\n\n"
             "The seam keeps the distance ridden while the camera was off: "
             "right-click [- and -], then 'Fix speed spike (cut seam)'.")
+
+    # ------------------------------------------------------------------
+    # Hoehenprofil B..E von Hand nachbauen (Galerie, Viadukt, Tunnel)
+    # ------------------------------------------------------------------
+    def on_height_profile_clicked(self):
+        """Menue '...' -> 'Height profile editor (B..E)...'.
+
+        Oeffnet das Fenster aus widgets/hoehenprofil_editor.py, nicht
+        blockierend. Uebernommen wird erst bei Apply, ueber _profil_uebernehmen.
+        """
+        from widgets.hoehenprofil_editor import HoehenprofilEditor
+
+        mw = self._mainwindow
+        gpx_data = mw.gpx_widget.gpx_list._gpx_data if mw else None
+        if not gpx_data or len(gpx_data) < 3:
+            QMessageBox.warning(self, "No GPX Data", "No GPX data available.")
+            return
+        gl = mw.gpx_widget.gpx_list
+        b_idx, e_idx = gl._markB_idx, gl._markE_idx
+        if b_idx is None or e_idx is None:
+            QMessageBox.warning(self, "Height profile editor",
+                                "Please mark the section with markB and markE. Both must "
+                                "have a trustworthy height.")
+            return
+        if b_idx > e_idx:
+            b_idx, e_idx = e_idx, b_idx
+        if e_idx - b_idx < 2:
+            QMessageBox.warning(self, "Height profile editor",
+                                "There must be at least one point between markB and markE.")
+            return
+        if self._profil_editor is not None:
+            self._profil_editor.raise_()
+            self._profil_editor.activateWindow()
+            return
+
+        def aktuelle_zeile():
+            if not getattr(mw, "playlist_counter", 0) or not is_gpx_video_shift_set():
+                return None
+            final_s = mw.get_final_time_for_global(mw.video_editor.get_current_position_s())
+            return mw.gpx_widget.get_closest_index_for_time(final_s)
+
+        def springen(zeile):
+            if getattr(mw, "playlist_counter", 0) and is_gpx_video_shift_set():
+                gl.select_row_in_pause(zeile)
+                mw.on_map_sync_any(zeile)
+
+        n_vorher = len(gpx_data)
+        dlg = HoehenprofilEditor(gpx_data, b_idx, e_idx, parent=self,
+                                 aktuelle_zeile=aktuelle_zeile, springen=springen)
+        dlg.uebernehmen.connect(
+            lambda hoehen: self._profil_uebernehmen(b_idx, e_idx, n_vorher, hoehen))
+        dlg.finished.connect(lambda _ergebnis: setattr(self, "_profil_editor", None))
+        self._profil_editor = dlg
+        dlg.show()
+
+    def _profil_uebernehmen(self, b_idx, e_idx, n_vorher, hoehen):
+        """Apply im Profil-Editor: nur Hoehen der Punkte b..e, ein Undo-Schritt."""
+        mw = self._mainwindow
+        gpx_data = mw.gpx_widget.gpx_list._gpx_data
+        # Das Fenster stand offen; hat sich die Spur inzwischen veraendert,
+        # passen die Zeilen nicht mehr.
+        if len(gpx_data) != n_vorher or len(hoehen) != e_idx - b_idx + 1:
+            QMessageBox.warning(self, "Height profile editor",
+                                "The track changed while the editor was open. Nothing applied.")
+            return
+        self.register_gpx_undo_snapshot(self._schritt("Height profile", b_idx, e_idx))
+        for i, h in enumerate(hoehen):
+            gpx_data[b_idx + i]["ele"] = float(h)
+        recalc_gpx_data(gpx_data)
+        mw.gpx_widget.set_gpx_data(gpx_data)
+        mw._gpx_data = gpx_data
+        mw._update_gpx_overview()
+        mw.chart.set_gpx_data(gpx_data)
+        if mw.mini_chart_widget:
+            mw.mini_chart_widget.set_gpx_data(gpx_data)
+        mw.gpx_widget.gpx_list.clear_marked_range()
+        mw.map_widget.clear_marked_range()
+        mw.gpx_widget.gpx_list.select_row_in_pause(b_idx)
+        print(f"[PROFIL] Hoehen {b_idx}..{e_idx} uebernommen")
 
     def on_show_average_speed_info(self):
         mw = self._mainwindow

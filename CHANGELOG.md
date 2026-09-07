@@ -124,6 +124,31 @@ time. The seam keeps the distance ridden meanwhile, so the two right-clicks
 and "Fix speed spike" follow. Refused when the point is not later than the
 video or the cut would reach markE.
 
+**GPX: Height profile editor (B..E)**
+
+In a half-open gallery or on a viaduct even a barometric bike computer
+records nonsense (Wahoo, 8 m downhill where the road climbs), and no
+terrain model helps there: it measures the roof or the slope under the
+bridge. What is known: the heights at both ends, the distance, and what the
+rider sees in the video. New entry in the `...` menu: a window with the
+profile of markB..markE, distance against height, the recording grey in
+the background, B and E fixed, and a stretch of the recording before B
+and after E with its grade, so one sees how the road enters and leaves
+the section. A click on the line adds a support point,
+dragging changes its height - snapping the grade before the point to
+0.1 %, ten times finer with Ctrl held, and the arrow keys step it by
+0.1 % (Shift 1 %, Ctrl 0.01 %) - right-click removes it, double-click on a
+section types its grade. Every section shows its grade, the last one what
+is left to E - so the first point already shows whether the rest can work
+out. The kink at each support point is replaced by a vertical curve whose
+length is set per point - long where the grade changes slowly, short where
+it changes fast - by the mouse wheel over the point or the field below;
+"Apply to all points" sets one length everywhere.
+The window does not block: the video position is a dashed line in the
+profile, a button adds a point there, and a click on a support point
+drives the video to it. Apply writes the heights of B..E only, one undo
+step; the calculation is in `core/hoehenprofil.py` without Qt.
+
 **Edit: Undo history**
 
 Ctrl+Z went back one step, but nothing said which step, or where to stop.
