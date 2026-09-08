@@ -8,7 +8,15 @@ Versions up to and including 5.0 are documented in the GitHub releases only.
 
 ---
 
-## 6.13 - unreleased
+## 6.13 - 2026-09-08
+
+One day, one theme: the work of syncing a track against its video. The
+same GPX point has to be looked at again and again, and every edit moved
+it - so bookmarks remember it by coordinates, which nothing moves. The GPX
+bar that does the marking sat under the table, far from the map where the
+point is found; it can now sit under or over table or map, or float with
+a grip. And the tools around the seam of a cut say more about what they
+do. Two dark-theme faults and the browser menu on the map went on the way.
 
 ### Added
 
