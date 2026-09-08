@@ -82,6 +82,23 @@ with the bar attached, switch back.
 
 ### Changed
 
+**markB / markE in the GPX bar: the point under the video, on request**
+
+With AutoCutVideo+GPX off, markB and markE took the selected table row -
+and only that. While the video runs, only the yellow bar moves with it;
+the selection stays where it was last clicked. So markB landed on a row
+that had nothing to do with the picture, or nowhere when nothing was
+selected. Now, when the yellow row differs from the selected one, the app
+asks: "The video is at row N (time), but that row is not selected. Set
+markB on row N?" Yes selects that row the way a click does - blue on the
+map, table and chart follow - and sets the mark; No leaves the marks as
+they are, the old selection is not marked silently. When the yellow row is
+the selected one, nothing changes; with nothing selected and no yellow
+row, the status bar says what to do. With AutoCutVideo+GPX on the video
+sets the marks itself, as before. `_gpx_zeile_fuer_marke()` in
+`views/mainwindow.py`; checked on 2026-09-08 with a harness: yes, no,
+same row, nothing selected.
+
 **Fix speed spike: the ten points next to the seam, and a chart**
 
 The dialog's table showed one row per 60 points on each side, and a mean

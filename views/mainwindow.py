@@ -5392,8 +5392,8 @@ class MainWindow(QMainWindow):
         
         
         if not self._autoSyncVideoEnabled:
-            row = self.gpx_widget.gpx_list.table.currentRow()
-            if row < 0:
+            row = self._gpx_zeile_fuer_marke("markE")
+            if row is None:
                 return
             self.gpx_widget.gpx_list.set_markE_row(row)
             self.map_widget.set_markE_point(row)
@@ -8990,20 +8990,60 @@ class MainWindow(QMainWindow):
 
         QTimer.singleShot(200, _refocus)
         
+    def _gpx_zeile_fuer_marke(self, name):
+        """Welche Zeile bekommt markB/markE aus der GPX-Leiste? Oder None.
+
+        Bis 6.12 war es stur die gewaehlte Tabellenzeile. Laeuft das Video,
+        wandert aber nur der gelbe Balken (highlight_video_time), die Auswahl
+        bleibt stehen, wo zuletzt geklickt wurde - und markB landete auf
+        einer Zeile, die mit dem Bild nichts zu tun hat, oder nirgends, weil
+        gar nichts gewaehlt war. Jetzt: steht der gelbe Balken woanders als
+        die Auswahl, fragt die App, ob der Punkt unter dem Video gemeint ist.
+        Ja: die Zeile wird wie ein Klick gewaehlt (blau auf der Karte,
+        Tabelle und Chart ziehen nach) und bekommt die Marke. Nein: nichts
+        passiert - die alte Auswahl wird NICHT still markiert. Nur mit
+        AutoCutVideo+GPX aus; mit an setzt das Video die Marken selbst.
+        """
+        lw = self.gpx_widget.gpx_list
+        gewaehlt = lw.table.currentRow()
+        gelb = lw._last_video_row
+        if (not self._autoSyncVideoEnabled and gelb is not None
+                and 0 <= gelb < lw.table.rowCount() and gelb != gewaehlt):
+            item = lw.table.item(gelb, 0)
+            zeit = item.text() if item is not None else "?"
+            antwort = QMessageBox.question(
+                self, "Set %s" % name,
+                "The video is at row %d (%s), but that row is not selected.\n\n"
+                "Set %s on row %d?\n\n'No' leaves the marks as they are."
+                % (gelb + 1, zeit, name, gelb + 1),
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+            if antwort != QMessageBox.Yes:
+                return None
+            # Wie ein Klick auf die Zeile: blau auf der Karte, Zeile gewaehlt,
+            # Chart nachgezogen. Beim laufenden, synchronisierten Video
+            # laesst select_row_in_pause die Auswahl in Ruhe - dann bleibt
+            # nur die rote Marke, die ohnehin gesetzt wird.
+            self.on_user_selected_index(gelb)
+            return gelb
+        if gewaehlt < 0:
+            self.statusBar().showMessage(
+                "%s: select a GPX row or a point on the map first." % name, 4000)
+            return None
+        return gewaehlt
+
     def on_markB_clicked_gpx(self):
-        
+
         """
         Wird aufgerufen, wenn im GPXControlWidget der Button 'MarkB' geklickt wird.
         => current_row ohne +1
         """
-        current_row = self.gpx_widget.gpx_list.table.currentRow()
-        if current_row < 0:
-            print("[DEBUG] Keine Zeile ausgewählt in gpx_list!")
+        current_row = self._gpx_zeile_fuer_marke("markB")
+        if current_row is None:
             return
 
         # Ohne +1
         self.gpx_widget.gpx_list.set_markB_row(current_row)
-        self.map_widget.set_markB_point(current_row)           
+        self.map_widget.set_markB_point(current_row)
     
    
     def on_deselect_clicked(self):
