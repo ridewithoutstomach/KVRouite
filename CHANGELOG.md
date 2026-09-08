@@ -8,74 +8,26 @@ Versions up to and including 5.0 are documented in the GitHub releases only.
 
 ---
 
-## 6.11 - 2026-09-05
+## 6.12 - 2026-09-07
 
-Two strands. One is precision in the timeline: a cut or overlay could be
-dragged, but nobody could see by how much, and a few milliseconds are not a
-mouse movement. Dragging now shows the times, and after letting go the new
-position stays as a preview that can be nudged by the millisecond and is
-applied once. Along the way, moving a cut no longer throws away its crossfade
-setting.
-
-The other strand is the size of what ships. The bundles carried all of Qt -
-Quick3D, Charts, Multimedia, the QML tree - because PyInstaller collects the
-QML tree once WebEngine is involved, and the QML plugins pull the rest in. The
-application never loads any of it. Both packers now keep only what the
-imported Qt modules reach through their import tables, and check afterwards
-that nothing left behind points into a hole. GStreamer is deliberately left
-complete: which decoder a user's camera needs cannot be measured here.
-
-A third strand came from cutting a ride where the camera had failed twice.
-In the preview, a crossfade at a GoPro chapter boundary was replaced by a
-hard cut while the export rendered it; the preview now splits the fade
+6.11 went out as a pre-release; 6.12 is the release that followed two days
+later, and most of what it adds came from one ride where the camera had
+failed twice. Cutting the failures out of the video left three things
+behind. In the preview, a crossfade at a GoPro chapter boundary was replaced
+by a hard cut while the export rendered it; the preview now splits the fade
 across files the way the export does. In the GPX track, each cut left a
-speed spike at the seam; a new menu entry fixes it.
+speed spike at the seam, and where the camera had been off the track kept
+running while the video did not; two new menu entries fix the seam and take
+the missing time out of the track.
+
+A second strand is the heights. In a half-open gallery even a barometric
+recording is nonsense and no terrain model helps, so a section can now be
+rebuilt by hand against what the video shows; Smooth works on a marked
+range and says what it does; the Mapbox elevation no longer comes in
+stairs. Along the way came an undo history with names, an export that can
+be stopped, and videos that load in recording order.
 
 ### Added
-
-**Timeline: the numbers while dragging a cut or an overlay**
-
-While a cut edge, a cut block or an overlay is dragged, a label floats next to
-the pointer: the moved edge to the millisecond (`Start 1765.123 s`, `End
-1800.456 s`, or both for a block) and the difference to where it was, with
-sign (`+0.005 s`). Three decimals match `round(a, 3)` at release - the cut is
-not stored more precisely. The label sits at pointer height, to the right of
-the pointer or to the left when there is no room; the timeline is 84 px high,
-so a label above the pointer collided with the yellow line at the top.
-
-**Timeline: fine adjustment after dragging, applied once**
-
-Letting go no longer moves the cut. The yellow preview stays, and a bar next
-to the moved edge offers `[<] [>]`, the position, the shift, `[tick] [cross]`.
-Arrows and arrow keys nudge by 1 ms, with Shift 10 ms, with Alt 100 ms; Ctrl
-is left alone because Ctrl+arrow pans the 360 view. Tick or Enter applies the
-move - one `cutMoveRequested`, one undo step, one jump ahead of the edge as
-before; cross or Esc discards it. Clicking an edge without dragging opens the
-bar too, so no mouse tremor is needed to get in; clicking into the middle of
-a block still only sets the marker. The edge can be grabbed again from the bar
-and dragging continues from the current preview. A click elsewhere does
-nothing but show a hint - accidental discarding was the thing to avoid. Shift
-+ drag still pans a zoomed timeline while the bar is open.
-
-Why not one move per click: a move is undo-and-recut, rewrites the GPX track,
-takes an undo snapshot and seeks. Thirty clicks for 30 ms would be thirty of
-those and thirty undo steps.
-
-Overlays get exactly the same: label, bar, keys, and `overlayMoveRequested`
-once on apply. Their fade-in and fade-out survive, because they hang on the
-overlay, not on its position.
-
-**Loading a project says which cuts are fixed**
-
-Moving and undoing a cut need the record of what it removed from the GPX
-track (`cut_points`, since 6.03) and a track fingerprint that still matches.
-Until now the user learned that a cut is locked when the edge was already in
-hand. `_alte_schnitte_melden()` runs after loading, only when a GPX track is
-present, and reports one of three states: an old project with no records at
-all, a mix (listing the cuts without record - this also happens in new
-projects when a cut was set with AutoCutVideo+GPX off), or records whose
-track no longer matches. Nothing is changed; the same text goes to the log
-under `[CUT-REC]`.
 
 **GPX: fix the speed spike a cut seam leaves behind**
 
@@ -218,6 +170,122 @@ is a continuous line without stairs; the resolution of the source itself
 is unchanged, and an offset against the recorded track is still shifted
 with Set height B..E.
 
+### Fixed
+
+**Project load: markB and markE came back invisible**
+
+The project file stores markB and markE, and loading put only the two
+indices back into the list widget: no red rows, no red buttons, no red
+points on the map. Smooth, chT, ch% or Cut then worked on a range nobody
+could see. Loading now sets the marks the same way as clicking does, after
+the table and the map are built, so they show everywhere.
+
+**Clicking the seam point of a video cut said "inside a cut segment"**
+
+The point a video cut interpolates at the seam sits exactly on the cut
+edge, but after the round trip through `datetime` it comes back up to half
+a microsecond off. The jump from the GPX row to the video treated "exactly
+at the segment end" with 1 ns tolerance, so depending on the direction the
+point counted as just before the cut, was rounded to the cut start and
+refused. The tolerance is now 1 µs, the resolution of the GPX times, and
+the cut check compares on milliseconds like the jump time itself. Only the
+jump changed; track and export are untouched.
+
+**Preview: a crossfade at a file boundary was silently dropped**
+
+The preview renders each crossfade once as a small clip
+(`core/fade_cache.py`). A job knew one source file per side, and
+`_make_fade_job()` gave up as soon as the 2 s window of either side ran into
+the next file - a `[DEBUG]` line in the console, a hard cut in the preview,
+no message. The export has no such limit: it splits every range across files
+(`_Quellen.stuecke`) and renders the fade. So at exactly these places the
+preview did not show what the export produces.
+
+Seen on 2026-09-06 in the Stelvio project: a cut from 1 s before to 1 s
+after the boundary between two GoPro chapters, default 2 s. The incoming
+window started 0.3 ns before the boundary, was assigned to the first file,
+and "ran into the next file". With 1 s it fit, so the fade only appeared
+after shortening it.
+
+A `FadeJob` now carries a list of pieces `(file, in-point, duration)` per
+side, and `_make_fade_job()` splits each window across files the way the
+export does. `_ges_start()` lays the pieces back to back on their layer; the
+opacity ramp runs over the whole fade, each piece of the incoming side gets
+the section of the ramp that falls on its place (support points in media
+time, as `_alpha_rampe()` in the encoder). A piece without a whole frame - a
+nanosecond remainder at a boundary - is dropped at rasterisation; a piece
+whose source is a frame shorter than the playlist duration says is clamped,
+and the next one follows without a gap. The cache key includes every piece;
+the render version is bumped to 3.
+
+## 6.11 - 2026-09-05 (pre-release)
+
+Published as a pre-release only (tag `v6.11pre`); the finished release is
+6.12 above.
+
+Two strands. One is precision in the timeline: a cut or overlay could be
+dragged, but nobody could see by how much, and a few milliseconds are not a
+mouse movement. Dragging now shows the times, and after letting go the new
+position stays as a preview that can be nudged by the millisecond and is
+applied once. Along the way, moving a cut no longer throws away its crossfade
+setting.
+
+The other strand is the size of what ships. The bundles carried all of Qt -
+Quick3D, Charts, Multimedia, the QML tree - because PyInstaller collects the
+QML tree once WebEngine is involved, and the QML plugins pull the rest in. The
+application never loads any of it. Both packers now keep only what the
+imported Qt modules reach through their import tables, and check afterwards
+that nothing left behind points into a hole. GStreamer is deliberately left
+complete: which decoder a user's camera needs cannot be measured here.
+
+### Added
+
+**Timeline: the numbers while dragging a cut or an overlay**
+
+While a cut edge, a cut block or an overlay is dragged, a label floats next to
+the pointer: the moved edge to the millisecond (`Start 1765.123 s`, `End
+1800.456 s`, or both for a block) and the difference to where it was, with
+sign (`+0.005 s`). Three decimals match `round(a, 3)` at release - the cut is
+not stored more precisely. The label sits at pointer height, to the right of
+the pointer or to the left when there is no room; the timeline is 84 px high,
+so a label above the pointer collided with the yellow line at the top.
+
+**Timeline: fine adjustment after dragging, applied once**
+
+Letting go no longer moves the cut. The yellow preview stays, and a bar next
+to the moved edge offers `[<] [>]`, the position, the shift, `[tick] [cross]`.
+Arrows and arrow keys nudge by 1 ms, with Shift 10 ms, with Alt 100 ms; Ctrl
+is left alone because Ctrl+arrow pans the 360 view. Tick or Enter applies the
+move - one `cutMoveRequested`, one undo step, one jump ahead of the edge as
+before; cross or Esc discards it. Clicking an edge without dragging opens the
+bar too, so no mouse tremor is needed to get in; clicking into the middle of
+a block still only sets the marker. The edge can be grabbed again from the bar
+and dragging continues from the current preview. A click elsewhere does
+nothing but show a hint - accidental discarding was the thing to avoid. Shift
++ drag still pans a zoomed timeline while the bar is open.
+
+Why not one move per click: a move is undo-and-recut, rewrites the GPX track,
+takes an undo snapshot and seeks. Thirty clicks for 30 ms would be thirty of
+those and thirty undo steps.
+
+Overlays get exactly the same: label, bar, keys, and `overlayMoveRequested`
+once on apply. Their fade-in and fade-out survive, because they hang on the
+overlay, not on its position.
+
+**Loading a project says which cuts are fixed**
+
+Moving and undoing a cut need the record of what it removed from the GPX
+track (`cut_points`, since 6.03) and a track fingerprint that still matches.
+Until now the user learned that a cut is locked when the edge was already in
+hand. `_alte_schnitte_melden()` runs after loading, only when a GPX track is
+present, and reports one of three states: an old project with no records at
+all, a mix (listing the cuts without record - this also happens in new
+projects when a cut was set with AutoCutVideo+GPX off), or records whose
+track no longer matches. Nothing is changed; the same text goes to the log
+under `[CUT-REC]`.
+
+### Changed
+
 **Crossfade dialog steps in 0.1 s**
 
 The spin box stepped by 0.5 s while 1.3 s could be typed. 0.1 s is the
@@ -288,25 +356,6 @@ Program Files.
 
 ### Fixed
 
-**Project load: markB and markE came back invisible**
-
-The project file stores markB and markE, and loading put only the two
-indices back into the list widget: no red rows, no red buttons, no red
-points on the map. Smooth, chT, ch% or Cut then worked on a range nobody
-could see. Loading now sets the marks the same way as clicking does, after
-the table and the map are built, so they show everywhere.
-
-**Clicking the seam point of a video cut said "inside a cut segment"**
-
-The point a video cut interpolates at the seam sits exactly on the cut
-edge, but after the round trip through `datetime` it comes back up to half
-a microsecond off. The jump from the GPX row to the video treated "exactly
-at the segment end" with 1 ns tolerance, so depending on the direction the
-point counted as just before the cut, was rounded to the cut start and
-refused. The tolerance is now 1 µs, the resolution of the GPX times, and
-the cut check compares on milliseconds like the jump time itself. Only the
-jump changed; track and export are untouched.
-
 **Moving a cut kept the crossfade setting**
 
 The crossfade length and the hard-cut flag hang on the key `(start, end)`. A
@@ -318,33 +367,6 @@ room" question the carried-over length is placed under the new key for the
 duration of the check, so the same calculation also asks whether *it* still
 fits at the new place; nothing is shortened silently. A cut without its own
 setting is not touched and keeps following the default.
-
-**Preview: a crossfade at a file boundary was silently dropped**
-
-The preview renders each crossfade once as a small clip
-(`core/fade_cache.py`). A job knew one source file per side, and
-`_make_fade_job()` gave up as soon as the 2 s window of either side ran into
-the next file - a `[DEBUG]` line in the console, a hard cut in the preview,
-no message. The export has no such limit: it splits every range across files
-(`_Quellen.stuecke`) and renders the fade. So at exactly these places the
-preview did not show what the export produces.
-
-Seen on 2026-09-06 in the Stelvio project: a cut from 1 s before to 1 s
-after the boundary between two GoPro chapters, default 2 s. The incoming
-window started 0.3 ns before the boundary, was assigned to the first file,
-and "ran into the next file". With 1 s it fit, so the fade only appeared
-after shortening it.
-
-A `FadeJob` now carries a list of pieces `(file, in-point, duration)` per
-side, and `_make_fade_job()` splits each window across files the way the
-export does. `_ges_start()` lays the pieces back to back on their layer; the
-opacity ramp runs over the whole fade, each piece of the incoming side gets
-the section of the ramp that falls on its place (support points in media
-time, as `_alpha_rampe()` in the encoder). A piece without a whole frame - a
-nanosecond remainder at a boundary - is dropped at rasterisation; a piece
-whose source is a frame shorter than the playlist duration says is clamped,
-and the next one follows without a gap. The cache key includes every piece;
-the render version is bumped to 3.
 
 ## 6.10 - 2026-09-04
 
