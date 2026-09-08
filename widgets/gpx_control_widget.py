@@ -43,6 +43,7 @@ from datetime import timedelta
 from core.gpx_parser import recalc_gpx_data, get_gpx_video_shift, set_gpx_video_shift, is_gpx_video_shift_set
 from core import theme
 from core import naht_glaetten
+import config
 
 MAX_LOGO_H = 48
 
@@ -1210,9 +1211,17 @@ class GPXControlWidget(QWidget):
         
     
     def _on_more_button_clicked(self):
-        # Menü manuell anzeigen, z.B. leicht unterhalb des Buttons:
-        pos = self.more_button.mapToGlobal(QPoint(0, self.more_button.height()))
-        self.more_menu.exec_(pos)    
+        # Menü manuell anzeigen, normalerweise direkt unterhalb des Buttons.
+        #
+        # Mit der Aufrufoption "-menuup" stattdessen nach oben: Oberkante des
+        # Menues = Oberkante des Buttons minus Menuehoehe, sodass die letzte
+        # Zeile ueber dem Button sitzt. sizeHint() ist vor dem ersten
+        # Anzeigen gueltig, QMenu berechnet die Eintraege dafuer.
+        if config.MORE_MENU_OPENS_UPWARD:
+            pos = self.more_button.mapToGlobal(QPoint(0, -self.more_menu.sizeHint().height()))
+        else:
+            pos = self.more_button.mapToGlobal(QPoint(0, self.more_button.height()))
+        self.more_menu.exec_(pos)
         
     def set_mainwindow(self, mw):
         """

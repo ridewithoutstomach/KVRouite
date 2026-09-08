@@ -31,8 +31,13 @@ from PySide6.QtCore import QSettings
 # 1) Versions-Konfiguration & Modus
 ##############################################################################
 
-APP_VERSION = "6.12"
+APP_VERSION = "6.13"
 # use 4.30_pre for a pre Version
+
+# Aufrufoption "-menuup" (siehe KVRouite.py): das "..."-Menue der GPX-Tabelle
+# nach oben aufklappen. Nur fuer Bildschirmaufnahmen; wird beim Start gesetzt
+# und sonst nirgends gespeichert.
+MORE_MENU_OPENS_UPWARD = False
 
 
 #SERVER_VERSION_CHECK_ONLY = False

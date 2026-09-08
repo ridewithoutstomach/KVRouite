@@ -77,17 +77,24 @@ def force_error(*args, sep=" ", end="\n"):
 # genau das ist am 03.09.2026 beim Testen passiert.
 
 _OPTIONEN = {
+    "?":          "help",
+    "h":          "help",
+    "help":       "help",
     "v":          "verbose",
     "verbose":    "verbose",
     "selftest":   "selftest",
     "screenshot": "screenshot",
+    "menuup":     "menuup",
+    "menu-up":    "menuup",
 }
 
 #: Wie die Optionen in einer Meldung aufgezaehlt werden.
 _OPTIONEN_HILFE = (
+    "  -? / -h / --help    show this list and exit",
     "  -v  / --verbose    more output on the console",
     "  -selftest / --selftest    check this installation and exit",
     "  -screenshot / --screenshot    load a test project, play it, save three pictures and exit",
+    "  -menuup / --menu-up    open the '...' menu of the GPX table upwards (for screen recordings)",
 )
 
 
@@ -107,6 +114,22 @@ def _optionen_lesen(argv):
         else:
             unbekannt.append(arg)
     return erkannt, unbekannt
+
+
+def _hilfe_ausgeben():
+    force_print("Usage: KVRouite [option ...] [file.KVRouiteproj | file.gpx | file.fit | video]")
+    force_print("Options (one or two dashes, both are accepted):")
+    for _zeile in _OPTIONEN_HILFE:
+        force_print(_zeile)
+
+
+# Hilfe HIER, noch vor allem anderen. Weiter unten wird fuer den Normalbetrieb
+# die Konsole stummgeschaltet (Deskriptoren auf NUL, Fenster versteckt);
+# danach kaeme kein Wort mehr an. Wer "-?" tippt, will nur die Liste sehen -
+# ohne Qt, ohne Konsolenumbau, ohne Oberflaeche.
+if "help" in _optionen_lesen(sys.argv)[0]:
+    _hilfe_ausgeben()
+    sys.exit(0)
 
 
 def _is_verbose():
@@ -460,6 +483,11 @@ def main():
     if "selftest" in erkannt:
         import selftest
         sys.exit(selftest.alles_pruefen())
+
+    # "-menuup": das "..."-Menue der GPX-Tabelle klappt nach oben auf statt
+    # nach unten. Gebraucht fuer Bildschirmaufnahmen: unten am Fensterrand
+    # schiebt Qt das Menue sonst ueber die Taskleiste hinaus.
+    config.MORE_MENU_OPENS_UPWARD = "menuup" in erkannt
 
     # Workaround bei manchen Grafikkarten
     
