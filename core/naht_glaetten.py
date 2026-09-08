@@ -381,13 +381,21 @@ def vorschau(g, v):
     return kopie
 
 
-def zeilen(g_alt, g_neu, v, breite=60):
+def zeilen(g_alt, g_neu, v, breite=60, nah=10):
     """Vergleich vorher/nachher fuer den Dialog.
 
-    Rueckgabe: Liste von (bezeichnung, steigung, v_alt, v_neu). Je `breite`
-    Punkte eine Zeile, von der Naht aus nach aussen; dazu die Naht selbst
-    und das hoechste Tempo im Bereich. Tempo als Mittelwert der Punkte,
-    Steigung ueber die Strecke - wie in den Rechnungen vom 06.09.2026.
+    Rueckgabe: Liste von (bezeichnung, steigung, v_alt, v_neu). Von der Naht
+    aus nach aussen: erst die `nah` naechsten Punkte je Seite als eigene
+    Zeile, dann je `breite` Punkte eine; dazu die Naht selbst und das
+    hoechste Tempo im Bereich. Tempo als Mittelwert der Punkte, Steigung
+    ueber die Strecke - wie in den Rechnungen vom 06.09.2026.
+
+    Warum die Nahzeile: am 08.09.2026 stand in der Tabelle "60..1 before
+    19.3 km/h", die Naht bekam 15.0 km/h - das sah nach zu langsam aus.
+    Erst die Tabelle zeigte, dass die Punkte direkt vor und hinter der Naht
+    selbst mit 15 km/h fahren; das Mittel ueber 60 Punkte hatte schnellere
+    Abschnitte weiter weg mit drin. Die Nahzeile zeigt das, ohne dass man
+    in die Tabelle muss.
     """
     def mittel(g, i0, i1):
         w = [float(g[i].get("speed_kmh", 0.0) or 0.0)
@@ -395,13 +403,16 @@ def zeilen(g_alt, g_neu, v, breite=60):
         return (sum(w) / len(w)) if w else 0.0
 
     raus = []
-    # davor: Bloecke rueckwaerts sammeln, dann in Leserichtung ausgeben
+    # davor: Bloecke rueckwaerts sammeln, dann in Leserichtung ausgeben.
+    # Der erste (nahste) Block ist `nah` breit, die weiteren `breite`.
     bloecke = []
     ende = v.idx - 1
+    schritt_breite = nah
     while ende > v.b_idx:
-        anfang = max(v.b_idx, ende - breite)
+        anfang = max(v.b_idx, ende - schritt_breite)
         bloecke.append((anfang, ende))
         ende = anfang
+        schritt_breite = breite
     for (i0, i1) in reversed(bloecke):
         raus.append(("%d..%d before" % (v.idx - 1 - i0, v.idx - i1),
                      _steigung(g_alt, i0, i1), mittel(g_alt, i0, i1),
@@ -410,16 +421,34 @@ def zeilen(g_alt, g_neu, v, breite=60):
                  float(g_alt[v.idx].get("speed_kmh", 0.0) or 0.0),
                  float(g_neu[v.idx].get("speed_kmh", 0.0) or 0.0)))
     anfang = v.idx
+    schritt_breite = nah
     while anfang < v.e_idx:
-        ende = min(v.e_idx, anfang + breite)
+        ende = min(v.e_idx, anfang + schritt_breite)
         raus.append(("%d..%d after" % (anfang - v.idx + 1, ende - v.idx),
                      _steigung(g_alt, anfang, ende), mittel(g_alt, anfang, ende),
                      mittel(g_neu, anfang, ende)))
         anfang = ende
+        schritt_breite = breite
     bereich = [i for i in range(v.b_idx + 1, v.e_idx + 1) if i != v.idx]
     raus.append(("max in range", 0.0,
                  max(float(g_alt[i].get("speed_kmh", 0.0) or 0.0) for i in bereich),
                  max(float(g_neu[i].get("speed_kmh", 0.0) or 0.0) for i in bereich)))
+    return raus
+
+
+def verlauf(g_alt, g_neu, v):
+    """Tempo je Punkt im Bereich, fuer das Diagramm im Dialog.
+
+    Rueckgabe: Liste von (abstand, v_alt, v_neu); abstand ist der Punkt
+    relativ zur Naht - negativ davor, 0 die Naht, positiv dahinter. Die
+    Naht selbst ist mit drin (v_alt ist dort die Spitze, im Diagramm wird
+    sie abgeschnitten und beschriftet).
+    """
+    raus = []
+    for i in range(v.b_idx + 1, v.e_idx + 1):
+        raus.append((i - v.idx,
+                     float(g_alt[i].get("speed_kmh", 0.0) or 0.0),
+                     float(g_neu[i].get("speed_kmh", 0.0) or 0.0)))
     return raus
 
 

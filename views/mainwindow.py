@@ -677,6 +677,16 @@ class MainWindow(QMainWindow):
         self.action_slot_kopf.toggled.connect(self._kopfzeilen_umschalten)
         # Eingehaengt wird weiter unten im Config-Menue - siehe dort.
 
+        # Die GPX-Leiste (Knoepfe und Infozeile) unter der Karte statt unter
+        # der Tabelle. Gleiche Leiste, nur umgehaengt und etwas flacher.
+        self.action_gpx_leiste_karte = QAction("GPX Buttons under Map", self, checkable=True)
+        self.action_gpx_leiste_karte.setStatusTip(
+            "Show the GPX button bar and info line under the map instead of under the GPX table.")
+        self.action_gpx_leiste_karte.setChecked(
+            QSettings("KVRouite", "KVRouite").value(
+                self._GPX_LEISTE_KEY, False, type=bool))
+        self.action_gpx_leiste_karte.toggled.connect(self._gpx_leiste_umschalten)
+
         # Hoehenprofil ins Videobild einblenden. Frei verschiebbar, am
         # Punktraster-Griff; die Stelle wird gemerkt (_OVERLAY_POS_KEY).
         self.action_hoehen_overlay = QAction(
@@ -1009,6 +1019,7 @@ class MainWindow(QMainWindow):
         # man greift nicht versehentlich daneben.
         setup_menu.addAction(self.action_slot_kopf)
         setup_menu.addAction(self.action_lock_width)
+        setup_menu.addAction(self.action_gpx_leiste_karte)
         setup_menu.addSeparator()
 
         action_reset_layout = QAction("Reset Window Layout", self)
@@ -1359,16 +1370,31 @@ class MainWindow(QMainWindow):
         # Video ist bewusst NICHT dabei: es bleibt immer in der oberen Zeile
         # und wechselt nur die Seite (View-Menue). Ein Zeilenwechsel wuerde
         # sein natives Fenster neu erzeugen und das Bild kosten.
+        # ============== Karte mit Platz fuer die GPX-Leiste ==============
+        #
+        # Die Karte lag bisher nackt im Slot. Seit 6.13 kann die GPX-Leiste
+        # wahlweise unter der Karte stehen (Config > "GPX buttons under Map"),
+        # deshalb bekommt sie denselben Container wie die Tabelle: Karte
+        # oben, darunter Platz fuer die Leiste. Das Modul "map" ist jetzt
+        # dieser Container; der Modultausch merkt davon nichts.
+        self.map_area_widget = QWidget(self._slots["ol"].buehne())
+        self.map_area_layout = QVBoxLayout(self.map_area_widget)
+        self.map_area_layout.setContentsMargins(0, 0, 0, 0)
+        self.map_area_layout.setSpacing(0)
+        self.map_area_layout.addWidget(self.map_widget, stretch=1)
+
         self._module = {
-            "map":   ("Map",         self.map_widget),
+            "map":   ("Map",         self.map_area_widget),
             "chart": ("Chart",       self.chart),
             "flow":  ("Chart-Flow",  self.chart_flow),
             "gpx":   ("GPX Table", self.bottom_right_widget),
         }
         self._slots["or"].inhalt_setzen("video", self.video_area_widget, "Video")
-        self._slots["ol"].inhalt_setzen("map", self.map_widget, "Map")
+        self._slots["ol"].inhalt_setzen("map", self.map_area_widget, "Map")
         self._slots["ul"].inhalt_setzen("chart", self.chart, "Chart")
         self._slots["ur"].inhalt_setzen("gpx", self.bottom_right_widget, "GPX Table")
+        # Die GPX-Leiste an den gemerkten Ort haengen (Tabelle oder Karte).
+        self._gpx_leiste_anwenden(self.action_gpx_leiste_karte.isChecked())
         # Vier Module auf drei waehlbare Fenster - eines ist immer verdeckt.
         # Zum Start ist das der Chart-Flow.
         self._auswahllisten_auffrischen()
@@ -3236,6 +3262,30 @@ class MainWindow(QMainWindow):
         """Vom Menue: umschalten und die Wahl merken."""
         self._kopfzeilen_anwenden(an)
         QSettings("KVRouite", "KVRouite").setValue(self._KOPFZEILEN_KEY, bool(an))
+
+    _GPX_LEISTE_KEY = "ui/gpx_leiste_unter_karte"
+
+    def _gpx_leiste_anwenden(self, unter_karte: bool):
+        """Die GPX-Leiste unter die Karte oder unter die Tabelle haengen.
+
+        Es ist dasselbe Widget; nur der Container wechselt. Signale und
+        Zustand (rote Marken, Infozeile) haengen am Widget und bleiben.
+        Unter der Karte wird die Leiste flacher (kompakt), damit die Karte
+        moeglichst viel Hoehe behaelt - gemessen 58 px zu 44 px.
+        """
+        leiste = self.gpx_control
+        alt = leiste.parentWidget()
+        if alt is not None and alt.layout() is not None:
+            alt.layout().removeWidget(leiste)
+        ziel = self.map_area_layout if unter_karte else self.bottom_right_layout
+        ziel.addWidget(leiste, stretch=0)
+        leiste.kompakt(unter_karte)
+        leiste.show()
+
+    def _gpx_leiste_umschalten(self, an: bool):
+        """Vom Menue: umhaengen und die Wahl merken."""
+        self._gpx_leiste_anwenden(an)
+        QSettings("KVRouite", "KVRouite").setValue(self._GPX_LEISTE_KEY, bool(an))
 
     @staticmethod
     def _halve(sp):

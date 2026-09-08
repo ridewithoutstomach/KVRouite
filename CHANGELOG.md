@@ -65,7 +65,38 @@ project file (`gpx_bookmarks`, per slot). Search and defaults are in
 window: set, jump back, point deleted -> neighbour at 4.5 m, far point ->
 not found, json round trip, per-slot lists.
 
+**Config: the GPX button bar can sit under the map**
+
+Config > "GPX Buttons under Map" moves the GPX bar - the buttons from
+`[-` to Smooth and Slot, and the info line with video time, GPX length,
+elevation and the slope, zero and gap counts - from under the GPX table to
+under the map, and back. It is the same widget, only re-parented, so every
+signal, the red mark buttons and the info values stay as they are; the map
+gets the same container the table has (map above, bar below), and the
+module swap between the four windows treats that container as the map.
+Under the map the bar is drawn compact: buttons 22 px instead of 26,
+Kinomap logo 24 px instead of 48, tighter margins - measured 58 px under
+the table, 44 px under the map. The choice is stored in the settings.
+Measured on 2026-09-08: switch, height, swap of the map to another window
+with the bar attached, switch back.
+
 ### Changed
+
+**Fix speed spike: the ten points next to the seam, and a chart**
+
+The dialog's table showed one row per 60 points on each side, and a mean
+over 60 points can mislead: "60..1 before 19.3 km/h" next to a seam that
+gets 15.0 km/h looked as if the seam came out too slow - until the GPX
+table showed that the points right before and after the seam ride 15 km/h
+themselves, and the faster stretch sat further away. The table now has a
+row for the ten points nearest the seam on each side ("10..1 before",
+"1..10 after"), the wider blocks follow ("60..11 before"). Below the table
+a chart draws the speed of every point in the range, grey before and
+coloured after, with the seam as a dashed line and its values as text; the
+spike itself is clipped at the top of the chart so the rest keeps its
+scale. Both recalculate when the ranges are changed. `zeilen()` and the new
+`verlauf()` in `core/naht_glaetten.py`, `NahtDiagramm` in
+`widgets/gpx_control_widget.py`.
 
 **Shortcuts list moved from Edit to Help**
 

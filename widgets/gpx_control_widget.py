@@ -31,8 +31,8 @@ import sys, os
 from pathlib import Path
 
 
-from PySide6.QtCore import Qt, Signal, QPoint, QUrl, QEvent
-from PySide6.QtGui import QIcon, QPixmap, QCursor, QDesktopServices
+from PySide6.QtCore import Qt, Signal, QPoint, QUrl, QEvent, QRectF, QPointF
+from PySide6.QtGui import QIcon, QPixmap, QCursor, QDesktopServices, QPainter, QPen, QColor
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QPushButton, QStyle, QVBoxLayout, QLabel, QSizePolicy, QFrame, QMenu, QDialog, QRadioButton, QButtonGroup, QDoubleSpinBox, QMessageBox, QFileDialog, QLineEdit
 import os
 
@@ -46,6 +46,124 @@ from core import naht_glaetten
 import config
 
 MAX_LOGO_H = 48
+
+
+class NahtDiagramm(QWidget):
+    """Tempo je Punkt im Bereich um die Naht: vorher grau, nachher farbig.
+
+    Die Tabelle im Dialog zeigt Mittelwerte ueber 60 Punkte, und ein
+    Mittelwert kann taeuschen: "60..1 before 19.3 km/h" neben einer Naht
+    mit 15 km/h sah am 08.09.2026 nach zu langsam aus, obwohl die Punkte
+    direkt neben der Naht selbst 15 km/h fahren. Das Diagramm zeigt jeden
+    Punkt, die Naht steht als gestrichelte Linie in der Mitte. Die Spitze
+    der Naht (200 km/h und mehr) wird abgeschnitten, sonst waere der Rest
+    ein Strich am Boden; ihr Wert steht als Text an der Linie.
+    """
+
+    HOEHE = 170
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._punkte = []      # (abstand, v_alt, v_neu)
+        self._v = None
+        self.setMinimumHeight(self.HOEHE)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+    def setzen(self, punkte, vorschlag):
+        self._punkte = list(punkte or [])
+        self._v = vorschlag
+        self.update()
+
+    def paintEvent(self, _ev):
+        f = theme.farben()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.fillRect(self.rect(), QColor(f["eingabe"]))
+        if not self._punkte or self._v is None:
+            p.setPen(QColor(f["text_gedimmt"]))
+            p.drawText(self.rect(), Qt.AlignCenter, "no proposal")
+            return
+
+        links, rechts, oben, unten = 66, 12, 14, 24
+        r = QRectF(links, oben, max(1, self.width() - links - rechts),
+                   max(1, self.height() - oben - unten))
+
+        # Skala aus allen Punkten ausser der Naht selbst (die Spitze wird
+        # abgeschnitten); etwas Luft nach oben, mindestens 10 km/h.
+        werte = [w for a, v_alt, v_neu in self._punkte if a != 0 for w in (v_alt, v_neu)]
+        v_max = max(10.0, max(werte) * 1.15) if werte else 10.0
+        a_min = min(a for a, _x, _y in self._punkte)
+        a_max = max(a for a, _x, _y in self._punkte)
+        spanne = max(1, a_max - a_min)
+
+        def x_von(a):
+            return r.left() + (a - a_min) / spanne * r.width()
+
+        def y_von(v):
+            return r.bottom() - min(v, v_max) / v_max * r.height()
+
+        # Gitter und Achsen
+        gitter = QPen(QColor(f["gitter"]))
+        p.setPen(gitter)
+        schrift = QColor(f["text_gedimmt"])
+        for stufe in (0.0, 0.5, 1.0):
+            y = r.bottom() - stufe * r.height()
+            p.setPen(gitter)
+            p.drawLine(QPointF(r.left(), y), QPointF(r.right(), y))
+            p.setPen(schrift)
+            # Die Einheit steht am obersten Wert, nicht als eigenes Wort:
+            # das ueberlappte sonst die Zahl.
+            p.drawText(QRectF(0, y - 8, links - 6, 16), Qt.AlignRight | Qt.AlignVCenter,
+                       ("%.0f km/h" if stufe == 1.0 else "%.0f") % (stufe * v_max))
+        p.setPen(schrift)
+        p.drawText(QRectF(r.left(), r.bottom() + 4, 60, 16), Qt.AlignLeft, "%d" % a_min)
+        p.drawText(QRectF(r.right() - 60, r.bottom() + 4, 60, 16), Qt.AlignRight, "+%d" % a_max)
+        p.drawText(QRectF(r.left(), r.bottom() + 4, r.width(), 16), Qt.AlignHCenter,
+                   "points from the seam")
+
+        # Naht: gestrichelte Linie
+        x_naht = x_von(0)
+        naht = QPen(QColor(f["text_gedimmt"]))
+        naht.setStyle(Qt.DashLine)
+        p.setPen(naht)
+        p.drawLine(QPointF(x_naht, r.top()), QPointF(x_naht, r.bottom()))
+
+        # Verlaeufe: vorher grau, nachher Akzent. Die Naht wird auf v_max
+        # gekappt (min() in y_von), damit die Linie am Rand endet.
+        def linie(farbe, spalte, breite):
+            stift = QPen(QColor(farbe))
+            stift.setWidthF(breite)
+            p.setPen(stift)
+            letzter = None
+            for punkt in self._punkte:
+                jetzt = QPointF(x_von(punkt[0]), y_von(punkt[spalte]))
+                if letzter is not None:
+                    p.drawLine(letzter, jetzt)
+                letzter = jetzt
+
+        linie(f["text_gedimmt"], 1, 1.2)
+        linie(f["akzent"], 2, 1.8)
+
+        # Beschriftung der Naht und Legende
+        v_alt = next((v for a, v, _n in self._punkte if a == 0), 0.0)
+        v_neu = next((n for a, _v, n in self._punkte if a == 0), 0.0)
+        p.setPen(QColor(f["text"]))
+        text = "seam: %.0f -> %.1f km/h" % (v_alt, v_neu)
+        breite_text = p.fontMetrics().horizontalAdvance(text) + 8
+        # Rechts der Naht, wenn Platz ist, sonst links.
+        if x_naht + 6 + breite_text < r.right():
+            feld = QRectF(x_naht + 6, r.top(), breite_text, 16)
+            p.drawText(feld, Qt.AlignLeft | Qt.AlignVCenter, text)
+        else:
+            feld = QRectF(x_naht - 6 - breite_text, r.top(), breite_text, 16)
+            p.drawText(feld, Qt.AlignRight | Qt.AlignVCenter, text)
+        p.setPen(QColor(f["text_gedimmt"]))
+        p.drawText(QRectF(r.right() - 150, r.top(), 150, 16), Qt.AlignRight | Qt.AlignVCenter,
+                   "grey: before")
+        p.setPen(QColor(f["akzent"]))
+        p.drawText(QRectF(r.right() - 150, r.top() + 16, 150, 16), Qt.AlignRight | Qt.AlignVCenter,
+                   "coloured: after")
+        p.end()
 
 
 class NahtDialog(QDialog):
@@ -106,6 +224,10 @@ class NahtDialog(QDialog):
         self._tabelle.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         aussen.addWidget(self._tabelle)
 
+        # Jeder Punkt des Bereichs als Linie - siehe NahtDiagramm.
+        self._diagramm = NahtDiagramm(self)
+        aussen.addWidget(self._diagramm)
+
         fest = QLabel("Positions, elevations and gradients are not touched. "
                       "Points after the range keep their times, the video "
                       "stays in sync.\n\n"
@@ -130,7 +252,7 @@ class NahtDialog(QDialog):
         self._sb_davor.valueChanged.connect(self._neu_rechnen)
         self._sb_danach.valueChanged.connect(self._neu_rechnen)
         self._anzeigen(automatisch=True)
-        self.resize(640, 520)
+        self.resize(640, 720)
 
     def _neu_rechnen(self):
         try:
@@ -142,6 +264,7 @@ class NahtDialog(QDialog):
             self._fehler.setText(str(exc))
             self._knoepfe.button(self._knoepfe.StandardButton.Ok).setEnabled(False)
             self._tabelle.setRowCount(0)
+            self._diagramm.setzen([], None)
             return
         self._anzeigen(automatisch=False)
 
@@ -171,6 +294,7 @@ class NahtDialog(QDialog):
         self._halt_danach.setText(praefix + v.halt_danach)
 
         neu = naht_glaetten.vorschau(g, v)
+        self._diagramm.setzen(naht_glaetten.verlauf(g, neu, v), v)
         zeilen = naht_glaetten.zeilen(g, neu, v)
         self._tabelle.setRowCount(len(zeilen))
         for r, (bez, steig, v_alt, v_neu) in enumerate(zeilen):
@@ -594,7 +718,7 @@ class GPXControlWidget(QWidget):
 
     def eventFilter(self, obj, event):
         if obj is getattr(self, "_kinomap_big", None) and event.type() == QEvent.Resize:
-            h = min(self._kinomap_big.height(), MAX_LOGO_H)
+            h = min(self._kinomap_big.height(), getattr(self, "_logo_max_h", MAX_LOGO_H))
             if h > 0 and getattr(self, "_kinomap_aspect", None):
                 w = int(h * self._kinomap_aspect)
                 # NICHT setFixedWidth: eine feste Breite wuerde in die
@@ -1223,6 +1347,32 @@ class GPXControlWidget(QWidget):
             pos = self.more_button.mapToGlobal(QPoint(0, self.more_button.height()))
         self.more_menu.exec_(pos)
         
+    def kompakt(self, an: bool):
+        """Flachere Leiste - fuer den Platz unter der Karte.
+
+        Knoepfe auf 22 px statt der 26 px, die Qt ihnen gibt, Logo auf 24 px
+        statt 48, engere Raender und weniger Abstand zwischen Knopf- und
+        Infozeile. Gemessen: 58 px werden 44 px. Mit an=False kommt alles
+        auf die Vorgaben zurueck, damit dieselbe Leiste unter der Tabelle
+        wieder wie gewohnt aussieht.
+        """
+        self._kompakt = bool(an)
+        for knopf in self.findChildren(QPushButton):
+            if an:
+                knopf.setFixedHeight(22)
+            else:
+                knopf.setMinimumHeight(0)
+                knopf.setMaximumHeight(16777215)   # QWIDGETSIZE_MAX
+        self._logo_max_h = 24 if an else MAX_LOGO_H
+        self._kinomap_big.setMaximumHeight(self._logo_max_h)
+        if an:
+            self._main_hbox.setContentsMargins(4, 2, 8, 2)
+            self.main_vbox.setSpacing(2)
+        else:
+            self._main_hbox.setContentsMargins(5, 5, 20, 5)
+            self.main_vbox.setSpacing(5)
+        self.updateGeometry()
+
     def set_mainwindow(self, mw):
         """
         Mit dieser Methode geben wir dem GPXControlWidget
