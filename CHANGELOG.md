@@ -8,6 +8,30 @@ Versions up to and including 5.0 are documented in the GitHub releases only.
 
 ---
 
+## 6.13 - unreleased
+
+### Added
+
+**Command line: `-?` lists the options**
+
+`KVRouite.exe -?` (also `-h`, `--help`) prints the usage line and every
+option with one sentence each, then exits with code 0. The list is the same
+one the "Unknown option" message shows. It is printed before anything else
+happens - before Qt, before the console is cleared and hidden for normal
+operation - so it also appears in the packed exe started from a command
+prompt.
+
+**Command line: `-menuup` opens the `...` menu upwards**
+
+Wanted for a tutorial recording: the `...` menu of the GPX bar sits at the
+bottom of the window, and opened downwards Qt has no room, so it slides the
+menu up over the button and the taskbar. With `-menuup` (or `--menu-up`) the
+menu opens with its last entry directly above the button; measured, the
+menu's bottom edge equals the button's top edge. Nothing else changes and
+nothing is stored - the flag lives in `config.MORE_MENU_OPENS_UPWARD` for
+the run and `_on_more_button_clicked()` in `widgets/gpx_control_widget.py`
+reads it.
+
 ## 6.12 - 2026-09-07
 
 6.11 went out as a pre-release; 6.12 is the release that followed two days
