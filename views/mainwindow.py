@@ -53,7 +53,7 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtGui import QIcon
-from PySide6.QtGui import QKeySequence
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtCore import QPoint
 from PySide6.QtCore import QSize
 
@@ -539,6 +539,10 @@ class MainWindow(QMainWindow):
                 "markE": None,
                 "sync_enabled": False,         # per-Slot „Sync all with video“
                 "sync_marker": None,           # per-Slot „Set Sync“ (Index)
+                # Lesezeichen auf Punkte dieser Spur, je {name, lat, lon}.
+                # Je Slot, weil die Koordinaten zu genau einer Spur gehoeren
+                # - siehe core/lesezeichen.py.
+                "bookmarks": [],
             },
             2: {
                 "gpx_data": [],
@@ -547,6 +551,7 @@ class MainWindow(QMainWindow):
                 "markE": None,
                 "sync_enabled": True,          # GoPro-Slot startet ON
                 "sync_marker": None,
+                "bookmarks": [],
             }
         }
 
@@ -1025,8 +1030,25 @@ class MainWindow(QMainWindow):
         
         
         gpx_info_menu = menubar.addMenu("GPX-Info")
-        
-        
+
+        # Lesezeichen auf GPX-Punkte. Die Eintraege je Lesezeichen entstehen
+        # beim Aufklappen (aboutToShow), weil sie je Slot verschieden sind.
+        # Ctrl+1..9 springen; das sind QShortcuts auf dem Fenster, nicht
+        # Shortcuts der dynamischen Eintraege - die gaebe es vor dem ersten
+        # Aufklappen noch nicht. 1..9 ohne Ctrl bleibt das Abspieltempo.
+        self.bookmarks_menu = menubar.addMenu("Bookmarks")
+        self.action_add_bookmark = QAction("Add bookmark for selected row...", self)
+        self.action_add_bookmark.setShortcut(QKeySequence("Ctrl+B"))
+        self.action_add_bookmark.triggered.connect(self._lesezeichen_fuer_auswahl)
+        self.action_manage_bookmarks = QAction("Bookmarks...", self)
+        self.action_manage_bookmarks.triggered.connect(self._lesezeichen_dialog)
+        self.bookmarks_menu.aboutToShow.connect(
+            lambda: self._lesezeichen_menue_fuellen(self.bookmarks_menu))
+        for n in range(1, 10):
+            sc = QShortcut(QKeySequence("Ctrl+%d" % n), self)
+            sc.setContext(Qt.WindowShortcut)
+            sc.activated.connect(lambda n=n: self._lesezeichen_nummer_anspringen(n))
+
         help_menu = menubar.addMenu("Help")
 
         docs_action = QAction("Show Documentation...", self)
@@ -1476,6 +1498,8 @@ class MainWindow(QMainWindow):
         
         
         self.gpx_widget.gpx_list.rowClickedInPause.connect(self.on_user_selected_index)
+        self.gpx_widget.gpx_list.contextMenuRequested.connect(self._lesezeichen_kontextmenue)
+        self.map_widget.contextMenuRequested.connect(self._lesezeichen_kontextmenue)
         self.map_widget.pointClickedInPause.connect(self._on_map_pause_clicked)
         
         self.step_manager = StepManager(self.video_editor)
@@ -5952,6 +5976,7 @@ class MainWindow(QMainWindow):
             self._gpx_slots[1]["gpx_video_shift"] = None
             self._gpx_slots[1]["markB"] = None
             self._gpx_slots[1]["markE"] = None
+            self._gpx_slots[1]["bookmarks"] = []   # neue Spur, alte Punkte weg
 
             # UI nur überschreiben, wenn Slot 1 aktiv ist
             if self._active_gpx_slot == 1:
@@ -8753,6 +8778,7 @@ class MainWindow(QMainWindow):
                 self._gpx_slots[s]["gpx_video_shift"] = None
                 self._gpx_slots[s]["markB"] = None
                 self._gpx_slots[s]["markE"] = None
+                self._gpx_slots[s]["bookmarks"] = []
                 # Werkseinstellung: Slot1 False, Slot2 True
                 self._gpx_slots[s]["sync_enabled"] = (s == 2)
             self._active_gpx_slot = 1
@@ -9125,6 +9151,221 @@ class MainWindow(QMainWindow):
         v.addWidget(knoepfe)
         dlg.exec()
 
+    # ------------------------------------------------------------------
+    # Lesezeichen ("Bookmarks") auf GPX-Punkte - je Slot, ueber Koordinaten.
+    # Suche und Vorgaben: core/lesezeichen.py. Hier nur Menue, Dialog, Sprung.
+    # ------------------------------------------------------------------
+    def _lesezeichen_liste(self):
+        """Die Lesezeichen des aktiven Slots (die Liste selbst, nicht Kopie)."""
+        store = self._get_active_slot_store()
+        if not isinstance(store.get("bookmarks"), list):
+            store["bookmarks"] = []
+        return store["bookmarks"]
+
+    def _lesezeichen_anlegen(self, zeile: int):
+        """Lesezeichen auf die Tabellenzeile `zeile` setzen, Name erfragen."""
+        from core import lesezeichen as lz
+        daten = self.gpx_widget.gpx_list._gpx_data or []
+        if not (0 <= zeile < len(daten)):
+            self.statusBar().showMessage("Bookmark: select a GPX row first.", 4000)
+            return
+        try:
+            lat = float(daten[zeile]["lat"])
+            lon = float(daten[zeile]["lon"])
+        except (KeyError, TypeError, ValueError):
+            QMessageBox.warning(self, "Add bookmark",
+                                "This GPX point has no valid lat/lon.")
+            return
+        name, ok = QInputDialog.getText(
+            self, "Add bookmark",
+            "Name for this point (row %d, %.6f / %.6f):" % (zeile + 1, lat, lon),
+            QLineEdit.Normal, lz.vorgabe_name(zeile))
+        if not ok:
+            return
+        name = name.strip() or lz.vorgabe_name(zeile)
+        liste = self._lesezeichen_liste()
+        liste.append(lz.eintrag(name, lat, lon))
+        self.statusBar().showMessage(
+            "Bookmark %d '%s' set on row %d (Slot %d)."
+            % (len(liste), name, zeile + 1, self._active_gpx_slot), 4000)
+
+    def _lesezeichen_fuer_auswahl(self):
+        """Menue Bookmarks > Add / Ctrl+B: die gewaehlte Tabellenzeile."""
+        self._lesezeichen_anlegen(self.gpx_widget.gpx_list.table.currentRow())
+
+    def _lesezeichen_anspringen(self, eintrag):
+        """Zum Punkt des Lesezeichens - wie ein Klick auf seine Zeile.
+
+        Der Sprung geht ueber die Tabellenauswahl, damit genau dieselbe Kette
+        laeuft wie beim Klick: Zeile gelb, Karte, Chart, bei Bedarf Video.
+        Vorher die Auswahl leeren, sonst kommt bei derselben Zeile kein
+        Signal. Ist der Punkt weggeschnitten, landet der Sprung auf dem
+        Nachbarn innerhalb der Toleranz und die Statuszeile sagt den Abstand.
+        """
+        from PySide6.QtWidgets import QAbstractItemView
+        from core import lesezeichen as lz
+        daten = self.gpx_widget.gpx_list._gpx_data or []
+        treffer = lz.finde_index(daten, eintrag["lat"], eintrag["lon"])
+        if treffer is None:
+            self.statusBar().showMessage(
+                "Bookmark '%s': point not found in this track (deleted?)."
+                % eintrag.get("name", ""), 6000)
+            return
+        idx, abstand = treffer
+        tabelle = self.gpx_widget.gpx_list.table
+        tabelle.clearSelection()
+        tabelle.selectRow(idx)
+        item = tabelle.item(idx, 0)
+        if item is not None:
+            tabelle.scrollToItem(item, QAbstractItemView.PositionAtCenter)
+        zeit = item.text() if item is not None else "?"
+        if abstand > 0.0:
+            self.statusBar().showMessage(
+                "Bookmark '%s': exact point is gone, nearest is row %d (%s), %.1f m away."
+                % (eintrag.get("name", ""), idx + 1, zeit, abstand), 6000)
+        else:
+            self.statusBar().showMessage(
+                "Bookmark '%s': row %d (%s)." % (eintrag.get("name", ""), idx + 1, zeit), 4000)
+
+    def _lesezeichen_sortiert(self):
+        """[(eintrag, heutiger index oder None), ...] in Spurreihenfolge.
+
+        Menue, Dialog und Ctrl+1..9 nehmen alle diese Reihenfolge, damit die
+        Nummer im Menue und die Taste dasselbe Lesezeichen meinen.
+        """
+        from core import lesezeichen as lz
+        daten = self.gpx_widget.gpx_list._gpx_data or []
+        return lz.sortiert(daten, self._lesezeichen_liste())
+
+    def _lesezeichen_nummer_anspringen(self, nummer: int):
+        """Ctrl+1..9 - Nummer in Spurreihenfolge, siehe _lesezeichen_sortiert."""
+        sortiert = self._lesezeichen_sortiert()
+        if 1 <= nummer <= len(sortiert):
+            self._lesezeichen_anspringen(sortiert[nummer - 1][0])
+        else:
+            self.statusBar().showMessage(
+                "No bookmark %d in Slot %d." % (nummer, self._active_gpx_slot), 3000)
+
+    def _lesezeichen_menue_fuellen(self, menue, zeile=None):
+        """Menue aufbauen: Anlegen, Verwalten, dann ein Eintrag je Lesezeichen.
+
+        `zeile` kommt vom Rechtsklick in die Tabelle: dann bietet der erste
+        Eintrag genau diese Zeile an. Im Hauptmenue gilt die gewaehlte Zeile.
+        Die Nummern 1..9 stehen als Ctrl+n rechts im Eintrag; das ist reiner
+        Text, die Tasten bedienen die QShortcuts des Fensters.
+        """
+        menue.clear()
+        if zeile is not None and zeile >= 0:
+            a = menue.addAction("Add bookmark for row %d..." % (zeile + 1))
+            a.triggered.connect(lambda _=False, z=zeile: self._lesezeichen_anlegen(z))
+        else:
+            menue.addAction(self.action_add_bookmark)
+        menue.addAction(self.action_manage_bookmarks)
+        sortiert = self._lesezeichen_sortiert()
+        if not sortiert:
+            return
+        menue.addSeparator()
+        for n, (eintrag, idx) in enumerate(sortiert, start=1):
+            wo = ("row %d" % (idx + 1)) if idx is not None else "not in track"
+            text = "%d  %s  (%s)" % (n, eintrag.get("name", ""), wo)
+            if n <= 9:
+                text += "\tCtrl+%d" % n
+            a = menue.addAction(text)
+            a.triggered.connect(lambda _=False, e=eintrag: self._lesezeichen_anspringen(e))
+
+    def _lesezeichen_kontextmenue(self, zeile: int, pos):
+        """Rechtsklick in die GPX-Tabelle."""
+        menue = QMenu(self)
+        self._lesezeichen_menue_fuellen(menue, zeile)
+        menue.exec(pos)
+
+    def _lesezeichen_dialog(self):
+        """Bookmarks...: Liste mit Go to, Rename, Delete - nach dem Muster
+        von Edit > Undo history."""
+        liste = self._lesezeichen_liste()
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Bookmarks - Slot %d" % self._active_gpx_slot)
+        dlg.setMinimumSize(460, 360)
+        v = QVBoxLayout(dlg)
+        v.addWidget(QLabel(
+            "Bookmarks remember a GPX point by its coordinates, so they\n"
+            "survive cuts and time edits. Listed in track order; Ctrl+1..9\n"
+            "jump to the first nine in this order."))
+
+        ansicht = QListWidget()
+        # Die Zeilen der Ansicht in Spurreihenfolge; jede zeigt auf den
+        # Eintrag in `liste`, damit Rename und Delete den richtigen treffen.
+        sortiert = []
+
+        def neu_zeichnen():
+            sortiert[:] = self._lesezeichen_sortiert()
+            ansicht.clear()
+            for n, (e, idx) in enumerate(sortiert, start=1):
+                wo = ("row %d" % (idx + 1)) if idx is not None else "not in track"
+                ansicht.addItem("%d   %s   %s   (%.6f / %.6f)"
+                                % (n, e.get("name", ""), wo, e["lat"], e["lon"]))
+            if not liste:
+                ansicht.addItem("(no bookmarks in this slot)")
+            ansicht.setEnabled(bool(liste))
+
+        neu_zeichnen()
+        v.addWidget(ansicht)
+
+        knoepfe = QDialogButtonBox()
+        gehe = knoepfe.addButton("Go to", QDialogButtonBox.ActionRole)
+        umbenennen = knoepfe.addButton("Rename", QDialogButtonBox.ActionRole)
+        loeschen = knoepfe.addButton("Delete", QDialogButtonBox.ActionRole)
+        knoepfe.addButton(QDialogButtonBox.Close)
+
+        def gewaehlt():
+            """Der gewaehlte Eintrag (das Objekt aus `liste`) oder None."""
+            z = ansicht.currentRow()
+            return sortiert[z][0] if (liste and 0 <= z < len(sortiert)) else None
+
+        def knoepfe_anpassen():
+            da = gewaehlt() is not None
+            for k in (gehe, umbenennen, loeschen):
+                k.setEnabled(da)
+
+        ansicht.currentRowChanged.connect(lambda _z: knoepfe_anpassen())
+        knoepfe_anpassen()
+
+        def gehe_zu():
+            e = gewaehlt()
+            if e is not None:
+                self._lesezeichen_anspringen(e)
+
+        def umbenennen_jetzt():
+            e = gewaehlt()
+            if e is None:
+                return
+            z = ansicht.currentRow()
+            name, ok = QInputDialog.getText(dlg, "Rename bookmark", "Name:",
+                                            QLineEdit.Normal, e.get("name", ""))
+            if ok and name.strip():
+                e["name"] = name.strip()
+                neu_zeichnen()
+                ansicht.setCurrentRow(z)
+
+        def loeschen_jetzt():
+            e = gewaehlt()
+            if e is None:
+                return
+            z = ansicht.currentRow()
+            liste[:] = [x for x in liste if x is not e]
+            neu_zeichnen()
+            if liste:
+                ansicht.setCurrentRow(min(z, len(liste) - 1))
+            knoepfe_anpassen()
+
+        gehe.clicked.connect(gehe_zu)
+        umbenennen.clicked.connect(umbenennen_jetzt)
+        loeschen.clicked.connect(loeschen_jetzt)
+        ansicht.itemDoubleClicked.connect(lambda _i: gehe_zu())
+        knoepfe.rejected.connect(dlg.reject)
+        v.addWidget(knoepfe)
+        dlg.exec()
+
     def register_gpx_undo_snapshot(self, name="GPX edit"):
         # Waehrend eines Umzugs legt der Umzug selbst EINEN Schnappschuss an.
         # Die beiden Teilschritte duerfen keine eigenen dazulegen, sonst
@@ -9254,6 +9495,11 @@ class MainWindow(QMainWindow):
             "gpx_markers": {
                 "markB_idx": self.gpx_widget.gpx_list._markB_idx,
                 "markE_idx": self.gpx_widget.gpx_list._markE_idx
+            },
+            # Lesezeichen je Slot, als Koordinaten - siehe core/lesezeichen.py.
+            "gpx_bookmarks": {
+                str(s): list(self._gpx_slots[s].get("bookmarks") or [])
+                for s in (1, 2)
             },
             "overlays": self._overlay_manager.get_all_overlays(),
             "edit_mode": self._edit_mode,
@@ -9436,6 +9682,11 @@ class MainWindow(QMainWindow):
             hat_abdruck = self.cut_manager.set_gpx_abdruck(
                 project_data.get("gpx_fingerabdruck"))
             self.gpx_control.glaettung_aus_dict(project_data.get("gpx_smooth"))
+            # Lesezeichen je Slot; Unbrauchbares wird uebergangen.
+            from core import lesezeichen as _lz
+            gespeichert = project_data.get("gpx_bookmarks") or {}
+            for s in (1, 2):
+                self._gpx_slots[s]["bookmarks"] = _lz.aus_projekt(gespeichert.get(str(s)))
             passt = (hat_abdruck
                      and self.cut_manager.zeiten_unveraendert(self._gpx_data))
             print(f"[CUT-REC] {anzahl_aufz} Aufzeichnung(en) aus dem Projekt "
@@ -10139,6 +10390,7 @@ class MainWindow(QMainWindow):
                 self._gpx_slots[1]["gpx_video_shift"] = None
                 self._gpx_slots[1]["markB"] = None
                 self._gpx_slots[1]["markE"] = None
+                self._gpx_slots[1]["bookmarks"] = []
 
                 if self._active_gpx_slot == 1:
                     self._apply_slot_to_ui()    
@@ -10289,6 +10541,7 @@ class MainWindow(QMainWindow):
                 self._gpx_slots[2]["markB"] = None
                 self._gpx_slots[2]["markE"] = None
                 self._gpx_slots[2]["gpx_video_shift"] = None
+                self._gpx_slots[2]["bookmarks"] = []
 
                 # Falls aktuell Slot 2 aktiv ist, UI entsprechend leeren
                 if getattr(self, "_active_gpx_slot", 1) == 2:
@@ -10428,6 +10681,7 @@ class MainWindow(QMainWindow):
             self._gpx_slots[2]["gpx_data"] = new_data
             self._gpx_slots[2]["markB"] = None
             self._gpx_slots[2]["markE"] = None
+            self._gpx_slots[2]["bookmarks"] = []
             self._gpx_slots[2]["gpx_video_shift"] = 0
             self._gpx_slots[2]["sync_enabled"] = True
 
@@ -10720,7 +10974,13 @@ class MainWindow(QMainWindow):
               <td>Left/Right/Up/Down; only available in 360° mode.</td></tr>
           <tr><td>Reset View</td>
               <td><code>Ctrl + 0</code></td>
-              <td>Reset the View; only available in 360° mode.</td></tr>    
+              <td>Reset the View; only available in 360° mode.</td></tr>
+
+          <tr><td>Add bookmark</td><td><code>Ctrl + B</code></td>
+              <td>Bookmark the selected GPX row (menu Bookmarks, or right-click in the table).</td></tr>
+          <tr><td>Go to bookmark</td>
+              <td><code>Ctrl + 1</code>…<code>Ctrl + 9</code></td>
+              <td>Jump to bookmark 1…9 of the active GPX slot.</td></tr>
         </table>
         """
         txt.setHtml(help_html)

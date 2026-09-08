@@ -24,7 +24,7 @@ from datetime import datetime, timedelta
 import platform
 import re
 
-from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtCore import Qt, Signal, QTimer, QPoint
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QLabel,
     QHeaderView, QAbstractItemView, QStyledItemDelegate, QStyle,
@@ -56,7 +56,10 @@ class GPXListWidget(QWidget):
     
     # Signal, wenn der Nutzer im Pause-Modus in der Tabelle auf eine Zeile klickt
     rowClickedInPause = Signal(int)
-    rowSelected = Signal(int) 
+    rowSelected = Signal(int)
+    # Rechtsklick in die Tabelle: (Zeile oder -1, Position auf dem Schirm).
+    # Das Menue baut das MainWindow - es kennt die Lesezeichen des Slots.
+    contextMenuRequested = Signal(int, QPoint)
     markBSet = Signal(int)          # Signal: B=Index
     markESet = Signal(int)          # Signal: E=Index
     markRangeCleared = Signal()     # Signal: Deselect
@@ -139,6 +142,12 @@ class GPXListWidget(QWidget):
 
         # Wenn die Auswahl (Selektion) geändert wird
         self.table.itemSelectionChanged.connect(self._on_table_selection_changed)
+
+        # Rechtsklick: nur melden, mit Zeile und Schirmposition. Die Tabelle
+        # hatte bisher kein Kontextmenue; Chart und Timeline haben ihre
+        # eigenen, deshalb liegt das Lesezeichen-Menue hier.
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._on_context_menu)
         
         #time edit functionality 
         self.table.setEditTriggers(QAbstractItemView.DoubleClicked)
@@ -724,6 +733,13 @@ class GPXListWidget(QWidget):
     def _on_item_double_clicked(self, item):
         if item.column() == 0:
             self._original_value = item.text()
+
+    def _on_context_menu(self, pos):
+        """Rechtsklick in die Tabelle -> contextMenuRequested(zeile, global)."""
+        zeile = self.table.rowAt(pos.y())
+        if not (0 <= zeile < self.table.rowCount()):
+            zeile = -1
+        self.contextMenuRequested.emit(zeile, self.table.viewport().mapToGlobal(pos))
 
     def select_row_in_pause(self, row_idx: int):
         if self._video_is_playing and is_gpx_video_shift_set():

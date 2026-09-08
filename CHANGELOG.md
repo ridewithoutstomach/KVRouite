@@ -32,6 +32,39 @@ nothing is stored - the flag lives in `config.MORE_MENU_OPENS_UPWARD` for
 the run and `_on_more_button_clicked()` in `widgets/gpx_control_widget.py`
 reads it.
 
+**GPX: Bookmarks - find the same point again without searching**
+
+Syncing a track means looking at the same GPX point again and again, and
+finding it again each time: before a cut it was row 1304, after it 1296,
+and chT or "Cut GPX to video" move its time. What no edit touches are the
+point's coordinates - only deleting removes it. A bookmark therefore stores
+lat/lon and a name, nothing else. New menu **Bookmarks** (between GPX-Info
+and Help) and the same menu on right-click in the map and in the GPX table.
+On the map it replaces the browser menu (Back, Reload, Save page...) that
+WebEngine showed until now, and it offers the point last clicked on the map
+- the blue one - so a point found on the map goes straight into the
+bookmarks. The table had no context menu before; chart and timeline keep
+theirs. "Add bookmark for row N..." asks for a name, default `Row N`;
+"Bookmarks..." lists them with Go to, Rename, Delete; below that one entry
+per bookmark. Menu and dialog list
+them in track order, not in the order they were set: each bookmark is
+resolved to its current row first and the list is sorted by that, so a
+bookmark set later on an earlier point comes first, the order still holds
+after a cut, and every entry shows its current row. `Ctrl+B` bookmarks the
+selected row, `Ctrl+1`..`Ctrl+9` jump to the first nine in that order
+(`1`..`9` without Ctrl remain the playback speed). A jump selects the row the way a
+click does, so map, chart and - with "Sync all with video" - the video
+follow, and the status bar shows row and time. If the exact point was cut
+out, the jump lands on the nearest point within 5 m and says the distance;
+nothing within 5 m, and it says so instead of jumping anywhere. Bookmarks
+belong to a GPX slot, because Slot 2 holds a different track with different
+coordinates; loading a new track into a slot clears them. They go into the
+project file (`gpx_bookmarks`, per slot). Search and defaults are in
+`core/lesezeichen.py` without Qt; menu, dialog and jump in
+`views/mainwindow.py`. Checked on 2026-09-08 with a harness on the real
+window: set, jump back, point deleted -> neighbour at 4.5 m, far point ->
+not found, json round trip, per-slot lists.
+
 ### Fixed
 
 **Dark theme: a clicked GPX row turned black after leaving it**

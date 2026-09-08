@@ -22,7 +22,7 @@ import os
 import sys
 import json
 from PySide6.QtWidgets import QWidget, QVBoxLayout
-from PySide6.QtCore import QUrl, Signal, Slot, Qt, QTimer
+from PySide6.QtCore import QUrl, Signal, Slot, Qt, QTimer, QPoint
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebChannel import QWebChannel
@@ -42,6 +42,8 @@ class MapWidget(QWidget):
     # Signale
     pointClickedInPause = Signal(int)
     pointClickedInMap   = Signal(int)  # optional fürs MainWindow
+    # Rechtsklick auf die Karte: (blauer Punkt oder -1, Position auf dem Schirm)
+    contextMenuRequested = Signal(int, QPoint)
 
     def __init__(self, mainwindow=None, parent=None):
         super().__init__(parent)
@@ -70,6 +72,14 @@ class MapWidget(QWidget):
         layout.addWidget(self.view)
         # View selbst soll Drops nicht übernehmen:
         self.view.setAcceptDrops(False)
+
+        # Rechtsklick: nicht das Browser-Menue (Back, Reload, Save page...),
+        # sondern unser eigenes. Gemeldet wird der zuletzt angeklickte Punkt
+        # (der blaue) - so wandert ein auf der Karte gewaehlter Punkt ohne
+        # Umweg ueber die Tabelle in die Lesezeichen. Das Menue selbst baut
+        # das MainWindow, es kennt die Lesezeichen des Slots.
+        self.view.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.view.customContextMenuRequested.connect(self._on_context_menu)
 
         # Erlaubt: Remote URLs / z.B. OSM, MapTiler, Mapbox, Bing
         self.view.settings().setAttribute(
@@ -319,6 +329,11 @@ class MapWidget(QWidget):
     # Klick in der Karte => onMapPointClicked
     # ----------------------------------------------------------
     @Slot(int)
+    def _on_context_menu(self, pos):
+        """Rechtsklick auf die Karte -> contextMenuRequested(blauer Punkt oder -1, global)."""
+        idx = self._blue_idx if self._blue_idx is not None else -1
+        self.contextMenuRequested.emit(idx, self.view.mapToGlobal(pos))
+
     def onMapPointClicked(self, index_clicked: int):
         """
         Wenn das Video pausiert, machen wir 'show_blue'.
