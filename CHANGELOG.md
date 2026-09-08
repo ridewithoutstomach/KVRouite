@@ -65,20 +65,35 @@ project file (`gpx_bookmarks`, per slot). Search and defaults are in
 window: set, jump back, point deleted -> neighbour at 4.5 m, far point ->
 not found, json round trip, per-slot lists.
 
-**Config: the GPX button bar can sit under the map**
+**Config: the GPX bar can sit under or over the table, under or over the map, or float**
 
-Config > "GPX Buttons under Map" moves the GPX bar - the buttons from
-`[-` to Smooth and Slot, and the info line with video time, GPX length,
-elevation and the slope, zero and gap counts - from under the GPX table to
-under the map, and back. It is the same widget, only re-parented, so every
-signal, the red mark buttons and the info values stay as they are; the map
-gets the same container the table has (map above, bar below), and the
-module swap between the four windows treats that container as the map.
-Under the map the bar is drawn compact: buttons 22 px instead of 26,
-Kinomap logo 24 px instead of 48, tighter margins - measured 58 px under
-the table, 44 px under the map. The choice is stored in the settings.
-Measured on 2026-09-08: switch, height, swap of the map to another window
-with the bar attached, switch back.
+Config > "GPX Bar Position" has five places for the GPX bar - the buttons
+from `[-` to Smooth and Slot, and the info line with video time, GPX
+length, elevation and the slope, zero and gap counts: Under GPX Table (as
+before, the default), Over GPX Table, Under Map, Over Map, and Floating.
+It is the same widget, only re-parented, so every signal, the red mark
+buttons and the info values stay as they are. Docked, it is the first or
+last element of the table's or the map's container; the map got the same
+container the table has, and the module swap between the four windows
+treats that container as the map. At the map and floating the bar is drawn
+compact: buttons 22 px instead of 26, Kinomap logo 24 px instead of 48,
+tighter margins - measured 58 px at the table, 44 px at the map.
+
+Floating, the bar gets a grip on its left, like the Chart Flow in the
+video picture, and can be dragged anywhere inside the window - over map,
+table, chart or video; it is clamped to the window edges. It lives as a
+child of the central widget, which Qt makes native there; measured with
+WindowFromPoint on 2026-09-08, it lies visibly above the WebEngine map. It
+starts where it used to be, at the bottom of the table, and stays on top
+after a module swap. Its position is stored in pixels together with the
+window area it was set in: at the same window size it comes back to the
+pixel after a restart, at another size it is scaled. (A first version
+stored only a fraction and applied it while the window was still tiny at
+start-up; after a restart the bar sat somewhere else.) When it covers the bottom edge of the GPX table,
+the table gets an empty margin of that height so the last row still
+scrolls into view. Checked on 2026-09-08 with a harness: all five places
+(parent, position in the container, height), drag by the grip, clamping,
+stored position, back to the table with grip and margin gone.
 
 ### Changed
 

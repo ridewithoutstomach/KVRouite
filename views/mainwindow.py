@@ -54,7 +54,7 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtGui import QIcon
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtCore import QPoint
+from PySide6.QtCore import QPoint, QRect, QEvent
 from PySide6.QtCore import QSize
 
 
@@ -677,15 +677,21 @@ class MainWindow(QMainWindow):
         self.action_slot_kopf.toggled.connect(self._kopfzeilen_umschalten)
         # Eingehaengt wird weiter unten im Config-Menue - siehe dort.
 
-        # Die GPX-Leiste (Knoepfe und Infozeile) unter der Karte statt unter
-        # der Tabelle. Gleiche Leiste, nur umgehaengt und etwas flacher.
-        self.action_gpx_leiste_karte = QAction("GPX Buttons under Map", self, checkable=True)
-        self.action_gpx_leiste_karte.setStatusTip(
-            "Show the GPX button bar and info line under the map instead of under the GPX table.")
-        self.action_gpx_leiste_karte.setChecked(
-            QSettings("KVRouite", "KVRouite").value(
-                self._GPX_LEISTE_KEY, False, type=bool))
-        self.action_gpx_leiste_karte.toggled.connect(self._gpx_leiste_umschalten)
+        # Wo die GPX-Leiste (Knoepfe und Infozeile) steht: unter oder ueber
+        # der Tabelle, unter oder ueber der Karte, oder frei schwebend mit
+        # Griff. Gleiche Leiste, nur umgehaengt - siehe _gpx_leiste_anwenden.
+        self.gpx_leiste_menu = QMenu("GPX Bar Position", self)
+        self._gpx_leiste_gruppe = QActionGroup(self)
+        self._gpx_leiste_gruppe.setExclusive(True)
+        self._gpx_leiste_actions = {}
+        gespeichert = self._gpx_leiste_ort_gespeichert()
+        for ort, text in self._GPX_LEISTE_ORTE:
+            a = QAction(text, self, checkable=True)
+            a.setChecked(ort == gespeichert)
+            a.triggered.connect(lambda _=False, o=ort: self._gpx_leiste_umschalten(o))
+            self._gpx_leiste_gruppe.addAction(a)
+            self.gpx_leiste_menu.addAction(a)
+            self._gpx_leiste_actions[ort] = a
 
         # Hoehenprofil ins Videobild einblenden. Frei verschiebbar, am
         # Punktraster-Griff; die Stelle wird gemerkt (_OVERLAY_POS_KEY).
@@ -1019,7 +1025,7 @@ class MainWindow(QMainWindow):
         # man greift nicht versehentlich daneben.
         setup_menu.addAction(self.action_slot_kopf)
         setup_menu.addAction(self.action_lock_width)
-        setup_menu.addAction(self.action_gpx_leiste_karte)
+        setup_menu.addMenu(self.gpx_leiste_menu)
         setup_menu.addSeparator()
 
         action_reset_layout = QAction("Reset Window Layout", self)
@@ -1393,8 +1399,10 @@ class MainWindow(QMainWindow):
         self._slots["ol"].inhalt_setzen("map", self.map_area_widget, "Map")
         self._slots["ul"].inhalt_setzen("chart", self.chart, "Chart")
         self._slots["ur"].inhalt_setzen("gpx", self.bottom_right_widget, "GPX Table")
-        # Die GPX-Leiste an den gemerkten Ort haengen (Tabelle oder Karte).
-        self._gpx_leiste_anwenden(self.action_gpx_leiste_karte.isChecked())
+        # Die GPX-Leiste an den gemerkten Ort haengen.
+        self._gpx_leiste_anwenden(self._gpx_leiste_ort_gespeichert())
+        # Fenstergroesse aendert sich -> schwebende Leiste im Fenster halten.
+        self.centralWidget().installEventFilter(self)
         # Vier Module auf drei waehlbare Fenster - eines ist immer verdeckt.
         # Zum Start ist das der Chart-Flow.
         self._auswahllisten_auffrischen()
@@ -3142,6 +3150,8 @@ class MainWindow(QMainWindow):
             if mid == "map" and von is not None and von != nach:
                 self.map_widget.neu_laden_und_wiederherstellen()
                 break
+        # Eine schwebende GPX-Leiste muss ueber dem neu gesetzten Inhalt bleiben.
+        QTimer.singleShot(0, self._gpx_leiste_oben_halten)
 
     def _modulbelegung_lesen(self):
         """{slot_id: modul_id} fuer die vier Fenster, oder None bei Luecken."""
@@ -3263,29 +3273,174 @@ class MainWindow(QMainWindow):
         self._kopfzeilen_anwenden(an)
         QSettings("KVRouite", "KVRouite").setValue(self._KOPFZEILEN_KEY, bool(an))
 
-    _GPX_LEISTE_KEY = "ui/gpx_leiste_unter_karte"
+    # ------------------------------------------------------------------
+    # Ort der GPX-Leiste: unter/ueber Tabelle, unter/ueber Karte, schwebend.
+    # ------------------------------------------------------------------
+    _GPX_LEISTE_KEY = "ui/gpx_leiste_ort"
+    _GPX_LEISTE_POS_KEY = "ui/gpx_leiste_pos"
+    _GPX_LEISTE_ORTE = (
+        ("unter_tabelle", "Under GPX Table"),
+        ("ueber_tabelle", "Over GPX Table"),
+        ("unter_karte",   "Under Map"),
+        ("ueber_karte",   "Over Map"),
+        ("schwebend",     "Floating"),
+    )
 
-    def _gpx_leiste_anwenden(self, unter_karte: bool):
-        """Die GPX-Leiste unter die Karte oder unter die Tabelle haengen.
+    def _gpx_leiste_ort_gespeichert(self):
+        s = QSettings("KVRouite", "KVRouite")
+        ort = str(s.value(self._GPX_LEISTE_KEY, "", type=str) or "")
+        if ort in dict(self._GPX_LEISTE_ORTE):
+            return ort
+        # Vorstufe vom selben Tag (nie ausgeliefert): ein Ja/Nein-Schalter
+        # "unter der Karte". Wer ihn gesetzt hatte, landet am selben Ort.
+        if s.value("ui/gpx_leiste_unter_karte", False, type=bool):
+            s.remove("ui/gpx_leiste_unter_karte")
+            return "unter_karte"
+        return "unter_tabelle"
+
+    def _gpx_leiste_anwenden(self, ort: str):
+        """Die GPX-Leiste an den Ort `ort` haengen.
 
         Es ist dasselbe Widget; nur der Container wechselt. Signale und
         Zustand (rote Marken, Infozeile) haengen am Widget und bleiben.
-        Unter der Karte wird die Leiste flacher (kompakt), damit die Karte
-        moeglichst viel Hoehe behaelt - gemessen 58 px zu 44 px.
+        Angedockt: erstes (ueber) oder letztes (unter) Element im Container
+        der Tabelle bzw. der Karte. Schwebend: Kind des zentralen Fensters,
+        damit sie ueber Karte, Tabelle, Chart und Video liegen darf - Qt
+        macht sie dort von selbst nativ, und gemessen am 08.09.2026 liegt
+        sie damit auch ueber der WebEngine-Karte sichtbar oben. Bei der
+        Karte und schwebend flacher (kompakt), 44 statt 58 px.
         """
         leiste = self.gpx_control
         alt = leiste.parentWidget()
         if alt is not None and alt.layout() is not None:
             alt.layout().removeWidget(leiste)
-        ziel = self.map_area_layout if unter_karte else self.bottom_right_layout
-        ziel.addWidget(leiste, stretch=0)
-        leiste.kompakt(unter_karte)
-        leiste.show()
+        schwebend = (ort == "schwebend")
+        leiste.schwebend(schwebend, bewegt=self._gpx_leiste_schwebend_nachziehen,
+                         losgelassen=self._gpx_leiste_position_merken)
+        leiste.kompakt(schwebend or ort in ("unter_karte", "ueber_karte"),
+                       logo_voll=schwebend)
+        if schwebend:
+            leiste.setParent(self.centralWidget())
+            leiste.adjustSize()
+            leiste.resize(leiste.sizeHint())
+            self._gpx_leiste_schwebend_platzieren()
+            leiste.show()
+            leiste.raise_()
+        else:
+            ziel = (self.map_area_layout if ort in ("unter_karte", "ueber_karte")
+                    else self.bottom_right_layout)
+            if ort.startswith("ueber"):
+                ziel.insertWidget(0, leiste, stretch=0)
+            else:
+                ziel.addWidget(leiste, stretch=0)
+            leiste.show()
+        self._gpx_leiste_ort = ort
+        self._gpx_leiste_tabelle_freihalten()
 
-    def _gpx_leiste_umschalten(self, an: bool):
+    def _gpx_leiste_umschalten(self, ort: str):
         """Vom Menue: umhaengen und die Wahl merken."""
-        self._gpx_leiste_anwenden(an)
-        QSettings("KVRouite", "KVRouite").setValue(self._GPX_LEISTE_KEY, bool(an))
+        self._gpx_leiste_anwenden(ort)
+        QSettings("KVRouite", "KVRouite").setValue(self._GPX_LEISTE_KEY, ort)
+
+    def _gpx_leiste_schwebend_platzieren(self):
+        """Gemerkte Position anwenden, sonst unten ueber der Tabelle beginnen.
+
+        Gemerkt sind Pixel UND die Flaeche, in der sie galten ("x,y,w,h").
+        Ist die Flaeche heute dieselbe, sitzt die Leiste auf den Pixel genau
+        dort, wo sie beim Beenden stand; ist das Fenster anders gross, wird
+        proportional umgerechnet. Bis zum 08.09.2026 stand nur ein Anteil
+        drin, und der wurde beim Start auf das noch winzige Fenster
+        angewendet - nach dem Neustart lag die Leiste woanders.
+        """
+        leiste = self.gpx_control
+        flaeche = self.centralWidget().rect()
+        s = QSettings("KVRouite", "KVRouite")
+        roh = str(s.value(self._GPX_LEISTE_POS_KEY, "", type=str) or "")
+        x = y = None
+        try:
+            teile = [float(t) for t in roh.split(",")]
+            if len(teile) == 4:
+                px, py, w, h = teile
+                if int(w) == flaeche.width() and int(h) == flaeche.height():
+                    x, y = int(px), int(py)
+                elif w > 0 and h > 0:
+                    x = int(round(px * flaeche.width() / w))
+                    y = int(round(py * flaeche.height() / h))
+            elif len(teile) == 2:
+                # Altes Format vom selben Tag: Anteile.
+                x = int(teile[0] * flaeche.width())
+                y = int(teile[1] * flaeche.height())
+        except (ValueError, TypeError):
+            pass
+        if x is None:
+            tab = self.bottom_right_widget
+            ecke = tab.mapTo(self.centralWidget(), QPoint(0, tab.height()))
+            x = ecke.x()
+            y = ecke.y() - leiste.height()
+        leiste.move(self._gpx_leiste_klemmen(QPoint(x, y)))
+
+    def _gpx_leiste_klemmen(self, pos: QPoint) -> QPoint:
+        """Position so begrenzen, dass die Leiste ganz im Fenster bleibt."""
+        leiste = self.gpx_control
+        flaeche = self.centralWidget().rect()
+        x = max(0, min(pos.x(), flaeche.width() - leiste.width()))
+        y = max(0, min(pos.y(), flaeche.height() - leiste.height()))
+        return QPoint(x, y)
+
+    def _gpx_leiste_schwebend_nachziehen(self):
+        """Waehrend des Ziehens: im Fenster halten, Tabelle freihalten."""
+        leiste = self.gpx_control
+        leiste.move(self._gpx_leiste_klemmen(leiste.pos()))
+        self._gpx_leiste_tabelle_freihalten()
+
+    def _gpx_leiste_position_merken(self):
+        """Nach dem Loslassen: Pixel und Flaeche merken (siehe platzieren)."""
+        leiste = self.gpx_control
+        flaeche = self.centralWidget().rect()
+        if flaeche.width() > 0 and flaeche.height() > 0:
+            QSettings("KVRouite", "KVRouite").setValue(
+                self._GPX_LEISTE_POS_KEY,
+                "%d,%d,%d,%d" % (leiste.x(), leiste.y(), flaeche.width(), flaeche.height()))
+
+    def _gpx_leiste_tabelle_freihalten(self):
+        """Liegt die schwebende Leiste ueber dem unteren Rand der Tabelle,
+        bekommt die Tabelle unten einen Leerraum in dieser Hoehe - so bleibt
+        die letzte Zeile per Scrollen sichtbar. Liegt sie woanders oder ist
+        sie angedockt, ist der Leerraum null."""
+        tabelle = self.gpx_widget.gpx_list.table
+        rand = 0
+        if getattr(self, "_gpx_leiste_ort", "") == "schwebend":
+            leiste = self.gpx_control
+            l_oben = leiste.mapToGlobal(QPoint(0, 0))
+            l_rect = QRect(l_oben, leiste.size())
+            t_oben = tabelle.mapToGlobal(QPoint(0, 0))
+            t_rect = QRect(t_oben, tabelle.size())
+            schnitt = l_rect.intersected(t_rect)
+            if not schnitt.isEmpty() and schnitt.bottom() >= t_rect.bottom() - 2:
+                rand = schnitt.height()
+        tabelle.setViewportMargins(0, 0, 0, rand)
+
+    def _gpx_leiste_oben_halten(self):
+        """Nach Modultausch oder Groessenaenderung: schwebende Leiste oben
+        und im Fenster.
+
+        Bei jeder Groessenaenderung wird aus dem gemerkten Stand neu
+        platziert - beim Start ist das Fenster erst winzig und waechst dann
+        auf seine gespeicherte Groesse; die letzte Aenderung setzt die
+        Leiste damit auf den Pixel genau dorthin, wo sie beim Beenden stand.
+        """
+        if getattr(self, "_gpx_leiste_ort", "") != "schwebend":
+            return
+        leiste = self.gpx_control
+        self._gpx_leiste_schwebend_platzieren()
+        leiste.move(self._gpx_leiste_klemmen(leiste.pos()))
+        leiste.raise_()
+        self._gpx_leiste_tabelle_freihalten()
+
+    def eventFilter(self, obj, event):
+        if obj is self.centralWidget() and event.type() == QEvent.Resize:
+            QTimer.singleShot(0, self._gpx_leiste_oben_halten)
+        return super().eventFilter(obj, event)
 
     @staticmethod
     def _halve(sp):

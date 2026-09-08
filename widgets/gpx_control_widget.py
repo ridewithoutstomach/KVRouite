@@ -48,6 +48,75 @@ import config
 MAX_LOGO_H = 48
 
 
+class LeistenGriff(QWidget):
+    """Anfasser links an der schwebenden GPX-Leiste.
+
+    Nur der Griff nimmt die Maus zum Ziehen an; die Knoepfe daneben bleiben
+    Knoepfe. Gezogen wird die Leiste (der Elternteil) innerhalb ihres
+    eigenen Elternteils, dem zentralen Fenster. Punktraster wie beim Griff
+    des Chart Flow im Videobild - das Zeichen fuer "hier anfassen".
+    """
+
+    BREITE = 14
+
+    def __init__(self, leiste, bewegt=None, losgelassen=None):
+        super().__init__(leiste)
+        self._leiste = leiste
+        self._bewegt = bewegt
+        self._losgelassen = losgelassen
+        self._start_maus = None
+        self._start_pos = None
+        self.setFixedWidth(self.BREITE)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self.setCursor(Qt.SizeAllCursor)
+        self.setToolTip("Move the GPX bar")
+
+    def paintEvent(self, _ev):
+        f = theme.farben()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(f["kopfzeile"]))
+        p.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), 3, 3)
+        p.setBrush(QColor(f["text_gedimmt"]))
+        mx, my = self.width() // 2, self.height() // 2
+        for dx in (-3, 3):
+            for dy in (-8, -4, 0, 4, 8):
+                p.drawEllipse(mx + dx - 1, my + dy - 1, 3, 3)
+        p.end()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._start_maus = event.globalPosition().toPoint()
+            self._start_pos = self._leiste.pos()
+            event.accept()
+        else:
+            event.ignore()
+
+    def mouseMoveEvent(self, event):
+        if self._start_maus is None:
+            event.ignore()
+            return
+        delta = event.globalPosition().toPoint() - self._start_maus
+        self._leiste.move(self._start_pos + delta)
+        if self._bewegt:
+            self._bewegt()
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        if self._start_maus is not None:
+            self._start_maus = None
+            if self._losgelassen:
+                self._losgelassen()
+            event.accept()
+        else:
+            event.ignore()
+
+    def contextMenuEvent(self, event):
+        # Kein Menue am Griff - sonst kaeme das des Slots darunter.
+        event.accept()
+
+
 class NahtDiagramm(QWidget):
     """Tempo je Punkt im Bereich um die Naht: vorher grau, nachher farbig.
 
@@ -1347,14 +1416,43 @@ class GPXControlWidget(QWidget):
             pos = self.more_button.mapToGlobal(QPoint(0, self.more_button.height()))
         self.more_menu.exec_(pos)
         
-    def kompakt(self, an: bool):
-        """Flachere Leiste - fuer den Platz unter der Karte.
+    def schwebend(self, an: bool, bewegt=None, losgelassen=None):
+        """Griff zum Ziehen zeigen (schwebend) oder verbergen (angedockt).
 
-        Knoepfe auf 22 px statt der 26 px, die Qt ihnen gibt, Logo auf 24 px
-        statt 48, engere Raender und weniger Abstand zwischen Knopf- und
-        Infozeile. Gemessen: 58 px werden 44 px. Mit an=False kommt alles
-        auf die Vorgaben zurueck, damit dieselbe Leiste unter der Tabelle
-        wieder wie gewohnt aussieht.
+        Schwebend hat die Leiste ihre natuerliche Breite statt der vollen
+        Fensterbreite, und einen Rahmen, damit sie sich vom Untergrund
+        abhebt - ueber der Karte laege sie sonst wie ausgeschnitten.
+        """
+        if not hasattr(self, "_griff"):
+            self._griff = LeistenGriff(self, bewegt=bewegt, losgelassen=losgelassen)
+            self._main_hbox.insertWidget(0, self._griff)
+        self._griff._bewegt = bewegt
+        self._griff._losgelassen = losgelassen
+        self._griff.setVisible(bool(an))
+        if an:
+            self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            # Ein QWidget malt seinen Stylesheet-Hintergrund nur mit
+            # WA_StyledBackground - ohne das schien die Tabelle durch die
+            # Leiste hindurch (gesehen am 08.09.2026 im ersten Bild).
+            self.setAttribute(Qt.WA_StyledBackground, True)
+            f = theme.farben()
+            self.setStyleSheet("GPXControlWidget { background: %s; border: 1px solid %s; }"
+                               % (f["fenster"], f["kopf_linie"]))
+        else:
+            self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            self.setAttribute(Qt.WA_StyledBackground, False)
+            self.setStyleSheet("")
+
+    def kompakt(self, an: bool, logo_voll: bool = False):
+        """Flachere Leiste - fuer den Platz unter der Karte und schwebend.
+
+        Knoepfe auf 22 px statt der 26 px, die Qt ihnen gibt, engere
+        Raender und weniger Abstand zwischen Knopf- und Infozeile. Gemessen:
+        58 px werden 44 px. Das Logo: an der Karte 24 px statt 48, damit die
+        Leiste flach bleibt; schwebend (logo_voll) die volle Innenhoehe von
+        40 px - dort kostet es keine Kartenhoehe, und Bernd wollte es am
+        08.09.2026 groesser. Die Breite folgt dem Seitenverhaeltnis im
+        eventFilter. Mit an=False kommt alles auf die Vorgaben zurueck.
         """
         self._kompakt = bool(an)
         for knopf in self.findChildren(QPushButton):
@@ -1363,8 +1461,19 @@ class GPXControlWidget(QWidget):
             else:
                 knopf.setMinimumHeight(0)
                 knopf.setMaximumHeight(16777215)   # QWIDGETSIZE_MAX
-        self._logo_max_h = 24 if an else MAX_LOGO_H
+        if not an:
+            self._logo_max_h = MAX_LOGO_H
+        elif logo_voll:
+            self._logo_max_h = 40
+        else:
+            self._logo_max_h = 24
         self._kinomap_big.setMaximumHeight(self._logo_max_h)
+        # Die Breite gleich mitsetzen: der eventFilter zieht sie sonst erst
+        # beim naechsten Resize des Labels nach, und das bleibt aus, wenn
+        # die alte Maximalbreite das Wachsen verhindert.
+        if getattr(self, "_kinomap_aspect", None):
+            self._logo_full_width = max(60, int(self._logo_max_h * self._kinomap_aspect))
+            self._kinomap_big.setMaximumWidth(self._logo_full_width)
         if an:
             self._main_hbox.setContentsMargins(4, 2, 8, 2)
             self.main_vbox.setSpacing(2)
