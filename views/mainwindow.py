@@ -649,13 +649,8 @@ class MainWindow(QMainWindow):
         # (Deine bestehende Zeile unten im Code behalten:)
         # undo_action.triggered.connect(self.on_global_undo)
 
-        shortcuts_menu.addSeparator()
-
-        # 3) Shortcuts… Hilfe
-        self.action_show_shortcuts = QAction("Shortcuts", self)
-        self.action_show_shortcuts.setStatusTip("Open a quick reference of all available shortcuts")
-        self.action_show_shortcuts.triggered.connect(self._show_shortcuts_help)
-        shortcuts_menu.addAction(self.action_show_shortcuts)
+        # Die Shortcut-Uebersicht steht seit 6.13 unter Help, nicht mehr
+        # hier: sie ist eine Hilfeseite, keine Bearbeitung.
 
         
 
@@ -1054,7 +1049,13 @@ class MainWindow(QMainWindow):
         docs_action = QAction("Show Documentation...", self)
         docs_action.triggered.connect(self._on_show_documentation)
         help_menu.addAction(docs_action)
-        
+
+        # Shortcut-Uebersicht - bis 6.12 im Edit-Menue, dort suchte sie niemand.
+        self.action_show_shortcuts = QAction("Shortcuts", self)
+        self.action_show_shortcuts.setStatusTip("Open a quick reference of all available shortcuts")
+        self.action_show_shortcuts.triggered.connect(self._show_shortcuts_help)
+        help_menu.addAction(self.action_show_shortcuts)
+
         tutorials_action = QAction("Youtube-Tutorials", self)
         tutorials_action.setStatusTip("Open KVRouite YouTube channel with tutorials")
         tutorials_action.triggered.connect(self._on_open_tutorials)
@@ -10935,6 +10936,11 @@ class MainWindow(QMainWindow):
         txt = QTextEdit()
         txt.setReadOnly(True)
 
+        # Kopfzeile und Linien aus der Farbtafel: fest #f3f3f3 stand im
+        # dunklen Betrieb helle Schrift auf hellem Grund - der Tabellenkopf
+        # war unsichtbar (gesehen am 08.09.2026).
+        from core import theme
+        f = theme.farben()
         help_html = """
         <style>
           /* Die Liste wird von links nach rechts abgearbeitet, die erste
@@ -10943,10 +10949,10 @@ class MainWindow(QMainWindow):
              Leerzeichen gehoert in Anfuehrungszeichen. */
           body { font-family: "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 12.5px; }
           code { font-family: Consolas, Menlo, "DejaVu Sans Mono", monospace; }
-          table { border-collapse: collapse; width: 100%; }
-          th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #ddd; vertical-align: top; }
-          th { background: #f3f3f3; }
-        </style>
+          table { border-collapse: collapse; width: 100%%; }
+          th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid %(gitter)s; vertical-align: top; }
+          th { background: %(kopf)s; color: %(text)s; }
+        </style>""" % {"gitter": f["gitter"], "kopf": f["kopfzeile"], "text": f["text"]} + """
         <table>
           <tr><th>Action</th><th>Shortcut</th><th>Notes</th></tr>
 
@@ -10977,7 +10983,7 @@ class MainWindow(QMainWindow):
               <td>Reset the View; only available in 360° mode.</td></tr>
 
           <tr><td>Add bookmark</td><td><code>Ctrl + B</code></td>
-              <td>Bookmark the selected GPX row (menu Bookmarks, or right-click in the table).</td></tr>
+              <td>Bookmark the selected GPX row (menu Bookmarks, or right-click on the map or in the table).</td></tr>
           <tr><td>Go to bookmark</td>
               <td><code>Ctrl + 1</code>…<code>Ctrl + 9</code></td>
               <td>Jump to bookmark 1…9 of the active GPX slot.</td></tr>

@@ -65,7 +65,25 @@ project file (`gpx_bookmarks`, per slot). Search and defaults are in
 window: set, jump back, point deleted -> neighbour at 4.5 m, far point ->
 not found, json round trip, per-slot lists.
 
+### Changed
+
+**Shortcuts list moved from Edit to Help**
+
+The shortcut overview sat in the Edit menu under Undo and Undo history,
+where nobody looks for a help page. It is now Help > Shortcuts, right
+after Show Documentation. The manual follows: the section with the picture
+of the dialog moved from Menu Edit to Menu Help, with a fresh picture that
+shows the two bookmark lines.
+
 ### Fixed
+
+**Dark theme: the header row of the Shortcuts dialog was invisible**
+
+The table header had a fixed light background (`#f3f3f3`), and in the dark
+theme the light font stood on it: Action, Shortcut, Notes could not be read.
+Header background, header font and the row lines now come from the theme
+table (`kopfzeile`, `text`, `gitter`), so the dialog matches the GPX table
+in both themes.
 
 **Dark theme: a clicked GPX row turned black after leaving it**
 
