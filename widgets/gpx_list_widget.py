@@ -480,6 +480,15 @@ class GPXListWidget(QWidget):
                       + farbe.blue() * 114) / 1000.0
         schrift = QColor("#000000") if helligkeit > 140 else QColor("#ffffff")
 
+        # Traegt die Zeile den Balken schon, ist die echte Schrift bereits
+        # gemerkt - dann NICHT noch einmal merken, sonst stuende dort die
+        # Balkenschrift vom ersten Mal. Genau das passierte beim Klick in die
+        # Tabelle: _on_table_selection_changed malt die Zeile gelb, meldet
+        # sie dem MainWindow, und das ruft select_row_in_pause auf derselben
+        # Zeile - zweiter Anstrich, gemerkt wurde Schwarz. Beim Wechsel auf
+        # die naechste Zeile kam das Schwarz zurueck: im dunklen Betrieb
+        # schwarze Schrift auf dunklem Grund (gemessen am 08.09.2026).
+        schon_gemerkt = row in self._schrift_vorher
         gemerkt = []
         col_count = self.table.columnCount()  # meist 9
         for col in range(col_count):
@@ -494,10 +503,12 @@ class GPXListWidget(QWidget):
             # Ueber data(ForegroundRole), nicht ueber foreground(): letzteres
             # liefert fuer ein Feld OHNE eigene Farbe einen schwarzen Pinsel,
             # und den wuerden wir danach faelschlich zurueckschreiben.
-            gemerkt.append((col, item.data(Qt.ForegroundRole)))
+            if not schon_gemerkt:
+                gemerkt.append((col, item.data(Qt.ForegroundRole)))
             item.setBackground(farbe)
             item.setForeground(schrift)
-        self._schrift_vorher[row] = gemerkt
+        if not schon_gemerkt:
+            self._schrift_vorher[row] = gemerkt
 
     def _zeile_klar(self, row: int):
         """Die Faerbung des Balkens zuruecknehmen.

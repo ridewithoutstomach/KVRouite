@@ -32,6 +32,22 @@ nothing is stored - the flag lives in `config.MORE_MENU_OPENS_UPWARD` for
 the run and `_on_more_button_clicked()` in `widgets/gpx_control_widget.py`
 reads it.
 
+### Fixed
+
+**Dark theme: a clicked GPX row turned black after leaving it**
+
+Click a row, click the next one, and the first row's text was black on the
+dark table. The yellow bar sets a black font on the row and remembers the
+font it replaced, to put it back when the bar moves on. A click painted the
+bar twice: `_on_table_selection_changed()` paints and reports the row, the
+MainWindow answers with `select_row_in_pause()` on the same row, and the
+second paint remembered the first paint's black as "the font before". The
+memory is now taken only when the row does not carry the bar yet; a second
+paint of the same row leaves it alone. In the light theme the same thing
+happened and was invisible: black on white. Measured with a harness on
+2026-09-08: after leaving, the row has no font of its own again, and a
+dimmed row (point before the sync point) gets its grey back.
+
 ## 6.12 - 2026-09-07
 
 6.11 went out as a pre-release; 6.12 is the release that followed two days
