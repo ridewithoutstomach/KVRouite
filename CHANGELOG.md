@@ -8,6 +8,163 @@ Versions up to and including 5.0 are documented in the GitHub releases only.
 
 ---
 
+## 6.14 - 2026-09-09
+
+The join between two video files gets a transition that costs nothing: no
+frame, no millisecond, no GPX point. Around it, the things that came up
+while testing it - snippets that stood on their head when the playlist
+mixed rotated and unrotated files, a chart that could not show a 20 cm
+step at any zoom, a preview that seemed to hang while it pulled still
+frames. And two conveniences long overdue: a library of encoder settings,
+and Goto Start that walks backwards from edge to edge.
+
+### Added
+
+**Merge-Fade: a transition at a file join that loses nothing**
+
+A crossfade needs overlap, and at a join between two files there is none:
+the first video has ended, the second is only starting. A fade "centred on
+the join" in the existing model would blend frame X into frame X - nothing
+visible - and overlapping the two would eat a second of ride. So the
+Merge-Fade blends stills: in the last half of its length before the join
+the FIRST frame of the next video fades in as a still from 0 to 50 %, after
+the join the LAST frame of the previous video fades out from 50 to 0 %. On
+the join both sides show the same mixed picture - no jump, no black, no
+slow motion, and the output is exactly as long as the sum of both files.
+Nothing is cut, the GPX track stays untouched, there is nothing to undo.
+
+Set it per join: right-click the blue join line in the timeline - the hit
+zone is 10 px either side, checked in pixels so it is the same width at
+any zoom; the line is highlighted under the pointer and the cursor becomes
+a hand. The menu offers "Merge-Fade", "Hard join" and "Merge-Fade length…"
+(default from Encoder Setup, capped at what fits up to the next cut or
+the ends of the video). The Playlist menu carries a checkable "Merge-Fade
+1 | 2" line under each file as the second way in, no aiming needed. A join
+with a Merge-Fade shows the fade wings and a small double arrow on the
+line. Whether a join gets nothing, a Merge-Fade or a cut is entirely the
+user's choice - there is no rule that interferes.
+
+Stored per join number under `merge_fades` in the project file, exported
+as `merge_fades` in the encoder configuration, rendered on an own layer
+between overlays and crossfade halves (`managers/ges_encoder_manager.py`).
+The preview renders the same construction through the fade cache
+(`core/fade_cache.py`) and inserts it as a zero-width entry at the join
+(`core/ges_backend.py`). The still frames come from the new
+`core/standbild.py`. Encode-Mode only, like every crossfade.
+
+**Encoder Setup: presets**
+
+One set of encoder settings used to be all there was; changing a field for
+one export lost the previous values. The Encoder Setup now has a "Preset"
+row at the top: choosing a saved set fills in the fields (OK makes them
+active, as before), "Save…" stores the fields under a name (replacing
+after a question), "Delete" removes one. The dialog opens with the preset
+that matches the fields exactly, otherwise "(none)". A preset holds
+resolution, container, hardware, CRF, preset, bitrate, FPS and X-Fade; the
+source frame rate is not part of it. Stored in the settings under
+`encoder_presets/<name>` with the same keys as `encoder/`
+(`core/encoder_presets.py`).
+
+**Close Gaps (Directions): elevation from Mapbox, or a straight line**
+
+The transport-mode dialog has a checkbox "Get elevation from Mapbox",
+checked by default and remembered. Unchecked, no terrain tiles are
+fetched: the new points on the road get their height in a straight line
+from the first to the last point. Because the points are spread evenly by
+distance (constant speed), that is one constant gradient along the road -
+what Close Gaps without Directions does on the straight line. Inserting a
+point on the map with Directions on uses the last choice made in the
+dialog.
+
+**Goto Start: right-click jumps back to the previous edge**
+
+The counterpart of the right-click on Goto End: to the previous cut start,
+cut end or file join before the current time; with nothing before it, to
+0.000 s; standing at the start, it wraps to the end, as the forward jump
+wraps from the end to the start. Backwards the tolerance is 0.1 s, because
+after a jump playback usually sits one frame behind the target and the
+next right-click should reach the edge before, not the same one again.
+Both buttons say so in their tooltips.
+
+**Chart: axes follow the visible window when zoomed**
+
+The height axis was always scaled over the whole track - 0 to 2757 m on
+340 pixels is 8 m per pixel, and a 0.2 m step was invisible at every zoom;
+zoom only worked horizontally. At zoom 1 the overview stays as it was.
+Zoomed in, height scales over the visible points with 10 % margin and at
+least 2 m of span; speed keeps 0 at the bottom and follows the window at
+the top, so the 0 km/h line stays in the picture. The upper and lower
+values of the window are written at the right edge (one decimal below
+20 m of span). Points are drawn as small circles once they are 4 px or
+more apart, as in the mini chart. The zoom limit follows the point count -
+40 px per point at full zoom, about 25 points across the chart, never
+less than the previous 50.
+
+**Preview preparation says what it is doing**
+
+Before a Merge-Fade snippet can be rendered, two still frames are pulled
+from the sources - two to three seconds each with 4K material. That used
+to happen before the preparation window appeared, so the application stood
+still with nothing on screen. The fade renderer now starts one tick after
+being asked, so the window is up first, and it reports "Taking the last
+frame of … for the merge-fade…" in the window and the status bar before
+each still.
+
+### Changed
+
+**Window title is just the name and the version**
+
+"KVRouite v6.14" - the slogan after it is gone. With a project loaded, its
+file name still comes first.
+
+### Fixed
+
+**Preview: crossfade snippets stood on their head when the playlist mixed rotations**
+
+The fade cache rendered every snippet raw and the preview applied the
+playlist's fixed rotation to it - which only worked while all files had
+the same rotation. With one rotated file (GoPro mounted upside down,
+`rotate-180`) and one without, the preview leaves the rotation to GES per
+file, and a snippet, having no rotation tag, stayed raw: upside down. This
+hit the Merge-Fade first, but an ordinary cut crossfade inside the rotated
+file lay just as wrong. Snippets are now rendered upright, each piece with
+its own file's rotation (`_RENDER_VERSION` 4, old snippets are rendered
+anew), and the preview inserts them with `identity`. Verified headless
+with rotate-180 test clips in both a uniform and a mixed playlist.
+
+**Merge-Fade: the last frame of a GoPro file could not be taken**
+
+The container of a GoPro file runs about 0.1 s longer than its video
+track (the GPMF data tracks), and a seek to "duration minus half a frame"
+landed behind the last picture. `core/standbild.py` now seeks one second
+before the end and runs to the end of the video track, taking the last
+frame delivered.
+
+Note for anyone cutting test clips with `ffmpeg -ss … -c copy`: such
+clips carry an edit list with a few discard frames at the start, and
+GStreamer then drops the first frames after EVERY seek into the file -
+three frames for a clip with four discard packets. Every stack change in a
+GES timeline is such a seek, so a Merge-Fade showed three dark frames at
+the join with those clips, while a plain concatenation did not. Cut test
+clips with `-avoid_negative_ts make_zero`; measured, that removes the edit
+list and the loss.
+
+**Chart: edits in place were not drawn until the chart was scrolled**
+
+The chart keeps its drawing as an image and redraws when a key changes;
+of the data the key only knew the list's identity and length. Fix speed
+spike, chT and smoothing change values inside the same list - same
+identity, same length, old picture, until scrolling changed the offset.
+`set_gpx_data()` now discards the kept image explicitly.
+
+**Open Recent: an entry whose file is gone is removed**
+
+The error message stays; after it the path leaves the list and the menu is
+rebuilt. Entries are only removed on click, not at start-up, so a drive
+that is merely unplugged keeps its entries.
+
+---
+
 ## 6.13 - 2026-09-08
 
 One day, one theme: the work of syncing a track against its video. The

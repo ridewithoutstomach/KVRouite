@@ -22,6 +22,7 @@ from PySide6.QtWidgets import QWidget
 
 from PySide6.QtCore import Qt, QPoint, Signal, QPointF, QRect
 from datetime import timedelta
+import math
 from PySide6.QtGui import (
     QPainter, QPen, QBrush, QColor, QWheelEvent, QPolygonF, QFont,
     QImage
@@ -285,8 +286,9 @@ class ChartWidget(QWidget):
             new_zoom = self._zoom_factor * factor
             if new_zoom < self._min_zoom:
                 new_zoom = self._min_zoom
-            if new_zoom > self._max_zoom:
-                new_zoom = self._max_zoom
+            hoechst = self._max_zoom_aktuell()
+            if new_zoom > hoechst:
+                new_zoom = hoechst
 
             old_zoom = self._zoom_factor
             self._zoom_factor = new_zoom
@@ -393,9 +395,38 @@ class ChartWidget(QWidget):
             capped_spd = min(raw_spd, self._speed_cap)
             speed_vals.append(capped_spd)
     
-        min_ele, max_ele = min(ele_vals), max(ele_vals)
-        min_spd, max_spd = min(speed_vals), max(speed_vals)
-    
+        # Achsen an das SICHTBARE Fenster anpassen, sobald gezoomt ist (ab
+        # 6.14). Bis dahin galt immer Minimum bis Maximum der ganzen Strecke:
+        # bei 0 bis 2757 m auf 340 Pixel sind das 8 m je Pixel, und eine Stufe
+        # von 0,2 m im Hoehenprofil war bei jedem Zoom unsichtbar - der Zoom
+        # wirkte nur waagerecht. Bei Zoom 1 bleibt die Uebersicht ueber die
+        # ganze Strecke, wie bisher.
+        #
+        # Hoehe: Minimum bis Maximum der sichtbaren Punkte, 10 % Rand, aber
+        # mindestens 2 m Spanne, damit eine flache Stelle nicht zu Rauschen
+        # aufgeblasen wird. 2 m und nicht 5: bei voller Zoomstufe liegen nur
+        # noch rund 25 Punkte im Bild, und eine 0,2-m-Stufe soll dann ein
+        # Zehntel der Hoehe einnehmen, nicht ein Fuenfundzwanzigstel.
+        # Geschwindigkeit: unten bleibt 0, sonst wanderte die 0-km/h-Linie
+        # aus dem Bild; nur oben folgt sie dem Fenster.
+        i0, i1 = self._sichtbare_indizes(w)
+        gezoomt = self._zoom_factor > 1.0 + 1e-9
+        if gezoomt:
+            ele_fenster = ele_vals[i0:i1 + 1]
+            spd_fenster = speed_vals[i0:i1 + 1]
+        else:
+            ele_fenster, spd_fenster = ele_vals, speed_vals
+        min_ele, max_ele = min(ele_fenster), max(ele_fenster)
+        max_spd = max(spd_fenster)
+        min_spd = 0.0 if gezoomt else min(speed_vals)
+
+        if gezoomt:
+            spanne = max(max_ele - min_ele, 2.0)
+            mitte = (max_ele + min_ele) / 2.0
+            min_ele = mitte - spanne * 0.6
+            max_ele = mitte + spanne * 0.6
+            max_spd = max(max_spd * 1.1, min_spd + 5.0)
+
         if abs(max_ele - min_ele) < 0.1:
             max_ele += 0.1
             min_ele -= 0.1
@@ -444,6 +475,21 @@ class ChartWidget(QWidget):
 
         # 1) Elevation-Linie (gelb, 2px)
         draw_polyline(painter, path_ele, QColor(255, 255, 0), thickness=2)
+
+        # Die Punkte selbst, sobald sie weit genug auseinander liegen - wie
+        # im Mini-Chart. Dann sieht man jeden aufgezeichneten Punkt einzeln
+        # und erkennt, wo eine Stufe sitzt. Bei enger Lage waere das nur ein
+        # dicker Strich.
+        je_punkt_px = chart_width / max(1, count - 1)
+        if je_punkt_px >= 4.0:
+            self._punkte_zeichnen(painter, path_ele, QColor(255, 255, 0), 2.0, w)
+            self._punkte_zeichnen(painter, path_spd, QColor(0, 255, 255), 1.5, w)
+
+        # Skalenwerte am rechten Rand: oberer und unterer Wert des sichtbaren
+        # Fensters. Ohne die weiss man bei angepasster Achse nicht, ob eine
+        # Stufe 20 cm oder 20 m ist.
+        self._skala_zeichnen(painter, w, top_height,
+                             min_ele, max_ele, min_spd, max_spd)
 
         # --- NEU: 0-Meter-Linie im Höhenbereich --------------------------------
         # Fälle:
@@ -761,6 +807,67 @@ class ChartWidget(QWidget):
         painter.drawText(m_x + 5, y_start, line1)
         painter.drawText(m_x + 5, y_start + y_step, line2)
         painter.drawText(m_x + 5, y_start + 2 * y_step, line3)
+
+    def _sichtbare_indizes(self, w):
+        """(erster, letzter) Index der Punkte im sichtbaren Ausschnitt."""
+        count = len(self._gpx_data)
+        if count < 2:
+            return 0, max(0, count - 1)
+        chart_width = max(1.0, w * self._zoom_factor)
+        r0 = self._horizontal_offset / chart_width
+        r1 = (self._horizontal_offset + w) / chart_width
+        i0 = int(math.floor(max(0.0, r0) * (count - 1)))
+        i1 = int(math.ceil(min(1.0, r1) * (count - 1)))
+        i0 = max(0, min(i0, count - 1))
+        i1 = max(i0 + 1, min(i1, count - 1)) if count > 1 else i0
+        return i0, i1
+
+    #: Pixel je Punkt bei voller Zoomstufe. 8 waren zu wenig: eine 0,2-m-Stufe
+    #: war damit ein Zacken von 8 Pixeln Breite, nicht mehr zu erkennen als
+    #: bei Zoom 50 - gesehen am 09.09.2026. Mit 40 liegen rund 25 Punkte im
+    #: Bild, jede Stufe hat Platz, und die Hoehenskala umfasst dann nur noch
+    #: wenige Meter.
+    PIXEL_JE_PUNKT_MAX = 40.0
+
+    def _max_zoom_aktuell(self):
+        """Zoomgrenze nach Punktzahl statt fest 50.
+
+        Fest 50 reichte fuer kurze Strecken, bei einer 10-Stunden-Aufzeichnung
+        ergab es nur gut ein Pixel je Punkt. Nie unter 50, damit sich kurze
+        Strecken nicht schlechter zoomen lassen als bisher.
+        """
+        count = len(self._gpx_data)
+        w = max(1, self.width())
+        return max(self._max_zoom, count * self.PIXEL_JE_PUNKT_MAX / w)
+
+    def _punkte_zeichnen(self, painter, pts, farbe, radius, w):
+        painter.save()
+        try:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(farbe)
+            for (x_, y_) in pts:
+                if -5 <= x_ <= w + 5:
+                    painter.drawEllipse(QPointF(x_, y_), radius, radius)
+        finally:
+            painter.restore()
+
+    def _skala_zeichnen(self, painter, w, top_height, min_ele, max_ele,
+                        min_spd, max_spd):
+        painter.save()
+        try:
+            painter.setPen(QPen(QColor(200, 200, 200), 1))
+            painter.setFont(QFont(self.font().family(), 8))
+            fm = painter.fontMetrics()
+            nachkomma = 1 if (max_ele - min_ele) < 20.0 else 0
+            oben = f"{max_ele:.{nachkomma}f} m"
+            unten = f"{min_ele:.{nachkomma}f} m"
+            painter.drawText(w - 4 - fm.horizontalAdvance(oben), 20 + fm.ascent(), oben)
+            painter.drawText(w - 4 - fm.horizontalAdvance(unten), top_height - 4, unten)
+            spd = f"{max_spd:.0f} km/h"
+            painter.drawText(w - 4 - fm.horizontalAdvance(spd),
+                             top_height + 10 + fm.ascent(), spd)
+        finally:
+            painter.restore()
 
     def _hintergrund_schluessel(self):
         """Woran haengt die gemerkte Zeichnung? Aendert sich davon etwas, neu."""

@@ -10157,7 +10157,7 @@ class MainWindow(QMainWindow):
         """
         if projekt is not None:
             self._projekt_datei = projekt
-        grund = f"KVRouite v{APP_VERSION} - the Easy Video and GPX-Sync Tool"
+        grund = f"KVRouite v{APP_VERSION}"
         if self._projekt_datei:
             name = os.path.basename(self._projekt_datei)
             self.setWindowTitle(f"{name} - {grund}")
