@@ -67,7 +67,9 @@ import config
 # Aendert sich die Art, wie gerendert wird, muss der Zwischenspeicher
 # ungueltig werden. Deshalb geht diese Marke in den Namen ein.
 # 3: Stuecke je Seite statt einer Datei je Seite.
-_RENDER_VERSION = "3"
+# 4: der Schnipsel wird GEDREHT gerendert (Bildlage der Quelle eingerechnet),
+#    die Vorschau legt ihm keine Drehung mehr auf - siehe _ges_start.
+_RENDER_VERSION = "4"
 
 _rotation_cache = {}
 
@@ -112,12 +114,26 @@ class FadeJob:
     _ges_start weg.
     """
 
-    def __init__(self, seite_a, seite_b, duration, width, fps):
+    def __init__(self, seite_a, seite_b, duration, width, fps, standbilder=None,
+                 standbild_quellen=None):
         self.a = [(p, float(i), float(d)) for (p, i, d) in seite_a]
         self.b = [(p, float(i), float(d)) for (p, i, d) in seite_b]
         self.duration = float(duration)
         self.width = int(width)
         self.fps = fps              # (zaehler, nenner)
+        # Merge-Fade: Standbilder ueber dem Material der Seite A. Je Eintrag
+        # (PNG, Sekunde in der Blende, Dauer, Deckkraft am Anfang, am Ende).
+        # Seite B ist dann leer - an einer Naht gibt es keine zweite Seite,
+        # beide Videos laufen in A ungekuerzt hintereinander.
+        self.standbilder = [(p, float(s), float(d), float(v), float(b))
+                            for (p, s, d, v, b) in (standbilder or [])]
+        # Woher die PNGs kommen, falls sie noch nicht da sind: je Eintrag
+        # (PNG, Quelldatei, Sekunde oder None fuer das letzte Bild, gedreht).
+        # Gezogen werden sie erst beim Rendern (FadeRenderer
+        # ._standbilder_ziehen), nicht beim Anlegen des Auftrags - das Anlegen
+        # laeuft ohne Fenster, das Rendern mit.
+        self.standbild_quellen = [(p, q, s, bool(g))
+                                  for (p, q, s, g) in (standbild_quellen or [])]
 
     def key(self):
         """Erkennungsmerkmal. Aendert sich eine Quelldatei, aendert sich der Hash."""
@@ -133,6 +149,10 @@ class FadeJob:
             teile.append("/")
         teile.append(f"{self.duration:.6f}"
                      f"|{self.width}|{self.fps[0]}/{self.fps[1]}|v{_RENDER_VERSION}")
+        # Nur mit Standbildern kommt hier etwas dazu - die Schluessel der
+        # gewoehnlichen Blenden bleiben, wie sie sind.
+        for (p, s, d, v, b) in self.standbilder:
+            teile.append(f"still:{os.path.basename(p)}|{s:.6f}|{d:.6f}|{v:.2f}|{b:.2f}")
         h = hashlib.sha1("||".join(teile).encode("utf-8")).hexdigest()[:16]
         return h
 
@@ -141,6 +161,9 @@ class FadeJob:
         def kurz(seite):
             return " + ".join(f"{os.path.basename(p)}@{i:.2f}s/{d:.2f}s"
                               for (p, i, d) in seite)
+        if self.standbilder:
+            return (f"Merge-Fade A: {kurz(self.a)} | "
+                    f"{len(self.standbilder)} Standbild(er)")
         return f"A: {kurz(self.a)} | B: {kurz(self.b)}"
 
     def path(self):
@@ -165,6 +188,9 @@ class FadeRenderer(QObject):
 
     #: (fertig, gesamt) - fuer eine Fortschrittsanzeige
     progress = Signal(int, int)
+    #: Eine Zeile Text, woran gerade gearbeitet wird - etwa das Ziehen eines
+    #: Standbilds fuer den Merge-Fade, das je Bild Sekunden dauern kann.
+    meldung = Signal(str)
     #: alle angeforderten Blenden liegen vor
     finished = Signal()
 
@@ -280,6 +306,19 @@ class FadeRenderer(QObject):
 
         job = self._queue.pop(0)
         self._current = job
+        # Nicht sofort losrendern, sondern erst, wenn die Oberflaeche einmal
+        # dran war. request() wird aus _refresh_preview_timeline gerufen, und
+        # das Vorbereitungsfenster kommt dort erst NACH request(). Vor dem
+        # Rendern eines Merge-Fade werden ausserdem die Standbilder gezogen,
+        # bei 4K-Material zwei- bis dreimal 2 s. Lief das alles noch in
+        # request(), stand die Anwendung so lange ohne jedes Fenster da -
+        # gesehen am 09.09.2026: "man denkt, hier passiert nichts".
+        QTimer.singleShot(0, lambda: self._anlauf(job))
+
+    def _anlauf(self, job):
+        """Einen Auftrag wirklich beginnen - aus _next(), einen Tick spaeter."""
+        if self._current is not job:
+            return          # inzwischen verworfen oder ersetzt (cancel/request)
         schluessel = job.key()
         self._anlaeufe[schluessel] = self._anlaeufe.get(schluessel, 0) + 1
 
@@ -301,6 +340,16 @@ class FadeRenderer(QObject):
         if not self._ges_bereit():
             print(f"[FADE] [{schluessel[:8]}] GStreamer nicht verfuegbar - "
                   f"dieser Schnitt bleibt ohne Blende")
+            self._verwerfen(job)
+            self._weiter()
+            return
+
+        # Die Standbilder eines Merge-Fade erst jetzt ziehen - mit sichtbarem
+        # Fenster und einer Zeile, was gerade passiert. Ein PNG, das schon
+        # da ist, kostet nichts (core/standbild prueft das selbst).
+        if not self._standbilder_ziehen(job):
+            print(f"[FADE] [{schluessel[:8]}] Standbild nicht ziehbar - "
+                  f"diese Naht bleibt hart")
             self._verwerfen(job)
             self._weiter()
             return
@@ -333,11 +382,23 @@ class FadeRenderer(QObject):
     # entfaellt - Stuetzstellen in Medienzeit, ab dem inpoint des Stuecks,
     # wie _alpha_rampe() im Encoder.
     #
-    # NICHT gedreht wird dabei mit Absicht. Die Vorschau legt jedem Clip die
-    # Drehung des Quellmaterials auf, auch dem Schnipsel (siehe
-    # ges_backend._apply_orientation). Waere er schon aufgerichtet, stuende er
-    # anschliessend auf dem Kopf. Deshalb "video-direction = identity" - das
-    # Gegenstueck zu "-noautorotate" im ffmpeg-Aufruf.
+    # GEDREHT wird dabei seit 6.14, und zwar hier: jedes Stueck bekommt die
+    # Bildlage seiner Quelldatei (video-direction aus der Kennzeichnung im
+    # Container), der fertige Schnipsel ist also aufgerichtet. Die Vorschau
+    # setzt ihn mit "identity" ein, ohne eigene Drehung
+    # (ges_backend._clip_vorbereiten, bildlage=IDENTITY).
+    #
+    # Bis 6.13 war es umgekehrt: der Schnipsel blieb roh, und die Vorschau
+    # legte ihm dieselbe feste Drehung auf wie den Quellclips. Das ging nur,
+    # solange ALLE Dateien der Playlist dieselbe Drehung hatten. Bei
+    # gemischter Drehung ueberlaesst die Vorschau die Bildlage GES (AUTO,
+    # Kennzeichnung je Datei), und der Schnipsel hat keine Kennzeichnung -
+    # er blieb roh stehen, bei kopfueber aufgenommenem Material also auf dem
+    # Kopf. Gesehen am 09.09.2026 am Merge-Fade zwischen einer gedrehten und
+    # einer ungedrehten Datei, nachgestellt mit rotate-180-Testclips: eine
+    # gewoehnliche Schnittblende IM gedrehten Video lag genauso falsch.
+    # Aufgerichtet gerendert und mit identity eingesetzt stimmt der Schnipsel
+    # in beiden Faellen, fest und AUTO.
 
     def _ges_bereit(self):
         if self._ges_aus:
@@ -392,7 +453,8 @@ class FadeRenderer(QObject):
             return False
         a = assets[job.a[0][0]]
 
-        # Zielhoehe aus dem ROHEN Bild, weil nicht gedreht wird.
+        # Zielhoehe aus dem Bild der Quelle. Gedreht wird nur um 0 oder 180
+        # Grad, dabei bleiben Breite und Hoehe, wie sie sind.
         hoehe = 0
         try:
             strom = a.get_info().get_video_streams()[0]
@@ -417,11 +479,24 @@ class FadeRenderer(QObject):
         oben.set_auto_transition(False)
         unten.set_auto_transition(False)
 
-        def ohne_drehung(clip):
+        def mit_drehung(clip, pfad):
+            """Bildlage der Quelldatei auf das Stueck legen.
+
+            Fest vorgegeben statt AUTO, aus demselben Grund wie im Encoder
+            (_orientierung): kommt die Kennzeichnung aus dem Datenstrom nicht
+            rechtzeitig an, bleibt ein Clip ungedreht. Nur 0 und 180 Grad;
+            fuer alles andere bleibt es bei AUTO.
+            """
+            grad = abs(source_rotation(pfad))
+            if grad == 0:
+                methode = GstVideo.VideoOrientationMethod.IDENTITY
+            elif grad == 180:
+                methode = getattr(GstVideo.VideoOrientationMethod, "180")
+            else:
+                methode = GstVideo.VideoOrientationMethod.AUTO
             for el in clip.find_track_elements(None, GES.TrackType.VIDEO,
                                                GES.VideoSource):
-                el.set_child_property("video-direction",
-                                      GstVideo.VideoOrientationMethod.IDENTITY)
+                el.set_child_property("video-direction", methode)
             return clip
 
         def stuecke_legen(layer, seite, mit_rampe):
@@ -455,7 +530,7 @@ class FadeRenderer(QObject):
                     raise RuntimeError(
                         f"Stueck nicht einsetzbar: {os.path.basename(pfad)}"
                         f"@{inpoint_s:.3f}s")
-                ohne_drehung(clip)
+                mit_drehung(clip, pfad)
                 if mit_rampe:
                     for el in clip.find_track_elements(None, GES.TrackType.VIDEO,
                                                        GES.VideoSource):
@@ -470,7 +545,17 @@ class FadeRenderer(QObject):
         if stuecke_legen(unten, job.a, False) <= 0:
             print("[FADE] abgehende Seite ohne Material")
             return False
-        if stuecke_legen(oben, job.b, True) <= 0:
+        if job.standbilder:
+            # Merge-Fade: keine Seite B, statt dessen die Standbilder ueber
+            # dem durchlaufenden Material - dieselbe Konstruktion wie
+            # ges_encoder_manager._merge_fades_setzen. Die PNGs kommen
+            # GEDREHT aus core/standbild, wie die Stuecke daneben
+            # aufgerichtet werden; sie selbst bekommen deshalb "identity".
+            if self._standbilder_legen(oben, job, raster, dauer_ns,
+                                       hoehe, assets) <= 0:
+                print("[FADE] Merge-Fade ohne Standbild")
+                return False
+        elif stuecke_legen(oben, job.b, True) <= 0:
             print("[FADE] ankommende Seite ohne Material")
             return False
         timeline.commit_sync()
@@ -532,6 +617,71 @@ class FadeRenderer(QObject):
               f"[{job.key()[:8]}, Anlauf {self._anlaeufe.get(job.key(), 1)}]")
         self._ges_timer.start(50)
         return True
+
+    def _standbilder_ziehen(self, job):
+        """Fehlende Standbilder eines Auftrags ziehen. False, wenn eins fehlt.
+
+        Vor jedem Bild geht eine Meldung hinaus (Signal `meldung`), damit das
+        Vorbereitungsfenster sagen kann, woran es gerade arbeitet.
+        """
+        if not job.standbild_quellen:
+            return True
+        from core.standbild import standbild
+        for (png, quelle, sekunde, gedreht) in job.standbild_quellen:
+            try:
+                if os.path.getsize(png) > 0:
+                    continue
+            except OSError:
+                pass
+            stelle = ("last frame" if sekunde is None
+                      else f"frame at {float(sekunde):.2f} s")
+            self.meldung.emit(f"Taking the {stelle} of "
+                              f"{os.path.basename(quelle)} for the merge-fade…")
+            if standbild(quelle, sekunde, gedreht) is None:
+                return False
+        return True
+
+    def _standbilder_legen(self, layer, job, raster, dauer_ns, hoehe, assets):
+        """Die Standbilder eines Merge-Fade auf die obere Ebene legen.
+
+        Jedes Standbild liegt an seiner Sekunde in der Blende, randlos ueber
+        dem ganzen Bild, mit einer Deckkraftrampe von Anfangs- zu Endwert.
+        Rueckgabe: wie viele gelegt wurden.
+        """
+        from gi.repository import GES, GLib, GstController, GstVideo
+
+        gelegt = 0
+        for (png, sekunde, dauer_s, deck_von, deck_bis) in job.standbilder:
+            von = raster(sekunde)
+            bis = min(raster(sekunde + dauer_s), dauer_ns)
+            if bis <= von:
+                continue
+            try:
+                asset = GES.UriClipAsset.request_sync(
+                    GLib.filename_to_uri(os.path.abspath(png), None))
+            except Exception as exc:
+                print(f"[FADE] Standbild nicht ladbar ({png}): {exc}")
+                continue
+            clip = layer.add_asset(asset, von, 0, bis - von,
+                                   GES.TrackType.VIDEO)
+            if clip is None:
+                print(f"[FADE] Standbild nicht einsetzbar: {png}")
+                continue
+            for el in clip.find_track_elements(None, GES.TrackType.VIDEO,
+                                               GES.VideoSource):
+                el.set_child_property("video-direction",
+                                      GstVideo.VideoOrientationMethod.IDENTITY)
+                el.set_child_property("posx", 0)
+                el.set_child_property("posy", 0)
+                el.set_child_property("width", int(job.width))
+                el.set_child_property("height", int(hoehe))
+                quelle = GstController.InterpolationControlSource()
+                quelle.props.mode = GstController.InterpolationMode.LINEAR
+                el.set_control_source(quelle, "alpha", "direct")
+                quelle.set(0, deck_von)
+                quelle.set(bis - von, deck_bis)
+            gelegt += 1
+        return gelegt
 
     def _ges_puls(self):
         """Nachsehen, ob der Lauf fertig ist - ohne die Oberflaeche zu blockieren."""

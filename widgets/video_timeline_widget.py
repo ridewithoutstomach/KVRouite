@@ -77,12 +77,27 @@ class VideoTimelineWidget(QWidget):
     #: Was darin moeglich ist, weiss nur das MainWindow - ob es eine
     #: Aufzeichnung gibt, ob die GPX-Spur zwischenzeitlich bearbeitet wurde.
     cutMenuRequested = Signal(float, float, object)
-    
+    #: Rechtsklick auf eine Naht der Videoliste (die blaue Linie):
+    #: (nummer, rohzeit, globale Position). Das Fenster stellt das Menue
+    #: zusammen - Merge-Fade an, aus, Laenge.
+    nahtMenuRequested = Signal(int, float, object)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.total_duration = 0.0
         self._marker_position_s = 0.0
         self.boundaries = []
+        # Merge-Fade je Naht: Nummer -> Laenge in Sekunden. Gesetzt vom
+        # MainWindow, das Vorgabe und eingestellten Wert zusammenrechnet.
+        # Eine Naht ohne Eintrag ist hart. Gezeichnet wird die Laenge als
+        # Fluegel beiderseits der blauen Linie.
+        self._merge_fades = {}
+        # Die Naht unter dem Zeiger und die, deren Menue gerade offen ist.
+        # Beide werden hervorgehoben: die blaue Linie ist drei Pixel breit,
+        # die Trefferzone deutlich breiter - man soll sehen, dass man sie
+        # gleich trifft.
+        self._naht_unter_zeiger = None
+        self._markierte_naht = None
         self.markB_time_s = -1.0
         self.markE_time_s = -1.0
         self._cut_intervals = []
@@ -363,6 +378,55 @@ class VideoTimelineWidget(QWidget):
 
     def set_boundaries(self, boundary_list):
         self.boundaries = boundary_list
+
+    def set_merge_fades(self, eintraege):
+        """Merge-Fade je Naht: {nummer: sekunden}. Fehlt eine Naht, ist sie hart."""
+        neu = {}
+        for naht, sekunden in (eintraege or {}).items():
+            try:
+                if float(sekunden) > 0:
+                    neu[int(naht)] = float(sekunden)
+            except (TypeError, ValueError):
+                continue
+        if neu != self._merge_fades:
+            self._merge_fades = neu
+            self.update()
+
+    #: Wie nah der Zeiger an einer Naht sein muss, um sie zu treffen. In
+    #: Pixeln, nicht in Sekunden: die Trefferzone ist damit bei jedem Zoom
+    #: gleich breit. Bewusst mehr als _KANTE_PX: eine Naht ist eine Linie
+    #: ohne Block daneben, an dem man sonst noch fassen koennte.
+    _NAHT_PX = 10
+
+    def _naehte(self):
+        """(nummer, rohzeit) je Naht - nur die INNEREN Grenzen.
+
+        self.boundaries traegt die kumulierten Dauern, der letzte Eintrag ist
+        das Videoende und keine Naht.
+        """
+        gesamt = self.total_duration
+        return [(i, float(b)) for i, b in enumerate(self.boundaries)
+                if 0.0 < float(b) < gesamt - 1e-6]
+
+    def _naht_unter(self, x_mouse):
+        """Welche Naht liegt unter dem Zeiger? (nummer, rohzeit) oder (None, None)."""
+        if self.total_duration <= 0:
+            return None, None
+        beste = None
+        for (naht, zeit) in self._naehte():
+            abstand = abs(x_mouse - self._x_bei_zeit(zeit))
+            if abstand <= self._NAHT_PX and (beste is None or abstand < beste[0]):
+                beste = (abstand, naht, zeit)
+        if beste is None:
+            return None, None
+        return beste[1], beste[2]
+
+    def _naht_markieren(self, naht):
+        """Naht hervorheben (None loescht), solange ihr Menue offen ist."""
+        self._markierte_naht = naht
+        self.update()
+        from PySide6.QtWidgets import QApplication
+        QApplication.processEvents()
         self.update()
 
     def set_markB_time(self, time_s: float):
@@ -1047,10 +1111,18 @@ class VideoTimelineWidget(QWidget):
         if not (self._dragging_marker or self._dragging_timeline):
             # Ohne gedrueckte Taste nur die Zeigerform. Rein geometrisch -
             # ob der Schnitt umziehen DARF, wird erst beim Zugriff geprueft.
+            # Die Naht zuerst, wie im Kontextmenue: wer nahe an die blaue
+            # Linie zeigt, meint die Naht.
+            naht, _z = self._naht_unter(event.pos().x())
+            if naht != self._naht_unter_zeiger:
+                self._naht_unter_zeiger = naht
+                self.update()
             _s, art = self._kante_unter(event.pos().x())
             if art is None:
                 _o, art = self._overlay_unter(event.pos().x())
-            if art in ("links", "rechts"):
+            if naht is not None:
+                self._zeiger_setzen(Qt.PointingHandCursor)
+            elif art in ("links", "rechts"):
                 self._zeiger_setzen(Qt.SizeHorCursor)
             elif art == "block":
                 self._zeiger_setzen(Qt.SizeAllCursor)
@@ -1497,15 +1569,47 @@ class VideoTimelineWidget(QWidget):
     def _draw_boundaries_and_markers(self, painter, w, h, timeline_real_width):
         from PySide6.QtGui import QPen, QBrush, QPolygon
         pen_blue = QPen(QColor("blue"), 3)
-        painter.setPen(pen_blue)
         painter.setBrush(Qt.NoBrush)
         if self.total_duration > 0:
-            for b_sec in self.boundaries:
-                if 0 < b_sec < self.total_duration:
-                    ratio_b = b_sec / self.total_duration
-                    x_b = ratio_b*timeline_real_width - self._horizontal_offset
-                    if -50 < x_b < w+50:
-                        painter.drawLine(x_b, 0, x_b, h)
+            for (naht, b_sec) in self._naehte():
+                ratio_b = b_sec / self.total_duration
+                x_b = ratio_b*timeline_real_width - self._horizontal_offset
+                if not (-50 < x_b < w+50):
+                    continue
+                # Der Merge-Fade als Fluegel beiderseits der Naht - dieselbe
+                # Zeichnung wie die Ueberblendung um einen Schnitt, nur ohne
+                # Block dazwischen: hier wird ja nichts weggenommen.
+                blende = self._merge_fades.get(naht, 0.0)
+                if blende > 0:
+                    halb_px = ((blende / 2.0) / self.total_duration
+                               ) * timeline_real_width
+                    if halb_px >= 1.0:
+                        self._draw_blendenfluegel(painter, x_b, x_b,
+                                                  halb_px, h, w)
+                # Unter dem Zeiger oder mit offenem Menue: die Trefferzone
+                # als helles Band, damit man sieht, dass die Linie
+                # anklickbar ist und wie breit sie trifft.
+                if naht in (self._naht_unter_zeiger, self._markierte_naht):
+                    painter.setPen(Qt.NoPen)
+                    painter.setBrush(QBrush(QColor(120, 170, 255, 60)))
+                    painter.drawRect(QRectF(x_b - self._NAHT_PX, 0,
+                                            2 * self._NAHT_PX, h))
+                    painter.setBrush(Qt.NoBrush)
+                    painter.setPen(QPen(QColor(150, 190, 255), 3))
+                else:
+                    painter.setPen(pen_blue)
+                painter.drawLine(x_b, 0, x_b, h)
+                if blende > 0:
+                    # Kleiner Doppelpfeil am oberen Rand: hier liegt ein
+                    # Merge-Fade, auch wenn die Fluegel bei Zoom 1 nur
+                    # wenige Pixel breit sind.
+                    painter.setPen(QPen(QColor(255, 255, 255, 200), 1))
+                    painter.drawLine(QPointF(x_b - 6, 5), QPointF(x_b + 6, 5))
+                    painter.drawLine(QPointF(x_b - 6, 5), QPointF(x_b - 3, 2))
+                    painter.drawLine(QPointF(x_b - 6, 5), QPointF(x_b - 3, 8))
+                    painter.drawLine(QPointF(x_b + 6, 5), QPointF(x_b + 3, 2))
+                    painter.drawLine(QPointF(x_b + 6, 5), QPointF(x_b + 3, 8))
+        painter.setPen(pen_blue)
 
         pen_marker = QPen(QColor("white"), 2)
         painter.setPen(pen_marker)
@@ -1700,6 +1804,13 @@ class VideoTimelineWidget(QWidget):
                 
                     
 
+    def leaveEvent(self, event):
+        # Der Zeiger ist weg - die hervorgehobene Naht auch.
+        if self._naht_unter_zeiger is not None:
+            self._naht_unter_zeiger = None
+            self.update()
+        super().leaveEvent(event)
+
     def _markieren(self, start_s, end_s=None):
         """Bereich hervorheben (oder mit None die Hervorhebung loeschen)."""
         self._markierter_bereich = None if start_s is None else (start_s, end_s)
@@ -1730,9 +1841,24 @@ class VideoTimelineWidget(QWidget):
             return
         ratio = x_timeline / timeline_real_width
         time_clicked = ratio * self.total_duration
-        # 2) Prüfen, ob time_clicked in einem Overlay-Intervall liegt
         found_any = False
+        # 1b) Zuerst die Naehte der Videoliste, in Pixeln geprueft (siehe
+        # _naht_unter). Sie kommen VOR Overlays und Schnitten: wer nahe an
+        # die blaue Linie klickt, meint die Naht. Ein Schnitt oder ein
+        # Overlay daneben laesst sich weiterhin ueberall sonst in seiner
+        # Breite anklicken.
+        naht, naht_zeit = self._naht_unter(event.pos().x())
+        if naht is not None:
+            found_any = True
+            self._naht_markieren(naht)
+            try:
+                self.nahtMenuRequested.emit(naht, naht_zeit, event.globalPos())
+            finally:
+                self._naht_markieren(None)
+        # 2) Prüfen, ob time_clicked in einem Overlay-Intervall liegt
         for (start_s, end_s) in self._overlay_intervals:
+            if found_any:
+                break
             if start_s <= time_clicked <= end_s:
                 found_any = True
                 # Frueher kam hier sofort "Remove Overlay?". Seit sich ein

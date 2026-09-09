@@ -436,6 +436,17 @@ class GesPlayerBackend:
             schnipsel = eintrag[3] if len(eintrag) > 3 else None
             if float(b) > float(a):
                 neu.append((float(a), float(b), float(f), schnipsel))
+            elif float(b) == float(a) and float(f) > 0 and schnipsel:
+                # Ein Merge-Fade an einer Dateigrenze: kein Schnitt, nur ein
+                # vorgerenderter Uebergang, der mittig auf der Naht liegt.
+                # Er laeuft hier als Schnitt der Breite 0 durch - damit
+                # teilt _compute_keeps die Keeps an der Naht, und _rebuild
+                # setzt den Schnipsel wie bei jeder anderen Blende ein: das
+                # Stueck davor eine halbe Laenge kuerzer, das Stueck danach
+                # eine halbe Laenge spaeter. Die Gesamtlaenge bleibt gleich.
+                # Ohne Schnipsel gibt es nichts einzusetzen, dann bleibt die
+                # Naht hart und braucht auch keinen Eintrag.
+                neu.append((float(a), float(a), float(f), schnipsel))
         neu.sort()
         if neu == self._cuts and self._keeps:
             return True          # nichts geaendert - Umbau waere verschenkt
@@ -542,7 +553,7 @@ class GesPlayerBackend:
             return self._ORIENT_180
         return None
 
-    def _clip_vorbereiten(self, clip, roh_ns=0):
+    def _clip_vorbereiten(self, clip, roh_ns=0, bildlage=None):
         """
         Alles, was jeder Clip auf der Timeline braucht: Bildlage und 360.
 
@@ -554,14 +565,20 @@ class GesPlayerBackend:
 
         `roh_ns` sagt, aus welcher Stelle des Rohmaterials das Stueck stammt.
         Daraus ergibt sich die Quelldatei und damit ihr Blickwinkel.
+
+        `bildlage` erzwingt eine Drehmethode fuer diesen Clip. None heisst:
+        die feste Drehung der Playlist, falls es eine gibt, sonst AUTO. Die
+        vorgerenderten Schnipsel kommen aufgerichtet aus fade_cache und
+        werden mit IDENTITY eingesetzt.
         """
         if clip is None:
             return clip
-        if self._orient is not None:
+        methode = self._orient if bildlage is None else bildlage
+        if methode is not None:
             try:
                 src = clip.find_track_element(None, GES.VideoSource)
                 if src is not None:
-                    src.set_child_property("video-direction", self._orient)
+                    src.set_child_property("video-direction", methode)
             except Exception as exc:
                 self._note(f"Bildlage nicht setzbar: {exc}")
         if self._360_an:
@@ -718,9 +735,15 @@ class GesPlayerBackend:
                 # Fuer 360 zaehlt sie zu dem Video, in das sie fuehrt (ks ist
                 # die Rohzeit hinter dem Schnitt) - dorthin schaut man ja beim
                 # Ende der Blende.
+                # Der Schnipsel ist schon aufgerichtet (fade_cache rendert
+                # seit 6.14 mit der Bildlage der Quelle) und bekommt
+                # deshalb ausdruecklich KEINE Drehung - weder die feste noch
+                # AUTO. Mit AUTO bliebe er roh, er traegt keine
+                # Kennzeichnung; mit der festen stuende er auf dem Kopf.
                 self._clip_vorbereiten(
                     self._layer.add_asset(asset, fs - halb, 0, dauer,
-                                          GES.TrackType.UNKNOWN), ks)
+                                          GES.TrackType.UNKNOWN), ks,
+                    bildlage=self._ORIENT_IDENTITY)
                 mit_blende += 1
                 # Das Folgematerial setzt dort an, wo die Blende WIRKLICH
                 # endet. Die gerenderte Datei ist gelegentlich ein Bild

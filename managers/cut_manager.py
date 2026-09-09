@@ -47,6 +47,23 @@ class VideoCutManager(QObject):
         # koennten auseinanderlaufen. Beim Auswerten kommen beide zusammen -
         # siehe blende_fuer_bereich().
         self._blenden = {}
+
+        # Merge-Fades an den Naehten der Videoliste (ab 6.14). Schluessel ist
+        # die Nummer der Naht: 0 liegt zwischen Video 1 und 2. Der Wert ist
+        # die Laenge in Sekunden oder None fuer die Vorgabe aus dem Encoder
+        # Setup (encoder/xfade) - dasselbe Muster wie _blenden. Was hier
+        # nicht steht, ist eine harte Naht.
+        #
+        # Bewusst KEIN Schnitt der Breite 0 in _cut_intervals: ein
+        # Merge-Fade nimmt nichts weg, hat keine GPX-Aufzeichnung, laesst
+        # sich nicht verschieben und braucht keine Ruecknahme. Die rund 18
+        # Stellen, die _cut_intervals entpacken, gehen ihn nichts an.
+        #
+        # Die Nummer statt der Rohzeit als Schluessel, weil die Naht ihre
+        # Rohzeit aendert, sobald sich die Dauer eines Videos davor um ein
+        # Bild anders misst - die Nummer bleibt. Faellt ein Video aus der
+        # Liste, ruecken die Naehte dahinter nach; siehe prune_merge_fades().
+        self._merge_fades = {}
         self.video_durations = []
 
         # ---- Ruecknahme von Schnitten (ab 6.02, Etappe 1: nur aufzeichnen) --
@@ -734,6 +751,67 @@ class VideoCutManager(QObject):
         alive = {self._cut_key(a, b) for (a, b) in self._cut_intervals}
         for key in [k for k in self._blenden if k not in alive]:
             del self._blenden[key]
+
+    # ------------------------------------------------------------------
+    # Merge-Fades an den Naehten der Videoliste
+    # ------------------------------------------------------------------
+    def hat_merge_fade(self, naht: int) -> bool:
+        return int(naht) in self._merge_fades
+
+    def get_merge_fade(self, naht: int):
+        """Eingestellte Laenge dieser Naht, None fuer die Vorgabe.
+
+        Ob ueberhaupt ein Merge-Fade gesetzt ist, sagt hat_merge_fade() -
+        None kann hier beides heissen.
+        """
+        return self._merge_fades.get(int(naht))
+
+    def set_merge_fade(self, naht: int, an: bool, sekunden=None):
+        """Merge-Fade an dieser Naht setzen oder wegnehmen.
+
+        sekunden=None laesst die Naht der Vorgabe folgen.
+        """
+        naht = int(naht)
+        if not an:
+            self._merge_fades.pop(naht, None)
+        else:
+            self._merge_fades[naht] = (None if sekunden is None
+                                       else float(sekunden))
+
+    def merge_fade_laenge(self, naht: int, vorgabe) -> float:
+        """Laenge des Merge-Fade an dieser Naht, 0 wenn keiner gesetzt ist."""
+        naht = int(naht)
+        if naht not in self._merge_fades:
+            return 0.0
+        eigen = self._merge_fades[naht]
+        return float(vorgabe if eigen is None else eigen)
+
+    def get_merge_fades(self) -> list:
+        """Fuer die Projektdatei: [[naht, sekunden_oder_null], ...]."""
+        return [[n, self._merge_fades[n]] for n in sorted(self._merge_fades)]
+
+    def set_merge_fades(self, eintraege):
+        """Aus der Projektdatei. Fehlt der Schluessel, gibt es keine."""
+        self._merge_fades = {}
+        for item in (eintraege or []):
+            try:
+                naht = int(item[0])
+                wert = item[1] if len(item) > 1 else None
+                self._merge_fades[naht] = (None if wert is None
+                                           else float(wert))
+            except (TypeError, IndexError, ValueError):
+                continue
+
+    def prune_merge_fades(self, anzahl_videos: int):
+        """Naehte wegwerfen, die es bei dieser Anzahl Videos nicht gibt.
+
+        n Videos haben n-1 Naehte. Nach dem Entfernen eines Videos aus der
+        Liste bleibt eine Naht mit zu grosser Nummer uebrig - sie zeigte auf
+        eine Grenze, die es nicht mehr gibt.
+        """
+        hoechste = int(anzahl_videos) - 2
+        for naht in [n for n in self._merge_fades if n < 0 or n > hoechste]:
+            del self._merge_fades[naht]
 
     def is_hard_cut(self, start_s, end_s) -> bool:
         return self._cut_key(start_s, end_s) in self._hard_cuts

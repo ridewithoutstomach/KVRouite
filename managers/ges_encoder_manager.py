@@ -159,6 +159,7 @@ class _Quellen:
 
     def __init__(self, videos):
         self.assets = []
+        self.pfade = list(videos)   # fuer die Standbilder des Merge-Fade
         self.grenzen = []      # (start_ns, ende_ns) je Datei
         lauf = 0
         for pfad in videos:
@@ -295,7 +296,7 @@ def _blicke_liste(quellen, view360_cfg):
 
 
 def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_d,
-                    log, blicke=None):
+                    log, blicke=None, merge_fades=None):
     timeline = GES.Timeline.new_audio_video()
     blicke = blicke or []
     aspect = view360.ziel_aspect(breite, hoehe)
@@ -324,10 +325,15 @@ def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_
     # Overlays bekommen eine eigene Ebene, sonst koennen sie zeitlich mit einer
     # Blendenhaelfte kollidieren - zwei Clips duerfen auf derselben Ebene nicht
     # ueberlappen.
+    # Die Standbilder des Merge-Fade (siehe _merge_fades_setzen) liegen
+    # unter den Overlays und ueber den Blendenhaelften: ein Logo soll auch
+    # ueber der Naht sichtbar bleiben, und auf der Ebene der Blendenhaelften
+    # koennte ein Standbild zeitlich mit einer Blende kollidieren.
     ovl_ebene = timeline.append_layer()  # Prioritaet 0 - ganz oben
-    oben = timeline.append_layer()       # Prioritaet 1 - Blendenhaelften
-    unten = timeline.append_layer()      # Prioritaet 2 - Grundmaterial
-    for ebene in (ovl_ebene, oben, unten):
+    naht_ebene = timeline.append_layer() # Prioritaet 1 - Standbilder der Naht
+    oben = timeline.append_layer()       # Prioritaet 2 - Blendenhaelften
+    unten = timeline.append_layer()      # Prioritaet 3 - Grundmaterial
+    for ebene in (ovl_ebene, naht_ebene, oben, unten):
         ebene.set_auto_transition(False)
 
     def clip_setzen(layer, asset, start, inpoint, dauer, rohstart=0):
@@ -453,12 +459,131 @@ def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_
 
     _overlays_setzen(ovl_ebene, overlay_list, breite, hoehe, abbildung,
                      fps_n, fps_d, log)
+    naehte = _merge_fades_setzen(naht_ebene, merge_fades, quellen, abbildung,
+                                 zeit_ns, breite, hoehe, ns, clip_setzen, log)
 
     timeline.commit_sync()
     gesamt = timeline.get_duration()
     log(f"[GES] Timeline: {len(stuecke)} piece(s), {blenden} crossfade(s), "
+        f"{naehte} merge-fade(s), "
         f"{gesamt / NS:.6f}s at {breite}x{hoehe} @ {fps_n}/{fps_d}")
     return timeline, gesamt
+
+
+def _merge_fades_setzen(layer, merge_fades, quellen, abbildung, gesamt_ns,
+                        breite, hoehe, ns, clip_setzen, log):
+    """Merge-Fades an Dateigrenzen: ein Uebergang, der nichts wegnimmt.
+
+    merge_fades: [[naht_s, laenge_s], ...] - die Naht als ROHZEIT, also die
+    Grenze zwischen zwei Dateien der Videoliste, und die Gesamtlaenge des
+    Uebergangs.
+
+    Beide Videos laufen an der Naht ungekuerzt weiter. Ein echter Crossfade
+    braeuchte Material, das sich ueberlappt, und das gibt es an einer Naht
+    nicht: das eine Video ist zu Ende, das andere faengt gerade an. Statt
+    dessen wird in der letzten halben Laenge vor der Naht das ERSTE Bild des
+    folgenden Videos als Standbild von 0 auf 50 Prozent eingeblendet, und in
+    der ersten halben Laenge danach das LETZTE Bild des vorigen Videos von
+    50 auf 0 Prozent ausgeblendet. Genau auf der Naht zeigen beide Seiten
+    dasselbe Mischbild - es gibt keinen Sprung, kein Schwarz, keine Zeitlupe,
+    und die Ausgabe ist exakt so lang wie ohne den Uebergang. Nachgestellt
+    am 09.09.2026 mit test501.mp4 und 60fps.mp4.
+
+    Die Standbilder kommen GEDREHT aus core/standbild: GES dreht das
+    Quellmaterial daneben nach seiner Kennzeichnung, ein PNG traegt keine.
+    Den 360-Blick bekommen sie ueber clip_setzen wie jedes andere Stueck,
+    zugeordnet ueber die Rohzeit des Videos, aus dem sie stammen.
+
+    Eine Naht, die in einem Schnitt liegt, kommt im Ergebnis nicht vor - dort
+    gibt es auch nichts einzublenden. Das ist keine Regel, sondern die Lage.
+    """
+    if not merge_fades:
+        return 0
+    from core.standbild import standbild
+
+    anzahl = 0
+    belegt_bis = -1     # Ende des zuletzt gelegten Standbilds auf der Ebene
+    for eintrag in merge_fades:
+        try:
+            naht_s, laenge = float(eintrag[0]), float(eintrag[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if laenge <= 0:
+            continue
+
+        # Welche Naht ist gemeint? Die Grenzen hier stammen aus den Dauern,
+        # die GES in den Dateien sieht; die Rohzeit aus der Konfiguration aus
+        # den Dauern der Playlist. Beide koennen um ein Bild auseinander
+        # liegen, deshalb eine Toleranz von einer Zehntelsekunde.
+        naht_ns = int(round(naht_s * NS))
+        index = None
+        for i, (_a, b) in enumerate(quellen.grenzen[:-1]):
+            if abs(b - naht_ns) <= NS // 10:
+                index = i
+                break
+        if index is None:
+            log(f"[GES] Merge-fade at {naht_s:.2f}s: no file join there, skipped")
+            continue
+        out_ns = _auf_ausgabe(naht_s, abbildung)
+        if out_ns is None:
+            log(f"[GES] Merge-fade at {naht_s:.2f}s: the join lies inside a "
+                f"cut and does not appear in the output, skipped")
+            continue
+
+        vorher, nachher = quellen.pfade[index], quellen.pfade[index + 1]
+        png_letztes = standbild(vorher, None, gedreht=True)
+        png_erstes = standbild(nachher, 0.0, gedreht=True)
+        if not png_letztes or not png_erstes:
+            log(f"[GES] Merge-fade at {naht_s:.2f}s: still image could not be "
+                f"taken, the join stays hard")
+            continue
+
+        halb = ns(laenge / 2.0)
+        if halb <= 0:
+            continue
+        # Nicht ueber Anfang und Ende der Ausgabe hinaus - dort ist nichts.
+        von = max(0, out_ns - halb)
+        bis = min(gesamt_ns, out_ns + halb)
+        if von < belegt_bis:
+            log(f"[GES] Merge-fade at {naht_s:.2f}s overlaps the previous "
+                f"one, skipped")
+            continue
+
+        # (PNG, Anfang, Ende, Deckkraft am Anfang, Deckkraft am Ende,
+        #  Rohzeit des Videos, aus dem das Bild stammt - fuer den 360-Blick)
+        teile = (
+            (png_erstes, von, out_ns, 0.0, 0.5, quellen.grenzen[index + 1][0]),
+            (png_letztes, out_ns, bis, 0.5, 0.0, max(0, naht_ns - 1)),
+        )
+        gelegt = 0
+        for png, start, ende, deck_von, deck_bis, rohstart in teile:
+            dauer = ende - start
+            if dauer <= 0:
+                continue
+            try:
+                asset = GES.UriClipAsset.request_sync(
+                    GLib.filename_to_uri(os.path.abspath(png), None))
+            except Exception as exc:
+                log(f"[GES] Still image not loadable ({png}): {exc}")
+                continue
+            clip = clip_setzen(layer, asset, start, 0, dauer, rohstart)
+            for element in clip.find_track_elements(None, GES.TrackType.VIDEO,
+                                                    GES.VideoSource):
+                # Randlos ueber das ganze Bild - sonst laege das PNG in seiner
+                # eigenen Groesse im Bild, bei 4K-Material also beschnitten.
+                element.set_child_property("posx", 0)
+                element.set_child_property("posy", 0)
+                element.set_child_property("width", int(breite))
+                element.set_child_property("height", int(hoehe))
+                _alpha_rampe(element, 0, dauer, 0, deck_von, deck_bis)
+            gelegt += 1
+        if gelegt:
+            anzahl += 1
+            belegt_bis = bis
+            log(f"[GES] Merge-fade at {naht_s:.2f}s "
+                f"({os.path.basename(vorher)} | {os.path.basename(nachher)}): "
+                f"{laenge:.1f}s, output {von / NS:.2f}s - {bis / NS:.2f}s")
+    return anzahl
 
 
 def _zahl(wert, gross, klein):
@@ -1054,6 +1179,9 @@ def ges_xfade_main(cfg_path, abbruch=None):
     videos = cfg["videos"]
     skip_list = cfg.get("skip_instructions", [])
     overlay_list = cfg.get("overlay_instructions", [])
+    # Merge-Fades an Dateigrenzen: [[naht_s, laenge_s], ...]. Aeltere
+    # Konfigurationen kennen den Schluessel nicht - dann gibt es keine.
+    merge_fades = cfg.get("merge_fades", []) or []
     final_out = cfg["final_output"]
     encoder = cfg.get("encoder", "libx265")
     hw_encode = cfg.get("hardware_encode", "none")
@@ -1117,6 +1245,12 @@ def ges_xfade_main(cfg_path, abbruch=None):
         else:
             was = f"crossfade {v:.1f}s (centred on the cut)"
         log(f"[GES] Cut {s:.2f}s - {e:.2f}s: {was}")
+    for eintrag in merge_fades:
+        try:
+            log(f"[GES] Merge-fade at file join {float(eintrag[0]):.2f}s: "
+                f"{float(eintrag[1]):.1f}s, nothing is cut away")
+        except (TypeError, ValueError, IndexError):
+            log(f"[GES] Merge-fade entry not readable: {eintrag!r}")
 
     blicke = _blicke_liste(quellen, view360_cfg)
     if blicke:
@@ -1128,7 +1262,7 @@ def ges_xfade_main(cfg_path, abbruch=None):
 
     timeline, gesamt_ns = _timeline_bauen(quellen, skip_list, overlay_list,
                                           breite, hoehe, fps_n, fps_d, log,
-                                          blicke)
+                                          blicke, merge_fades)
     profil = _profil(encoder, hw_encode, crf, preset, bitrate_mbps, log)
 
     ordner = os.path.dirname(os.path.abspath(final_out))

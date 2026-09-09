@@ -1219,6 +1219,7 @@ class MainWindow(QMainWindow):
         self._fade_dialog = None
         self._fade_renderer = FadeRenderer(self)
         self._fade_renderer.progress.connect(self._on_fades_progress)
+        self._fade_renderer.meldung.connect(self._on_fades_meldung)
         self._fade_renderer.finished.connect(self._on_fades_ready)
 
             
@@ -1246,6 +1247,7 @@ class MainWindow(QMainWindow):
         self.timeline.overlay_grenzen_geber = self._overlay_grenzen
         self.timeline.cutHardToggleRequested.connect(self._on_cut_hard_toggle)
         self.timeline.cutMenuRequested.connect(self._on_cut_menu)
+        self.timeline.nahtMenuRequested.connect(self._on_naht_menu)
         self.timeline.cutMoveRequested.connect(self._on_cut_move)
         # Entf auf einem ausgewaehlten Schnitt geht denselben Weg wie der
         # Menuepunkt "Undo Cut" - mit denselben Pruefungen und derselben
@@ -4492,6 +4494,276 @@ class MainWindow(QMainWindow):
         s = max(0.0, float(s))
         return f"{int(s // 60):02d}:{int(s % 60):02d}"
 
+    # ------------------------------------------------------------------
+    # Merge-Fade an den Naehten der Videoliste
+    # ------------------------------------------------------------------
+    # Ein Uebergang an einer Dateigrenze, der NICHTS wegnimmt: beide Videos
+    # laufen ungekuerzt weiter, vor der Naht wird das erste Bild des
+    # folgenden Videos als Standbild eingeblendet, danach das letzte Bild des
+    # vorigen wieder ausgeblendet (siehe ges_encoder_manager
+    # ._merge_fades_setzen). Kein Schnitt, keine GPX-Aenderung, keine
+    # Laengenaenderung - deshalb auch keine Aufzeichnung und keine
+    # Ruecknahme. Ob an einer Naht nichts, ein Merge-Fade oder ein Schnitt
+    # liegt, entscheidet allein der Benutzer.
+
+    def _naht_zeit(self, naht: int):
+        """Rohzeit der Naht Nummer `naht` (0 = zwischen Video 1 und 2), oder None."""
+        dauern = getattr(self, "video_durations", None) or []
+        if naht < 0 or naht >= len(dauern) - 1:
+            return None
+        return float(sum(dauern[:naht + 1]))
+
+    def _merge_fade_laenge(self, naht: int) -> float:
+        """Laenge des Merge-Fade an dieser Naht, 0 wenn keiner gesetzt ist.
+
+        Nur im Encode-Mode: im Copy-Mode wird das Material durchgereicht,
+        dort gibt es keinen Uebergang - wie bei den Blenden der Schnitte.
+        """
+        if getattr(self, "_edit_mode", "") != "encode":
+            return 0.0
+        return self.cut_manager.merge_fade_laenge(naht, self._blende_vorgabe())
+
+    def _merge_fades_aktiv(self):
+        """[(naht, rohzeit, laenge)] fuer alle Naehte mit Merge-Fade.
+
+        EINE Quelle fuer Vorschau, Nachreichen, Zeitleiste und Export, damit
+        keiner der vier etwas anderes zeigt als die anderen.
+        """
+        liste = []
+        dauern = getattr(self, "video_durations", None) or []
+        for naht in range(max(0, len(dauern) - 1)):
+            laenge = self._merge_fade_laenge(naht)
+            if laenge <= 0:
+                continue
+            zeit = self._naht_zeit(naht)
+            if zeit is None:
+                continue
+            liste.append((naht, zeit, laenge))
+        return liste
+
+    def _merge_fade_hoechstwert(self, naht: int) -> float:
+        """Wie lang der Merge-Fade an dieser Naht hoechstens sein darf.
+
+        Je die halbe Laenge liegt vor und hinter der Naht. Beide Haelften
+        muessen in das Material passen, das dort im Ergebnis zu sehen ist:
+        bis zum naechsten Schnitt oder bis zum Anfang beziehungsweise Ende
+        des Videos. Liegt die Naht selbst in einem Schnitt, kommt sie im
+        Ergebnis nicht vor, dann ist hier nichts einzustellen.
+        """
+        zeit = self._naht_zeit(naht)
+        gesamt = float(getattr(self, "real_total_duration", 0.0) or 0.0)
+        if zeit is None or gesamt <= 0:
+            return 0.0
+        links, rechts = zeit, gesamt - zeit
+        for (a, b) in self.cut_manager.get_merged_cut_intervals():
+            if a < zeit < b:
+                return 0.0
+            if b <= zeit:
+                links = min(links, zeit - b)
+            if a >= zeit:
+                rechts = min(rechts, a - zeit)
+        return max(0.0, min(30.0, 2.0 * min(links, rechts)))
+
+    def _on_naht_menu(self, naht: int, zeit: float, global_pos):
+        """Rechtsklick auf eine Naht der Videoliste in der Zeitleiste."""
+        from PySide6.QtWidgets import QMenu
+
+        dateien = getattr(self, "playlist", None) or []
+        if naht < 0 or naht + 1 >= len(dateien):
+            return
+        menue = QMenu(self)
+        titel = menue.addAction(
+            f"Join {naht + 1} | {naht + 2} at {self._sek_kurz(zeit)}")
+        titel.setEnabled(False)
+        namen = menue.addAction(
+            f"{os.path.basename(dateien[naht])}  →  "
+            f"{os.path.basename(dateien[naht + 1])}")
+        namen.setEnabled(False)
+        menue.addSeparator()
+
+        an = self.cut_manager.hat_merge_fade(naht)
+        eigen = self.cut_manager.get_merge_fade(naht)
+        laenge = self._blende_vorgabe() if eigen is None else eigen
+        beschriftung = "Merge-Fade"
+        if an:
+            beschriftung += " (%.1f s%s)" % (
+                laenge, "" if eigen is not None else ", default")
+        a_fade = menue.addAction(beschriftung)
+        a_fade.setCheckable(True)
+        a_fade.setChecked(an)
+        a_hart = menue.addAction("Hard join")
+        a_hart.setCheckable(True)
+        a_hart.setChecked(not an)
+        a_laenge = menue.addAction("Merge-Fade length …")
+        a_laenge.setEnabled(an)
+        if not an:
+            a_laenge.setToolTip("This join is hard. Switch on the Merge-Fade "
+                                "first.")
+        if getattr(self, "_edit_mode", "") != "encode":
+            menue.addSeparator()
+            hinweis = menue.addAction("Shown and exported in Encode-Mode only")
+            hinweis.setEnabled(False)
+
+        gewaehlt = menue.exec(global_pos)
+        if gewaehlt is None:
+            return
+        if gewaehlt is a_fade:
+            self._merge_fade_setzen(naht, not an)
+        elif gewaehlt is a_hart:
+            if an:
+                self._merge_fade_setzen(naht, False)
+        elif gewaehlt is a_laenge:
+            self._merge_fade_dialog(naht)
+
+    def _merge_fade_setzen(self, naht: int, an: bool, laenge=None):
+        """Merge-Fade an dieser Naht an- oder abschalten - EIN Undo-Schritt."""
+        if an:
+            hoechst = self._merge_fade_hoechstwert(naht)
+            if hoechst <= 0.0:
+                QMessageBox.information(
+                    self, "No room for a Merge-Fade",
+                    "This join lies inside a cut or directly next to one, so "
+                    "there is no material on both sides to fade over.")
+                return
+            if laenge is None and self._blende_vorgabe() > hoechst + 1e-6:
+                # Die Vorgabe passt nicht - dann die groesste Laenge, die
+                # passt, als eigene Laenge festhalten, und das sagen.
+                laenge = self._blende_abrunden(hoechst)
+                QMessageBox.information(
+                    self, "Merge-Fade shortened",
+                    "The default of %.1f s does not fit here; the Merge-Fade "
+                    "is set to %.1f s." % (self._blende_vorgabe(), laenge))
+        self.register_video_undo_snapshot(
+            False, "Merge-Fade %s at join %d" % ("on" if an else "off", naht + 1))
+        self.cut_manager.set_merge_fade(naht, an, laenge)
+        print(f"[MERGE-FADE] Naht {naht + 1} => "
+              f"{('%.1f s' % self._merge_fade_laenge(naht)) if an else 'hart'}")
+        self._rebuild_playlist_menu()
+        self.timeline.update()
+        self._refresh_preview_timeline()
+
+    def _merge_fade_dialog(self, naht: int):
+        """Laenge des Merge-Fade an dieser Naht einstellen."""
+        from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox,
+                                       QDoubleSpinBox, QFormLayout, QLabel,
+                                       QVBoxLayout)
+
+        vorgabe = self._blende_vorgabe()
+        eigen = self.cut_manager.get_merge_fade(naht)
+        hoechst = self._merge_fade_hoechstwert(naht)
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Merge-Fade length")
+        aussen = QVBoxLayout(dlg)
+
+        kasten = QCheckBox("Use the default from Encoder Setup (%.1f s)"
+                           % vorgabe, dlg)
+        kasten.setChecked(eigen is None)
+        aussen.addWidget(kasten)
+
+        form = QFormLayout()
+        sb = QDoubleSpinBox(dlg)
+        sb.setDecimals(1)
+        sb.setSingleStep(0.1)
+        sb.setRange(0.1, max(0.1, hoechst))
+        sb.setValue(float(vorgabe if eigen is None else eigen))
+        sb.setSuffix(" s")
+        form.addRow("Length", sb)
+        aussen.addLayout(form)
+
+        hinweis = QLabel(dlg)
+        hinweis.setWordWrap(True)
+        hinweis.setText(
+            "At most %.1f s here. Half of it lies before the join, half "
+            "behind it. Nothing is cut away: before the join the first frame "
+            "of the next video fades in as a still, after the join the last "
+            "frame of the previous video fades out.\n\n"
+            "Arrows and mouse wheel step 0.1 s, Page Up/Down 1 s." % hoechst)
+        aussen.addWidget(hinweis)
+
+        knoepfe = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dlg)
+        aussen.addWidget(knoepfe)
+        knoepfe.accepted.connect(dlg.accept)
+        knoepfe.rejected.connect(dlg.reject)
+
+        def _umschalten():
+            sb.setEnabled(not kasten.isChecked())
+            if kasten.isChecked():
+                sb.setValue(float(vorgabe))
+        kasten.toggled.connect(_umschalten)
+        _umschalten()
+
+        if hoechst <= 0.0:
+            hinweis.setText("There is no room for a Merge-Fade here: the join "
+                            "lies inside a cut or directly next to one.")
+            sb.setEnabled(False)
+            kasten.setEnabled(False)
+            knoepfe.button(QDialogButtonBox.Ok).setEnabled(False)
+
+        if dlg.exec() != QDialog.Accepted:
+            return
+        neu = None if kasten.isChecked() else round(sb.value(), 1)
+        if neu is None and vorgabe > hoechst + 1e-6:
+            neu = self._blende_abrunden(hoechst)
+            QMessageBox.information(
+                self, "Merge-Fade shortened",
+                "The default of %.1f s does not fit here; the Merge-Fade is "
+                "set to %.1f s." % (vorgabe, neu))
+        self._merge_fade_setzen(naht, True, neu)
+
+    def _make_merge_fade_job(self, naht: int, zeit: float, laenge: float):
+        """Der Vorschau-Schnipsel fuer einen Merge-Fade.
+
+        Seite A ist das durchlaufende Material von einer halben Laenge vor
+        bis eine halbe Laenge nach der Naht - zwei Stuecke, je Datei eins.
+        Darueber die beiden Standbilder, GEDREHT gezogen: fade_cache rendert
+        den Schnipsel aufgerichtet, mit der Bildlage der Quellen, und die
+        Vorschau legt ihm keine Drehung mehr auf (siehe fade_cache).
+        """
+        from core.standbild import pfad_fuer
+
+        dateien = getattr(self, "playlist", None) or []
+        durations = getattr(self, "video_durations", None) or []
+        if (laenge <= 0 or naht + 1 >= len(dateien)
+                or len(durations) != len(dateien)):
+            return None
+        halb = laenge / 2.0
+        gesamt = sum(durations)
+        if zeit - halb < -1e-6 or zeit + halb > gesamt + 1e-6:
+            print(f"[DEBUG] Merge-Fade an Naht {naht + 1}: Fenster reicht "
+                  f"ueber Anfang oder Ende des Videos hinaus, bleibt hart")
+            return None
+
+        teile = []
+        start = 0.0
+        for pfad, d in zip(dateien, durations):
+            von = max(zeit - halb, start)
+            bis = min(zeit + halb, start + d)
+            if bis - von > 0:
+                teile.append((pfad, von - start, bis - von))
+            start += d
+        if not teile:
+            return None
+
+        # Nur die PFADE der Standbilder - gezogen werden sie erst beim
+        # Rendern, wenn das Vorbereitungsfenster steht. Hier zu ziehen hiess
+        # bei 4K-Material mehrere Sekunden ohne jedes Fenster.
+        png_erstes = pfad_fuer(dateien[naht + 1], 0.0, True)
+        png_letztes = pfad_fuer(dateien[naht], None, True)
+        standbilder = [
+            (png_erstes, 0.0, halb, 0.0, 0.5),
+            (png_letztes, halb, halb, 0.5, 0.0),
+        ]
+        quellen = [
+            (png_erstes, dateien[naht + 1], 0.0, True),
+            (png_letztes, dateien[naht], None, True),
+        ]
+        fps = framerate.lesen(dateien[naht]) or (30000, 1001)
+        return FadeJob(teile, [], float(laenge),
+                       self.video_editor.preview_width(), fps,
+                       standbilder=standbilder, standbild_quellen=quellen)
+
     def _schnitt_zuruecknehmen(self, start_s, end_s):
         """Einen Schnitt rueckgaengig machen - Video und GPX-Spur.
 
@@ -6447,6 +6719,9 @@ class MainWindow(QMainWindow):
             ofs += d
             boundaries.append(ofs)
         self.timeline.set_boundaries(boundaries)
+        # Naehte, die es bei dieser Videoliste nicht mehr gibt, fallen weg.
+        self.cut_manager.prune_merge_fades(len(self.playlist))
+        self._blenden_an_timeline()
 
         self.video_editor.set_total_length(self.real_total_duration)
         self.video_editor.set_multi_durations(self.video_durations)
@@ -7080,9 +7355,11 @@ class MainWindow(QMainWindow):
                                                             total_dur)))
 
         mit_blende = sum(1 for c in preview if c[2] > 0)
+        naehte = self._merge_fades_aktiv()
         print(f"[DEBUG] preview-cuts: mode={getattr(self, '_edit_mode', '?')} "
               f"Vorgabe {vorgabe:.1f}s total={total_dur:.3f}s "
-              f"=> {len(preview)} Schnitt(e), davon {mit_blende} mit Blende")
+              f"=> {len(preview)} Schnitt(e), davon {mit_blende} mit Blende, "
+              f"{len(naehte)} Merge-Fade(s)")
 
         # Blenden werden vorgerendert (siehe core/fade_cache.py). Was schon
         # fertig ist, kommt sofort mit; der Rest wird angefordert und per
@@ -7097,6 +7374,18 @@ class MainWindow(QMainWindow):
                 self._fade_jobs[(cstart, cend)] = job
                 pfad = self._fade_renderer.ready_path(job)
             angereichert.append((cstart, cend, fade, pfad))
+        # Merge-Fades gehen denselben Weg: ein Auftrag je Naht, in der
+        # Vorschau ein Eintrag der Breite 0 mit dem Schnipsel (siehe
+        # ges_backend.set_cuts). Ohne fertigen Schnipsel bleibt die Naht
+        # vorerst hart, wie ein Schnitt ohne fertige Blende.
+        for (naht, zeit, laenge) in naehte:
+            job = self._make_merge_fade_job(naht, zeit, laenge)
+            if job is None:
+                continue
+            self._fade_jobs[(zeit, zeit)] = job
+            pfad = self._fade_renderer.ready_path(job)
+            if pfad:
+                angereichert.append((zeit, zeit, laenge, pfad))
 
         ok = self.video_editor.set_preview_cuts(angereichert)
         self._overlays_an_vorschau()
@@ -7621,6 +7910,9 @@ class MainWindow(QMainWindow):
             self.timeline.set_blenden_laengen(
                 [(a, b, self._blende_fuer(a, b, gesamt))
                  for (a, b) in bereiche])
+            self.timeline.set_merge_fades(
+                {naht: laenge
+                 for (naht, _zeit, laenge) in self._merge_fades_aktiv()})
         except Exception as e:
             print(f"[WARN] Blenden an die Zeitleiste: {e}")
 
@@ -7719,6 +8011,21 @@ class MainWindow(QMainWindow):
         if getattr(self, "_fade_dialog", None):
             self._fade_dialog.setzen(fertig, gesamt)
 
+    def _on_fades_meldung(self, text):
+        """Eine Zeile aus dem Renderer, woran er gerade arbeitet.
+
+        Ins Fenster, wenn es steht, und in die Statuszeile. Das Fenster
+        zeichnet sich dabei selbst neu (schritt() reicht die Ereignisse
+        durch) - das Ziehen eines Standbilds blockiert gleich darauf fuer
+        Sekunden, und ohne das stuende die Zeile erst hinterher da.
+        """
+        self.statusBar().showMessage(text, 0)
+        dlg = getattr(self, "_fade_dialog", None)
+        if dlg is not None:
+            dlg.schritt(text)
+        else:
+            QApplication.processEvents()
+
     def _on_fades_abort(self):
         """Benutzer bricht das Vorrendern ab - offene Schnitte bleiben hart."""
         self._fade_renderer.cancel()
@@ -7761,6 +8068,12 @@ class MainWindow(QMainWindow):
             if pfad:
                 gefunden += 1
             fertig.append((cstart, cend, fade, pfad))
+        for (naht, zeit, laenge) in self._merge_fades_aktiv():
+            job = self._fade_jobs.get((zeit, zeit))
+            pfad = self._fade_renderer.ready_path(job) if job is not None else None
+            if pfad:
+                gefunden += 1
+                fertig.append((zeit, zeit, laenge, pfad))
 
         print(f"[DEBUG] Blenden fertig: {gefunden} von {len(self._fade_jobs)}")
         self.video_editor.set_preview_cuts(fertig)
@@ -7828,8 +8141,15 @@ class MainWindow(QMainWindow):
                         [cstart, cend,
                          self._blende_fuer(cstart, cend, total_dur)])
         
+            # Merge-Fades an den Naehten: [[rohzeit, laenge], ...]. Dieselbe
+            # Liste wie in der Vorschau (_merge_fades_aktiv), damit beide
+            # nicht auseinanderlaufen koennen. Im Copy-Mode ist sie leer.
+            merge_fades = [[zeit, laenge]
+                           for (_naht, zeit, laenge) in self._merge_fades_aktiv()]
+
             # Debug-Ausgabe, damit du siehst, was wirklich passiert:
             print("DEBUG skip_array:", skip_array)
+            print("DEBUG merge_fades:", merge_fades)
             
             print("DEBUG: Chronologisch sortierte skip_array:", skip_array)
 
@@ -7859,6 +8179,7 @@ class MainWindow(QMainWindow):
             export_data = {
                 "videos": self.playlist,
                 "skip_instructions": skip_array,
+                "merge_fades": merge_fades,
                 "overlay_instructions": overlay_list,
                 "merged_output": merged_out,
                 "final_output": final_out,
@@ -8911,6 +9232,8 @@ class MainWindow(QMainWindow):
         try:
             self.cut_manager._cut_intervals.clear()
             self.cut_manager.prune_hard_cuts()
+            self.cut_manager.set_merge_fades([])
+            self.timeline.set_merge_fades({})
             self.cut_manager.markB_time_s = -1.0
             self.cut_manager.markE_time_s = -1.0
 
@@ -9651,6 +9974,8 @@ class MainWindow(QMainWindow):
         # Die eingestellten Blendenlaengen gehoeren zum selben Zustand wie die
         # Markierungen "harte Kante" und muessen mit zurueckgeholt werden.
         blenden_snapshot = dict(self.cut_manager._blenden)
+        # Die Merge-Fades an den Naehten gehoeren zum selben Videostand.
+        merge_snapshot = dict(self.cut_manager._merge_fades)
         # Ebenso, was die Schnitte aus der GPX-Spur genommen haben. Ohne das
         # haette ein Schnitt nach Strg+Z entweder keine Aufzeichnung mehr oder
         # die eines spaeter an derselben Stelle gesetzten.
@@ -9664,6 +9989,8 @@ class MainWindow(QMainWindow):
                 self.timeline.add_cut_interval(start, end)
             self.cut_manager._hard_cuts = set(hard_snapshot)
             self.cut_manager._blenden = dict(blenden_snapshot)
+            self.cut_manager._merge_fades = dict(merge_snapshot)
+            self._rebuild_playlist_menu()
             self.cut_manager.prune_hard_cuts()
             self.cut_manager._sync_timeline_hard_cuts()
 
@@ -9721,6 +10048,9 @@ class MainWindow(QMainWindow):
             # Blendenlaengen je Schnitt. Was hier fehlt, folgt der Vorgabe aus
             # dem Encoder Setup - genau wie in einer frischen Sitzung.
             "cut_fades": self.cut_manager.get_blenden(),
+            # Merge-Fades je Naht der Videoliste: [[naht, sekunden|null]].
+            # Fehlt der Schluessel (Projekt von vor 6.14), gibt es keine.
+            "merge_fades": self.cut_manager.get_merge_fades(),
             # Was die Schnitte aus der GPX-Spur genommen haben. Ohne das war
             # "Undo Cut" nach jedem Laden grau: die Aufzeichnungen standen nur
             # im Speicher, ein geladenes Projekt begann mit einem leeren
@@ -9917,6 +10247,11 @@ class MainWindow(QMainWindow):
             # Schnitte behalten ihre Blende, wie bisher.
             self.cut_manager.set_hard_cuts(project_data.get("hard_cuts", []))
             self.cut_manager.set_blenden(project_data.get("cut_fades", []))
+            self.cut_manager.set_merge_fades(project_data.get("merge_fades", []))
+            self.cut_manager.prune_merge_fades(len(self.playlist))
+            # Das Playlist-Menue steht schon - die Haken an den Naehten
+            # kommen erst jetzt.
+            self._rebuild_playlist_menu()
             # Aufzeichnungen der Schnitte. Fehlt der Schluessel (Projekt von
             # vor 6.03), bleibt es beim leeren Stand und die Schnitte sind
             # gesperrt wie bisher.
@@ -10138,11 +10473,29 @@ class MainWindow(QMainWindow):
         self.playlist_menu.addSeparator()
 
         self.playlist_counter = 1
-        for filepath in self.playlist:
+        for naht, filepath in enumerate(self.playlist):
             label_text = f"{self.playlist_counter}: {os.path.basename(filepath)}"
             action = self.playlist_menu.addAction(label_text)
             action.triggered.connect(lambda checked, f=filepath, a=action: self.confirm_remove(f, a))
             self.playlist_counter += 1
+            # Zwischen zwei Dateien die Naht: der zweite Zugang zum
+            # Merge-Fade, ohne in der Zeitleiste zielen zu muessen. Der Haken
+            # schaltet ihn an und aus; die Laenge stellt man ueber den
+            # Rechtsklick auf die Naht ein.
+            if naht + 1 < len(self.playlist):
+                an = self.cut_manager.hat_merge_fade(naht)
+                text = "      ↳ Merge-Fade %d | %d" % (naht + 1, naht + 2)
+                if an:
+                    eigen = self.cut_manager.get_merge_fade(naht)
+                    text += " (%.1f s)" % (self._blende_vorgabe()
+                                           if eigen is None else eigen)
+                a_naht = self.playlist_menu.addAction(text)
+                a_naht.setCheckable(True)
+                a_naht.setChecked(an)
+                a_naht.setStatusTip("Fade over this join without cutting "
+                                    "anything - Encode-Mode only")
+                a_naht.triggered.connect(
+                    lambda checked, n=naht: self._merge_fade_setzen(n, checked))
      
         
     def _calculate_cut_total_duration(self):
