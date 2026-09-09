@@ -4644,7 +4644,6 @@ class MainWindow(QMainWindow):
         self.cut_manager.set_merge_fade(naht, an, laenge)
         print(f"[MERGE-FADE] Naht {naht + 1} => "
               f"{('%.1f s' % self._merge_fade_laenge(naht)) if an else 'hart'}")
-        self._rebuild_playlist_menu()
         self.timeline.update()
         self._refresh_preview_timeline()
 
@@ -9996,7 +9995,6 @@ class MainWindow(QMainWindow):
             self.cut_manager._hard_cuts = set(hard_snapshot)
             self.cut_manager._blenden = dict(blenden_snapshot)
             self.cut_manager._merge_fades = dict(merge_snapshot)
-            self._rebuild_playlist_menu()
             self.cut_manager.prune_hard_cuts()
             self.cut_manager._sync_timeline_hard_cuts()
 
@@ -10255,9 +10253,6 @@ class MainWindow(QMainWindow):
             self.cut_manager.set_blenden(project_data.get("cut_fades", []))
             self.cut_manager.set_merge_fades(project_data.get("merge_fades", []))
             self.cut_manager.prune_merge_fades(len(self.playlist))
-            # Das Playlist-Menue steht schon - die Haken an den Naehten
-            # kommen erst jetzt.
-            self._rebuild_playlist_menu()
             # Aufzeichnungen der Schnitte. Fehlt der Schluessel (Projekt von
             # vor 6.03), bleibt es beim leeren Stand und die Schnitte sind
             # gesperrt wie bisher.
@@ -10479,29 +10474,11 @@ class MainWindow(QMainWindow):
         self.playlist_menu.addSeparator()
 
         self.playlist_counter = 1
-        for naht, filepath in enumerate(self.playlist):
+        for filepath in self.playlist:
             label_text = f"{self.playlist_counter}: {os.path.basename(filepath)}"
             action = self.playlist_menu.addAction(label_text)
             action.triggered.connect(lambda checked, f=filepath, a=action: self.confirm_remove(f, a))
             self.playlist_counter += 1
-            # Zwischen zwei Dateien die Naht: der zweite Zugang zum
-            # Merge-Fade, ohne in der Zeitleiste zielen zu muessen. Der Haken
-            # schaltet ihn an und aus; die Laenge stellt man ueber den
-            # Rechtsklick auf die Naht ein.
-            if naht + 1 < len(self.playlist):
-                an = self.cut_manager.hat_merge_fade(naht)
-                text = "      ↳ Merge-Fade %d | %d" % (naht + 1, naht + 2)
-                if an:
-                    eigen = self.cut_manager.get_merge_fade(naht)
-                    text += " (%.1f s)" % (self._blende_vorgabe()
-                                           if eigen is None else eigen)
-                a_naht = self.playlist_menu.addAction(text)
-                a_naht.setCheckable(True)
-                a_naht.setChecked(an)
-                a_naht.setStatusTip("Fade over this join without cutting "
-                                    "anything - Encode-Mode only")
-                a_naht.triggered.connect(
-                    lambda checked, n=naht: self._merge_fade_setzen(n, checked))
      
         
     def _calculate_cut_total_duration(self):

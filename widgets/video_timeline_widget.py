@@ -1501,8 +1501,17 @@ class VideoTimelineWidget(QWidget):
         finally:
             painter.restore()
 
-    def _draw_blendenfluegel(self, painter, x_start, x_end, halb_px, h, w):
+    #: Farbe des Merge-Fade in der Zeitleiste. Eigene Farbe, damit er sich
+    #: von der Blende eines Schnitts (weiss), der harten Kante (orange), den
+    #: Overlays (blau) und den Marken (gelb) unterscheidet.
+    MERGE_FADE_FARBE = QColor(80, 220, 140)
+
+    def _draw_blendenfluegel(self, painter, x_start, x_end, halb_px, h, w,
+                             farbe=None):
         """Die Ueberblendung, die links und rechts ins Videobild hineinreicht.
+
+        farbe: Grundfarbe der Fluegel, ohne Angabe weiss (Blende eines
+        Schnitts). Der Merge-Fade uebergibt seine eigene Farbe.
 
         Gezeichnet als Verlauf, der an der Schnittkante am kraeftigsten ist
         und nach aussen verschwindet - so, wie die Blende dort wirkt. Die
@@ -1512,6 +1521,10 @@ class VideoTimelineWidget(QWidget):
         harten Kante. Und der Verlauf sieht aus, als loese sich der schwarze
         Block ins Bild auf - genau das tut die Blende.
         """
+        grund = QColor(255, 255, 255) if farbe is None else QColor(farbe)
+        innen = QColor(grund.red(), grund.green(), grund.blue(), 95)
+        aussen_farbe = QColor(grund.red(), grund.green(), grund.blue(), 0)
+        rand = QColor(grund.red(), grund.green(), grund.blue(), 70)
         painter.save()
         try:
             for x_kante, richtung in ((x_start, -1.0), (x_end, +1.0)):
@@ -1521,11 +1534,11 @@ class VideoTimelineWidget(QWidget):
                 if breite < 1.0 or links > w or links + breite < 0:
                     continue
                 verlauf = QLinearGradient(x_kante, 0.0, x_aussen, 0.0)
-                verlauf.setColorAt(0.0, QColor(255, 255, 255, 95))
-                verlauf.setColorAt(1.0, QColor(255, 255, 255, 0))
+                verlauf.setColorAt(0.0, innen)
+                verlauf.setColorAt(1.0, aussen_farbe)
                 painter.setPen(Qt.NoPen)
                 painter.fillRect(QRectF(links, 0, breite, h), QBrush(verlauf))
-                painter.setPen(QPen(QColor(255, 255, 255, 70), 1, Qt.DotLine))
+                painter.setPen(QPen(rand, 1, Qt.DotLine))
                 painter.drawLine(QPointF(x_aussen, 0), QPointF(x_aussen, h))
         finally:
             painter.restore()
@@ -1576,16 +1589,21 @@ class VideoTimelineWidget(QWidget):
                 x_b = ratio_b*timeline_real_width - self._horizontal_offset
                 if not (-50 < x_b < w+50):
                     continue
-                # Der Merge-Fade als Fluegel beiderseits der Naht - dieselbe
-                # Zeichnung wie die Ueberblendung um einen Schnitt, nur ohne
-                # Block dazwischen: hier wird ja nichts weggenommen.
+                # Der Merge-Fade als Fluegel beiderseits der Naht in seiner
+                # eigenen Farbe - dieselbe Zeichnung wie die Ueberblendung um
+                # einen Schnitt, nur ohne Block dazwischen: hier wird ja
+                # nichts weggenommen. Die Naht selbst wird dann in derselben
+                # Farbe gezeichnet statt blau, damit ein Merge-Fade auch bei
+                # Zoom 1, wo die Fluegel nur wenige Pixel breit sind, auf
+                # einen Blick von einer harten Naht zu unterscheiden ist.
                 blende = self._merge_fades.get(naht, 0.0)
                 if blende > 0:
                     halb_px = ((blende / 2.0) / self.total_duration
                                ) * timeline_real_width
                     if halb_px >= 1.0:
                         self._draw_blendenfluegel(painter, x_b, x_b,
-                                                  halb_px, h, w)
+                                                  halb_px, h, w,
+                                                  farbe=self.MERGE_FADE_FARBE)
                 # Unter dem Zeiger oder mit offenem Menue: die Trefferzone
                 # als helles Band, damit man sieht, dass die Linie
                 # anklickbar ist und wie breit sie trifft.
@@ -1596,19 +1614,11 @@ class VideoTimelineWidget(QWidget):
                                             2 * self._NAHT_PX, h))
                     painter.setBrush(Qt.NoBrush)
                     painter.setPen(QPen(QColor(150, 190, 255), 3))
+                elif blende > 0:
+                    painter.setPen(QPen(self.MERGE_FADE_FARBE, 3))
                 else:
                     painter.setPen(pen_blue)
                 painter.drawLine(x_b, 0, x_b, h)
-                if blende > 0:
-                    # Kleiner Doppelpfeil am oberen Rand: hier liegt ein
-                    # Merge-Fade, auch wenn die Fluegel bei Zoom 1 nur
-                    # wenige Pixel breit sind.
-                    painter.setPen(QPen(QColor(255, 255, 255, 200), 1))
-                    painter.drawLine(QPointF(x_b - 6, 5), QPointF(x_b + 6, 5))
-                    painter.drawLine(QPointF(x_b - 6, 5), QPointF(x_b - 3, 2))
-                    painter.drawLine(QPointF(x_b - 6, 5), QPointF(x_b - 3, 8))
-                    painter.drawLine(QPointF(x_b + 6, 5), QPointF(x_b + 3, 2))
-                    painter.drawLine(QPointF(x_b + 6, 5), QPointF(x_b + 3, 8))
         painter.setPen(pen_blue)
 
         pen_marker = QPen(QColor("white"), 2)

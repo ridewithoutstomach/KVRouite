@@ -38,11 +38,11 @@ zone is 10 px either side, checked in pixels so it is the same width at
 any zoom; the line is highlighted under the pointer and the cursor becomes
 a hand. The menu offers "Merge-Fade", "Hard join" and "Merge-Fade length…"
 (default from Encoder Setup, capped at what fits up to the next cut or
-the ends of the video). The Playlist menu carries a checkable "Merge-Fade
-1 | 2" line under each file as the second way in, no aiming needed. A join
-with a Merge-Fade shows the fade wings and a small double arrow on the
-line. Whether a join gets nothing, a Merge-Fade or a cut is entirely the
-user's choice - there is no rule that interferes.
+the ends of the video). A join with a Merge-Fade is drawn in its own
+colour, green, line and fade wings alike - white belongs to the crossfade
+of a cut, orange to the hard cut, blue to overlays and to a hard join.
+Whether a join gets nothing, a Merge-Fade or a cut is entirely the user's
+choice - there is no rule that interferes.
 
 Stored per join number under `merge_fades` in the project file, exported
 as `merge_fades` in the encoder configuration, rendered on an own layer
