@@ -2785,10 +2785,15 @@ class MainWindow(QMainWindow):
                 dt = (t2 - t1).total_seconds()
                 if dt > 2 :
                     prof = self.map_widget._curr_mapbox_profile
+                    # Ohne Dialog gilt fuer die Hoehen die zuletzt im Dialog
+                    # getroffene Wahl (Haken "Get elevation from Mapbox").
+                    hoehen_holen = QSettings("KVRouite", "KVRouite").value(
+                        "gpx/closegaps_elevation", True, type=bool)
                     if not prof:
-                        prof = self.gpx_control._ask_profile_mode()
+                        prof, hoehen_holen = self.gpx_control._ask_profile_mode()
                     if prof:
-                        self.gpx_control._close_gaps_mapbox(pt1idx, pt2idx, dt, prof)
+                        self.gpx_control._close_gaps_mapbox(
+                            pt1idx, pt2idx, dt, prof, hoehen_holen)
 
         else: #insert with shift
             if idx == -3:

@@ -3371,27 +3371,36 @@ class GPXControlWidget(QWidget):
             # => Directions=True => zeige Profil-Auswahl (QDialog)
             #    Dann rufe _close_gaps_mapbox(..., profile)
             #    Du kannst standard=cycling, optional=driving/walking
-            prof = self._ask_profile_mode()
+            prof, hoehen_holen = self._ask_profile_mode()
             if not prof:
                 # Abbruch
                 return
-        
-            # Rufe neue Methode
-            self._close_gaps_mapbox(b_idx, e_idx, dt, prof)
 
-    def _ask_profile_mode(self) -> str:
+            # Rufe neue Methode
+            self._close_gaps_mapbox(b_idx, e_idx, dt, prof, hoehen_holen)
+
+    def _ask_profile_mode(self):
         """
         Zeigt einen kleinen Dialog mit RadioButtons:
         Bike (cycling), Car (driving), Foot (walking).
-        Gibt den Profil‐String zurück oder None bei Cancel.
+        Gibt (Profil, hoehen_holen) zurueck, oder (None, None) bei Cancel.
+
+        hoehen_holen: der Haken "Get elevation from Mapbox" (seit 6.14). Ohne
+        ihn bekommen die neuen Punkte die Hoehe linear von B nach E, wie bei
+        Close Gaps ohne Directions - nur die Lage kommt von der Strasse. Die
+        letzte Wahl wird gemerkt (QSettings "gpx/closegaps_elevation").
         """
+        from PySide6.QtCore import QSettings
+        from PySide6.QtWidgets import QCheckBox
+
+        einstellungen = QSettings("KVRouite", "KVRouite")
         dlg = QDialog(self)
         dlg.setWindowTitle("Select Transport Mode")
         vbox = QVBoxLayout(dlg)
 
         lbl = QLabel("Directions: Please select a mode:")
         vbox.addWidget(lbl)
-    
+
         group = QButtonGroup(dlg)
         rb_bike = QRadioButton("Bike (Default)")
         rb_car  = QRadioButton("Car")
@@ -3404,6 +3413,16 @@ class GPXControlWidget(QWidget):
         vbox.addWidget(rb_bike)
         vbox.addWidget(rb_car)
         vbox.addWidget(rb_walk)
+
+        cb_hoehen = QCheckBox("Get elevation from Mapbox", dlg)
+        cb_hoehen.setChecked(
+            einstellungen.value("gpx/closegaps_elevation", True, type=bool))
+        cb_hoehen.setToolTip(
+            "Checked: every new point gets its height from the Mapbox terrain "
+            "tiles.\nUnchecked: the height runs in a straight line from the "
+            "first to the last point, at one constant gradient - like Close "
+            "Gaps without Directions, only along the road.")
+        vbox.addWidget(cb_hoehen)
 
         hbtn = QHBoxLayout()
         btn_ok = QPushButton("OK")
@@ -3421,14 +3440,16 @@ class GPXControlWidget(QWidget):
         btn_cancel.clicked.connect(on_cancel)
 
         if not dlg.exec():
-            return None  # abbruch
+            return None, None  # abbruch
 
+        hoehen_holen = bool(cb_hoehen.isChecked())
+        einstellungen.setValue("gpx/closegaps_elevation", hoehen_holen)
         if rb_car.isChecked():
-            return "driving"
+            return "driving", hoehen_holen
         elif rb_walk.isChecked():
-            return "walking"
+            return "walking", hoehen_holen
         else:
-            return "cycling"
+            return "cycling", hoehen_holen
         
             
     
@@ -3973,11 +3994,18 @@ class GPXControlWidget(QWidget):
         
     
     
-    def _close_gaps_mapbox(self, b_idx: int, e_idx: int, dt: float, profile: str):
+    def _close_gaps_mapbox(self, b_idx: int, e_idx: int, dt: float, profile: str,
+                           hoehen_holen: bool = True):
         """
         Ruft die Mapbox Directions API auf (profil = 'driving','cycling','walking'),
         berechnet time-based Densify in 1s-Schritten,
         und ersetzt b_idx..e_idx im GPX durch die neue Route.
+
+        hoehen_holen=False: statt der Terrain-Kacheln bekommen die neuen
+        Punkte die Hoehe linear von B nach E. Die Punkte liegen nach
+        Wegstrecke gleichmaessig (konstante Geschwindigkeit), das ergibt
+        entlang der Strasse ein durchgehend gleiches Gefaelle - wie Close
+        Gaps ohne Directions, nur auf der Strasse statt auf der Geraden.
         """
         mw = self._mainwindow
         gpx_data = mw.gpx_widget.gpx_list._gpx_data
@@ -4113,13 +4141,18 @@ class GPXControlWidget(QWidget):
         new_points[-1]["lon"] = lonE
         new_points[-1]["time"] = gpx_data[e_idx]["time"]
 
-        # Optional: Elevation linear B->E
-        # eleB = gpx_data[b_idx]["ele"]
-        # eleE = gpx_data[e_idx]["ele"]
-        # total_count = len(new_points)
-        # for i in range(1, total_count):
-        #     frac = i/total_count
-        #     new_points[i]["ele"] = eleB + frac*(eleE-eleB)
+        # Hoehe linear B -> E, wenn keine Terrain-Kacheln gewuenscht sind.
+        # Der letzte neue Punkt IST E (Lage und Zeit oben uebernommen), er
+        # bekommt E's Hoehe; die dazwischen den Anteil nach Zaehler, was bei
+        # gleichmaessiger Verteilung nach Wegstrecke dem Anteil der Strecke
+        # entspricht.
+        if not hoehen_holen:
+            eleB = float(gpx_data[b_idx].get("ele", 0.0) or 0.0)
+            eleE = float(gpx_data[e_idx].get("ele", 0.0) or 0.0)
+            letzter = len(new_points) - 1
+            for i in range(1, len(new_points)):
+                frac = i / letzter if letzter > 0 else 1.0
+                new_points[i]["ele"] = eleB + frac * (eleE - eleB)
 
         # 6) b_idx+1.. e_idx entfernen
         del gpx_data[b_idx+1 : e_idx+1]
@@ -4131,7 +4164,8 @@ class GPXControlWidget(QWidget):
             mapbox_ele_update_list.append((b_idx + i,p["lat"], p["lon"]))
         # 7) recalc
         mw.gpx_widget.set_gpx_data(gpx_data)
-        self.update_elevation_from_mapbox(mapbox_ele_update_list)
+        if hoehen_holen:
+            self.update_elevation_from_mapbox(mapbox_ele_update_list)
 
         recalc_gpx_data(gpx_data)
         mw.gpx_widget.set_gpx_data(gpx_data)
@@ -4155,7 +4189,10 @@ class GPXControlWidget(QWidget):
 
         QMessageBox.information(self, "Close Gaps (Mapbox)",
             f"Inserted {len(new_points)-1} new point(s)\n"
-            f"via Directions={profile}, total time {dt:.2f}s kept.")
+            f"via Directions={profile}, total time {dt:.2f}s kept.\n"
+            + ("Elevation from Mapbox terrain tiles." if hoehen_holen else
+               "Elevation runs in a straight line from the first to the "
+               "last point (no terrain lookup)."))
 
         
         
