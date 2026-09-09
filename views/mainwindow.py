@@ -1578,6 +1578,7 @@ class MainWindow(QMainWindow):
         self.video_control.markEClicked.connect(self.cut_manager.on_markE_clicked)
         self.video_control.cutClicked.connect(self.on_cut_clicked_video)
         self.video_control.gotoNextEditRequested.connect(self._on_goto_next_edit_requested)
+        self.video_control.gotoPrevEditRequested.connect(self._on_goto_prev_edit_requested)
         
         self.video_control.markClearClicked.connect(self.cut_manager.on_markClear_clicked)
         self.cut_manager.cutsChanged.connect(self._on_cuts_changed)
@@ -12563,3 +12564,79 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             print(f"[ERROR] _on_goto_next_edit_requested: {e}")
+
+    def _on_goto_prev_edit_requested(self):
+        """
+        Rechtsklick auf Goto Start: das Gegenstueck zu
+        _on_goto_next_edit_requested, rueckwaerts.
+
+        Springt zum vorigen Ereignis VOR der aktuellen Zeit: Schnittanfang,
+        Schnittende oder Naht zweier Dateien. Kommt nichts mehr, geht es auf
+        0,000 s; steht man schon (praktisch) am Anfang, springt es ans Ende -
+        so, wie der Vorwaertssprung vom Ende auf den Anfang zurueckfaellt.
+
+        Die Toleranz nach hinten ist grosszuegiger als vorwaerts: nach einem
+        Sprung liegt die Wiedergabe oft ein Bild HINTER dem Ziel, und ein
+        weiterer Rechtsklick soll dann die Kante davor treffen, nicht dieselbe
+        noch einmal.
+        """
+        try:
+            toleranz = 0.1
+            wrap_window = 0.8
+
+            current = float(self.video_editor.get_current_global_time())
+            total = 0.0
+            try:
+                if getattr(self, "video_durations", None):
+                    total = float(sum(float(d) for d in self.video_durations))
+                elif hasattr(self, "real_total_duration"):
+                    total = float(self.real_total_duration)
+            except Exception:
+                total = float(getattr(self, "real_total_duration", 0.0))
+
+            def springen(ziel, text):
+                self._handle_video_end_state(mark_as_end=False)
+                for delay in (10, 100, 250):
+                    QTimer.singleShot(delay, lambda t=ziel: self.video_editor.seek_global(t))
+                try:
+                    self.statusBar().showMessage(text, 2000)
+                except Exception:
+                    pass
+
+            # Praktisch am Anfang: ans Ende, wie vorwaerts vom Ende an den Anfang.
+            if current <= wrap_window:
+                if total > 0.0:
+                    springen(total, f"Wrapped to end @ {total:.3f}s")
+                return
+
+            events = []
+            try:
+                cuts = self.cut_manager.get_cut_intervals()
+            except Exception:
+                cuts = getattr(self.cut_manager, "_cut_intervals", [])
+            for (st, en) in cuts:
+                if st is not None and float(st) < current - toleranz:
+                    events.append(("cut start", float(st)))
+                if en is not None and float(en) < current - toleranz:
+                    events.append(("cut end", float(en)))
+            if getattr(self, "video_durations", None):
+                acc = 0.0
+                for d in self.video_durations:
+                    acc += float(d)
+                    if acc < total - 1e-4 and acc < current - toleranz:
+                        events.append(("file join", acc))
+
+            if not events:
+                springen(0.0, "Jumped to start @ 0.000s")
+                return
+
+            # Das spaeteste Ereignis vor der aktuellen Zeit; bei gleicher Zeit
+            # dieselbe Reihenfolge wie vorwaerts: Schnittanfang vor Schnittende
+            # vor Naht.
+            prio = {"cut start": 0, "cut end": 1, "file join": 2}
+            events.sort(key=lambda kv: (-kv[1], prio.get(kv[0], 99)))
+            art, ziel = events[0]
+            springen(ziel, f"Jumped to previous {art} @ {ziel:.3f}s")
+
+        except Exception as e:
+            print(f"[ERROR] _on_goto_prev_edit_requested: {e}")

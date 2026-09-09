@@ -54,6 +54,8 @@ class VideoControlWidget(QWidget):
     overlayClicked        = Signal()
     setSyncClicked           = Signal()
     gotoNextEditRequested   = Signal()
+    #: Rechtsklick auf Goto Start: zur vorigen Schnittkante oder Naht.
+    gotoPrevEditRequested   = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -76,16 +78,25 @@ class VideoControlWidget(QWidget):
         play_size = self.play_pause_button.sizeHint()
         self.stop_button.setMaximumSize(play_size)    
         
-        self.stop_button.setToolTip("Goto Start (Second 0)")
+        self.stop_button.setToolTip(
+            "Goto Start (second 0)\n"
+            "Right-click: jump back to the previous cut edge or file join")
         self.stop_button.clicked.connect(self.stop_clicked.emit)
         layout.addWidget(self.stop_button)
+        # Gegenstueck zum Rechtsklick auf Goto End (seit 6.14): rueckwaerts
+        # von Kante zu Kante.
+        self.stop_button.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.stop_button.customContextMenuRequested.connect(
+            lambda _pos: self.gotoPrevEditRequested.emit())
 
         self.goto_end = QPushButton()
         self.goto_end.setIcon(theme.icon("icon/go_to_end.png"))
         self.goto_end.setIconSize(QSize(icon_size, icon_size))
         self.goto_end.setMaximumSize(play_size)    
         
-        self.goto_end.setToolTip("Goto End (last frame)")
+        self.goto_end.setToolTip(
+            "Goto End (last frame)\n"
+            "Right-click: jump to the next cut edge or file join")
         self.goto_end.clicked.connect(self.goto_video_end_clicked.emit)
         layout.addWidget(self.goto_end)
         

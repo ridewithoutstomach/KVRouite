@@ -164,6 +164,14 @@ class ChartWidget(QWidget):
 
     def set_gpx_data(self, data):
         self._gpx_data = data if data else []
+        # Die gemerkte Zeichnung verwerfen - ausdruecklich, nicht ueber den
+        # Schluessel. Der kennt von den Daten nur Objektkennung und Laenge
+        # der Liste, und die meisten Bearbeitungen (Fix speed spike, chT,
+        # Glaetten) aendern die Werte IN derselben Liste: gleiche Kennung,
+        # gleiche Laenge, altes Bild. Gesehen am 09.09.2026: nach Fix speed
+        # spike standen die Spitzen im Chart, bis man einmal gescrollt hat.
+        self._hintergrund = None
+        self._hintergrund_gueltig = None
         self._marker_index = 0
         self._zoom_factor = 1.0
         self._horizontal_offset = 0.0
