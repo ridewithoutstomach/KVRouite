@@ -10528,6 +10528,20 @@ class MainWindow(QMainWindow):
         s = QSettings("KVRouite", "KVRouite")
         return s.value("file_history", [], type=list)
 
+    def remove_recent_file(self, path: str):
+        """Einen Eintrag aus "Open Recent" nehmen und das Menue neu aufbauen.
+
+        Gerufen, wenn die Datei nicht mehr da ist. Bis 6.13 blieb der Eintrag
+        stehen: die Fehlermeldung kam bei jedem Klick wieder, und der tote
+        Eintrag verdraengte einen brauchbaren aus der Liste von zehn.
+        """
+        s = QSettings("KVRouite", "KVRouite")
+        file_history = s.value("file_history", [], type=list)
+        if path in file_history:
+            file_history = [p for p in file_history if p != path]
+            s.setValue("file_history", file_history)
+        self.update_recent_files_menu()
+
     def update_recent_files_menu(self):
         self.recent_menu.clear()
 
@@ -10545,7 +10559,11 @@ class MainWindow(QMainWindow):
 
     def open_recent(self, path: str):
         if not os.path.exists(path):
-            QMessageBox.critical(self, "Error", f"File does not exist:\n{path}")
+            QMessageBox.critical(
+                self, "Error",
+                f"File does not exist:\n{path}\n\n"
+                "It has been removed from Open Recent.")
+            self.remove_recent_file(path)
             return
         if(path.endswith(".gpx")):
             self.process_open_gpx(path)
