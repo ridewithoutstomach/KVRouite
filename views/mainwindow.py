@@ -8168,11 +8168,16 @@ class MainWindow(QMainWindow):
             width_val   = s.value("encoder/res_w", 1280, type=int)
             # Seite "Audio" im Encoder Setup (ab 7.0): Tonspur an/aus und
             # ihre Bitrate. Als Zahl abgelegt, siehe core/encoder_presets.
-            audio_an    = bool(s.value("encoder/audio", 1, type=int))
+            # LITE IST OHNE AUDIO: ohne das Audio-Zusatzpaket (gepackt) bzw.
+            # requirements-audio.txt (ungepackt) wird ohne Tonspur exportiert,
+            # was immer in den Einstellungen steht - wie bis 6.14.
+            from core import stimme as _stimme
+            audio_da    = _stimme.verfuegbar()[0]
+            audio_an    = audio_da and bool(s.value("encoder/audio", 1, type=int))
             audio_kbps  = s.value("encoder/audio_kbps", 128, type=int)
-            traffic_an  = bool(s.value("encoder/traffic", 0, type=int))
+            traffic_an  = audio_da and bool(s.value("encoder/traffic", 0, type=int))
             traffic_db  = s.value("encoder/traffic_db", 12, type=int)
-            voice_an    = bool(s.value("encoder/voice", 0, type=int))
+            voice_an    = audio_da and bool(s.value("encoder/voice", 0, type=int))
             voice_model = s.value("encoder/voice_model", "mdx", type=str)
 
             # 2) Cuts => skip_instructions

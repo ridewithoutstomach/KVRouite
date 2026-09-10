@@ -3,6 +3,9 @@
 # Windows/macOS:  pip install -r requirements.txt
 # Linux:          GStreamer comes from the distribution, not from pip - see
 #                 README.md. Create the venv with --system-site-packages.
+#
+# The voice remover (since 7.0) is optional and lives in its own file:
+#                 pip install -r requirements-audio.txt
 
 fitparse==1.2.0
 gstreamer-bundle==1.28.6; sys_platform != "linux"
@@ -11,49 +14,3 @@ PySide6==6.11.2
 PySide6_Addons==6.11.2
 PySide6_Essentials==6.11.2
 shiboken6==6.11.2
-
-# Voice Remover (core/stimme) - since 7.0. python-audio-separator is the
-# separation core of Ultimate Vocal Remover as a library; it pulls in torch,
-# onnxruntime, scipy, numpy and librosa (about 750 MB installed).
-#
-# The library declares a dependency on "diffq" (Windows: "diffq-fixed") that
-# must not come in: diffq-fixed is licensed CC BY-NC 4.0 and cannot be
-# shipped, and on Python 3.14 it has no wheel and its source package does not
-# even build. The two lines below install KVRouite's own stand-ins under
-# those names FIRST (tools/diffq_platzhalter), so pip sees the library's
-# demand as met and never asks PyPI for the originals. Run pip from the
-# project directory - the paths are relative to it.
-#
-# Linux: torch from PyPI ships CUDA (2.5 GB). Install the CPU build FIRST:
-#     pip install torch==2.14.0 torchvision==0.29.0 --index-url https://download.pytorch.org/whl/cpu
-#
-# Building the executable needs Python 3.12.1 or newer: 3.12.0 has a bug
-# (CPython issue 110543) that breaks scipy inside a PyInstaller build. The
-# packer checks the Python version and that "diffq-fixed" is the stand-in.
-./tools/diffq_platzhalter/diffq_fixed
-./tools/diffq_platzhalter/diffq
-audio-separator==0.47.0
-audioop-lts==0.2.2; python_version >= "3.13"
-audioread==3.1.0
-beartype==0.18.5
-einops==0.8.2
-julius==0.2.8
-librosa==1.0.0
-ml_collections==1.1.0
-numpy==2.5.3
-onnx-weekly==1.24.0.dev20260907
-onnx2torch-py313==1.6.0
-onnxruntime==1.29.0
-packaging==26.3
-pydub==0.25.1
-PyYAML==6.0.3
-requests==2.34.2
-resampy==0.4.3
-rotary-embedding-torch==0.6.5
-samplerate==0.1.0
-scipy==1.18.1
-six==1.17.0
-soundfile==0.14.0
-torch==2.14.0
-torchvision==0.29.0
-tqdm==4.70.0

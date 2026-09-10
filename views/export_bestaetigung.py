@@ -100,7 +100,18 @@ class ExportBestaetigung(QDialog):
         agrid.setColumnStretch(1, 1)
         aussen.addWidget(audio_gruppe)
 
+        # LITE IST OHNE AUDIO: fehlt das Audio-Zusatzpaket, ist die ganze
+        # Gruppe gesperrt und der Export laeuft ohne Tonspur.
         self._voice_ok, self._voice_grund = stimme.verfuegbar()
+        if not self._voice_ok:
+            audio_gruppe.setEnabled(False)
+            sperre = QLabel("Audio is part of the KVRouite Audio add-on and "
+                            "not available here - the video is exported "
+                            "without a sound track. " + self._voice_grund,
+                            self)
+            sperre.setWordWrap(True)
+            sperre.setStyleSheet("color: gray;")
+            aussen.addWidget(sperre)
 
         # Knoepfe
         zeile = QHBoxLayout()
@@ -143,8 +154,8 @@ class ExportBestaetigung(QDialog):
 
         for check in (self.audio_check, self.traffic_check, self.voice_check):
             check.blockSignals(True)
-        self.audio_check.setChecked(bool(int(w.get("audio", 1))))
-        self.traffic_check.setChecked(bool(int(w.get("traffic", 0))))
+        self.audio_check.setChecked(bool(int(w.get("audio", 1))) and self._voice_ok)
+        self.traffic_check.setChecked(bool(int(w.get("traffic", 0))) and self._voice_ok)
         self.voice_check.setChecked(bool(int(w.get("voice", 0))) and self._voice_ok)
         for check in (self.audio_check, self.traffic_check, self.voice_check):
             check.blockSignals(False)
@@ -154,6 +165,11 @@ class ExportBestaetigung(QDialog):
         self._schalter_nachziehen()
 
     def _schalter_nachziehen(self, *_a):
+        if not self._voice_ok:
+            self.audio_info.setText("no sound track - audio add-on not installed")
+            self.traffic_info.setText("")
+            self.voice_info.setText("")
+            return
         audio = self.audio_check.isChecked()
         self.traffic_check.setEnabled(audio)
         self.voice_check.setEnabled(audio and self._voice_ok)
@@ -190,8 +206,11 @@ class ExportBestaetigung(QDialog):
         self.lesen()
 
     def _on_export(self):
-        """Die drei Schalter in die Einstellungen - wie ein OK im Setup."""
-        self.settings.setValue("encoder/audio", 1 if self.audio_check.isChecked() else 0)
-        self.settings.setValue("encoder/traffic", 1 if self.traffic_check.isChecked() else 0)
-        self.settings.setValue("encoder/voice", 1 if self.voice_check.isChecked() else 0)
+        """Die drei Schalter in die Einstellungen - wie ein OK im Setup.
+        Ohne Zusatz bleiben die Einstellungen unangetastet; der Export liest
+        die Verfuegbarkeit selbst (mainwindow.on_render_clicked)."""
+        if self._voice_ok:
+            self.settings.setValue("encoder/audio", 1 if self.audio_check.isChecked() else 0)
+            self.settings.setValue("encoder/traffic", 1 if self.traffic_check.isChecked() else 0)
+            self.settings.setValue("encoder/voice", 1 if self.voice_check.isChecked() else 0)
         self.accept()

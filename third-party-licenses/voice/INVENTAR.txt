@@ -8,8 +8,8 @@ The full texts are the LICENSE.<package> files next to this one.
 package                    version                license
 ------------------------------------------------------------------------------
 audio-separator            0.47.0                 MIT
-torch                      2.14.0                 Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT
-torchvision                0.29.0                 BSD
+torch                      2.14.0+cpu             Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT
+torchvision                0.29.0+cpu             BSD
 onnxruntime                1.29.0                 MIT License
 onnx-weekly                1.24.0.dev20260907     Apache-2.0
 onnx2torch-py313           1.6.0                  Apache Software License
@@ -62,6 +62,7 @@ cffi                       2.1.1                  MIT-0
 narwhals                   2.26.0                 MIT
 packaging                  26.3                   Apache-2.0 OR BSD-2-Clause
 setuptools                 84.0.0                 MIT
+audioop-lts                0.2.2                  PSF-2.0
 libsndfile                 (in soundfile)         see LICENSE.libsndfile
 onnxruntime                (in onnxruntime)       see LICENSE.onnxruntime
 onnxruntime-third-party    (in onnxruntime)       see LICENSE.onnxruntime-third-party

@@ -1,8 +1,8 @@
-torch 2.14.0
+torch 2.14.0+cpu
 License as declared by the package: Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/LICENSE
 ==============================================================================
 
 From PyTorch:
@@ -91,7 +91,7 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/FP16/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/FP16/LICENSE
 ==============================================================================
 
 The MIT License (MIT)
@@ -107,7 +107,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/FXdiv/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/FXdiv/LICENSE
 ==============================================================================
 
 The MIT License (MIT)
@@ -122,7 +122,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/NNPACK/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/NNPACK/LICENSE
 ==============================================================================
 
 Copyright (c) 2017 Facebook Inc.
@@ -151,7 +151,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/NVTX/LICENSE.txt
+torch-2.14.0+cpu.dist-info/licenses/third_party/NVTX/LICENSE.txt
 ==============================================================================
 
 ==============================================================================
@@ -378,7 +378,7 @@ the License, but only in their entirety and only with respect to the Combined
 Software.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/NVTX/docs/LICENSE.txt
+torch-2.14.0+cpu.dist-info/licenses/third_party/NVTX/docs/LICENSE.txt
 ==============================================================================
 
 ==============================================================================
@@ -605,7 +605,7 @@ the License, but only in their entirety and only with respect to the Combined
 Software.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/NVTX/python/LICENSE.txt
+torch-2.14.0+cpu.dist-info/licenses/third_party/NVTX/python/LICENSE.txt
 ==============================================================================
 
 ==============================================================================
@@ -832,7 +832,7 @@ the License, but only in their entirety and only with respect to the Combined
 Software.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/NVTX/rust/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/NVTX/rust/LICENSE
 ==============================================================================
 
 ==============================================================================
@@ -1059,7 +1059,7 @@ the License, but only in their entirety and only with respect to the Combined
 Software.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/NVTX/tools/docs/github-markdown-css/license
+torch-2.14.0+cpu.dist-info/licenses/third_party/NVTX/tools/docs/github-markdown-css/LICENSE
 ==============================================================================
 
 MIT License
@@ -1073,7 +1073,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/VulkanMemoryAllocator/LICENSE.txt
+torch-2.14.0+cpu.dist-info/licenses/third_party/VulkanMemoryAllocator/LICENSE.txt
 ==============================================================================
 
 Copyright (c) 2017-2025 Advanced Micro Devices, Inc. All rights reserved.
@@ -1097,7 +1097,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/XNNPACK/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/XNNPACK/LICENSE
 ==============================================================================
 
 BSD License
@@ -1133,7 +1133,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/aiter/3rdparty/composable_kernel/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/aiter/3rdparty/composable_kernel/LICENSE
 ==============================================================================
 
 Copyright (c) 2018-    , Advanced Micro Devices, Inc. (Chao Liu, Jing Zhang)
@@ -1166,7 +1166,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/aiter/3rdparty/composable_kernel/docs/license.rst
+torch-2.14.0+cpu.dist-info/licenses/third_party/aiter/3rdparty/composable_kernel/docs/LICENSE.rst
 ==============================================================================
 
 .. meta::
@@ -1182,7 +1182,7 @@ License
 .. include:: ../LICENSE
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/aiter/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/aiter/LICENSE
 ==============================================================================
 
 Copyright © Advanced Micro Devices, Inc. All rights reserved.
@@ -1208,7 +1208,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/benchmark/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/benchmark/LICENSE
 ==============================================================================
 
 
@@ -1415,7 +1415,7 @@ torch-2.14.0.dist-info/licenses/third_party/benchmark/LICENSE
    limitations under the License.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/composable_kernel/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/composable_kernel/LICENSE
 ==============================================================================
 
 Copyright (c) 2018-    , Advanced Micro Devices, Inc. (Chao Liu, Jing Zhang)
@@ -1448,7 +1448,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/composable_kernel/docs/license.rst
+torch-2.14.0+cpu.dist-info/licenses/third_party/composable_kernel/docs/LICENSE.rst
 ==============================================================================
 
 .. meta::
@@ -1464,7 +1464,7 @@ License
 .. include:: ../LICENSE
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/cpp-httplib/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/cpp-httplib/LICENSE
 ==============================================================================
 
 The MIT License (MIT)
@@ -1490,7 +1490,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/cpuinfo/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/cpuinfo/LICENSE
 ==============================================================================
 
 Copyright (c) 2019 Google LLC
@@ -1522,7 +1522,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/cpuinfo/deps/clog/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/cpuinfo/deps/clog/LICENSE
 ==============================================================================
 
 Copyright (C) 2018 Marat Dukhan
@@ -1553,7 +1553,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/cudnn_frontend/LICENSE.txt
+torch-2.14.0+cpu.dist-info/licenses/third_party/cudnn_frontend/LICENSE.txt
 ==============================================================================
 
 /*
@@ -1579,7 +1579,7 @@ torch-2.14.0.dist-info/licenses/third_party/cudnn_frontend/LICENSE.txt
  */
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/cutlass/LICENSE.txt
+torch-2.14.0+cpu.dist-info/licenses/third_party/cutlass/LICENSE.txt
 ==============================================================================
 
 Copyright (c) 2017 - 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
@@ -1618,7 +1618,7 @@ Certain files within this repository are subject to separate licensing terms:
   for the full terms.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/cutlass/python/LICENSE.txt
+torch-2.14.0+cpu.dist-info/licenses/third_party/cutlass/python/LICENSE.txt
 ==============================================================================
 
 Copyright (c) 2017 - 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
@@ -1650,7 +1650,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/fbgemm/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/fbgemm/LICENSE
 ==============================================================================
 
 BSD License
@@ -1685,7 +1685,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/fbgemm/external/composable_kernel/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/fbgemm/external/composable_kernel/LICENSE
 ==============================================================================
 
 Copyright (c) 2018-    , Advanced Micro Devices, Inc. (Chao Liu, Jing Zhang)
@@ -1718,7 +1718,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/fbgemm/external/composable_kernel/docs/license.rst
+torch-2.14.0+cpu.dist-info/licenses/third_party/fbgemm/external/composable_kernel/docs/LICENSE.rst
 ==============================================================================
 
 .. meta::
@@ -1734,7 +1734,7 @@ License
 .. include:: ../LICENSE
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/fbgemm/external/cpuinfo/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/fbgemm/external/cpuinfo/LICENSE
 ==============================================================================
 
 Copyright (c) 2019 Google LLC
@@ -1766,7 +1766,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/fbgemm/external/cpuinfo/deps/clog/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/fbgemm/external/cpuinfo/deps/clog/LICENSE
 ==============================================================================
 
 Copyright (C) 2018 Marat Dukhan
@@ -1797,7 +1797,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/fbgemm/external/cutlass/LICENSE.txt
+torch-2.14.0+cpu.dist-info/licenses/third_party/fbgemm/external/cutlass/LICENSE.txt
 ==============================================================================
 
 Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
@@ -1836,7 +1836,7 @@ Certain files within this repository are subject to separate licensing terms:
   for the full terms.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/fbgemm/external/cutlass/python/LICENSE.txt
+torch-2.14.0+cpu.dist-info/licenses/third_party/fbgemm/external/cutlass/python/LICENSE.txt
 ==============================================================================
 
 Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
@@ -1868,7 +1868,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/fbgemm/external/googletest/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/fbgemm/external/googletest/LICENSE
 ==============================================================================
 
 Copyright 2008, Google Inc.
@@ -1901,7 +1901,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/fbgemm/external/hipify_torch/LICENSE.txt
+torch-2.14.0+cpu.dist-info/licenses/third_party/fbgemm/external/hipify_torch/LICENSE.txt
 ==============================================================================
 
 MIT License
@@ -1927,7 +1927,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/fbgemm/fbgemm_gpu/docs/src/general/License.rst
+torch-2.14.0+cpu.dist-info/licenses/third_party/fbgemm/fbgemm_gpu/docs/src/general/LICENSE.rst
 ==============================================================================
 
 License
@@ -1939,7 +1939,7 @@ Both FBGEMM and FBGEMM_GPU are licensed under the 3-clause BSD License:
   :language: text
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/fbgemm/fbgemm_gpu/experimental/hstu/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/fbgemm/fbgemm_gpu/experimental/hstu/LICENSE
 ==============================================================================
 
 BSD 3-Clause License
@@ -1973,7 +1973,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/fbgemm/fbgemm_gpu/src/quantize_ops/mx/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/fbgemm/fbgemm_gpu/src/quantize_ops/mx/LICENSE
 ==============================================================================
 
     MIT License
@@ -1999,7 +1999,7 @@ torch-2.14.0.dist-info/licenses/third_party/fbgemm/fbgemm_gpu/src/quantize_ops/m
     SOFTWARE
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/fbgemm/fbgemm_gpu/test/quantize/mx/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/fbgemm/fbgemm_gpu/test/quantize/mx/LICENSE
 ==============================================================================
 
     MIT License
@@ -2025,7 +2025,7 @@ torch-2.14.0.dist-info/licenses/third_party/fbgemm/fbgemm_gpu/test/quantize/mx/L
     SOFTWARE
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/flash-attention/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/flash-attention/LICENSE
 ==============================================================================
 
 BSD 3-Clause License
@@ -2059,7 +2059,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/flash-attention/csrc/composable_kernel/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/flash-attention/csrc/composable_kernel/LICENSE
 ==============================================================================
 
 Copyright (c) 2018-    , Advanced Micro Devices, Inc. (Chao Liu, Jing Zhang)
@@ -2092,7 +2092,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/flash-attention/csrc/composable_kernel/docs/license.rst
+torch-2.14.0+cpu.dist-info/licenses/third_party/flash-attention/csrc/composable_kernel/docs/LICENSE.rst
 ==============================================================================
 
 .. meta::
@@ -2108,7 +2108,7 @@ License
 .. include:: ../LICENSE
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/flash-attention/csrc/cutlass/LICENSE.txt
+torch-2.14.0+cpu.dist-info/licenses/third_party/flash-attention/csrc/cutlass/LICENSE.txt
 ==============================================================================
 
 Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
@@ -2147,7 +2147,7 @@ Certain files within this repository are subject to separate licensing terms:
   for the full terms.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/flash-attention/csrc/cutlass/python/LICENSE.txt
+torch-2.14.0+cpu.dist-info/licenses/third_party/flash-attention/csrc/cutlass/python/LICENSE.txt
 ==============================================================================
 
 Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
@@ -2179,7 +2179,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/flash-attention/flash_attn/cute/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/flash-attention/flash_attn/cute/LICENSE
 ==============================================================================
 
 BSD 3-Clause License
@@ -2213,7 +2213,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/flash-attention/third_party/aiter/3rdparty/composable_kernel/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/flash-attention/third_party/aiter/3rdparty/composable_kernel/LICENSE
 ==============================================================================
 
 Copyright (c) 2018-    , Advanced Micro Devices, Inc. (Chao Liu, Jing Zhang)
@@ -2246,7 +2246,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/flash-attention/third_party/aiter/3rdparty/composable_kernel/docs/license.rst
+torch-2.14.0+cpu.dist-info/licenses/third_party/flash-attention/third_party/aiter/3rdparty/composable_kernel/docs/LICENSE.rst
 ==============================================================================
 
 .. meta::
@@ -2262,7 +2262,7 @@ License
 .. include:: ../LICENSE
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/flash-attention/third_party/aiter/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/flash-attention/third_party/aiter/LICENSE
 ==============================================================================
 
 Copyright © Advanced Micro Devices, Inc. All rights reserved.
@@ -2288,7 +2288,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/flatbuffers/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/flatbuffers/LICENSE
 ==============================================================================
 
 
@@ -2495,7 +2495,7 @@ torch-2.14.0.dist-info/licenses/third_party/flatbuffers/LICENSE
    limitations under the License.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/flatbuffers/dart/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/flatbuffers/dart/LICENSE
 ==============================================================================
 
                                  Apache License
@@ -2701,7 +2701,7 @@ torch-2.14.0.dist-info/licenses/third_party/flatbuffers/dart/LICENSE
    limitations under the License.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/flatbuffers/swift/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/flatbuffers/swift/LICENSE
 ==============================================================================
 
 
@@ -2908,7 +2908,7 @@ torch-2.14.0.dist-info/licenses/third_party/flatbuffers/swift/LICENSE
    limitations under the License.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/fmt/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/fmt/LICENSE
 ==============================================================================
 
 Copyright (c) 2012 - present, Victor Zverovich and {fmt} contributors
@@ -2933,7 +2933,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/gemmlowp/gemmlowp/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/gemmlowp/gemmlowp/LICENSE
 ==============================================================================
 
 
@@ -3140,7 +3140,7 @@ torch-2.14.0.dist-info/licenses/third_party/gemmlowp/gemmlowp/LICENSE
    limitations under the License.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/gloo/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/gloo/LICENSE
 ==============================================================================
 
 BSD License
@@ -3175,7 +3175,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/googletest/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/googletest/LICENSE
 ==============================================================================
 
 Copyright 2008, Google Inc.
@@ -3208,7 +3208,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/ideep/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/ideep/LICENSE
 ==============================================================================
 
 Copyright (c) 2018 Intel Corporation.
@@ -3232,7 +3232,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/ideep/mkl-dnn/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/ideep/mkl-dnn/LICENSE
 ==============================================================================
 
                                  Apache License
@@ -3444,7 +3444,7 @@ torch-2.14.0.dist-info/licenses/third_party/ideep/mkl-dnn/LICENSE
    "THIRD-PARTY-PROGRAMS" file.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/ideep/mkl-dnn/third_party/gtest/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/ideep/mkl-dnn/third_party/gtest/LICENSE
 ==============================================================================
 
 Copyright 2008, Google Inc.
@@ -3477,7 +3477,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/ideep/mkl-dnn/third_party/opencl/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/ideep/mkl-dnn/third_party/opencl/LICENSE
 ==============================================================================
 
 
@@ -3684,7 +3684,7 @@ torch-2.14.0.dist-info/licenses/third_party/ideep/mkl-dnn/third_party/opencl/LIC
    limitations under the License.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/kineto/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/kineto/LICENSE
 ==============================================================================
 
 BSD License
@@ -3722,7 +3722,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/kineto/libkineto/third_party/dynolog_headers/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/kineto/libkineto/third_party/dynolog_headers/LICENSE
 ==============================================================================
 
 MIT License
@@ -3748,7 +3748,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/kineto/libkineto/third_party/fmt/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/kineto/libkineto/third_party/fmt/LICENSE
 ==============================================================================
 
 Copyright (c) 2012 - present, Victor Zverovich and {fmt} contributors
@@ -3780,7 +3780,7 @@ source code, you may redistribute such embedded portions in such object form
 without including the above copyright and permission notices.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/kineto/libkineto/third_party/googletest/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/kineto/libkineto/third_party/googletest/LICENSE
 ==============================================================================
 
 Copyright 2008, Google Inc.
@@ -3813,7 +3813,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/llvm-openmp/LICENSE.txt
+torch-2.14.0+cpu.dist-info/licenses/third_party/llvm-openmp/LICENSE.txt
 ==============================================================================
 
 macOS wheels comes bundled with libomp.dylib from LLVM project and uses
@@ -4130,7 +4130,7 @@ OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/mimalloc/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/mimalloc/LICENSE
 ==============================================================================
 
 MIT License
@@ -4156,7 +4156,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/miniz-3.0.2/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/miniz-3.0.2/LICENSE
 ==============================================================================
 
 Copyright 2013-2014 RAD Game Tools and Valve Software
@@ -4183,7 +4183,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/mslk/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/mslk/LICENSE
 ==============================================================================
 
 BSD License
@@ -4218,7 +4218,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/mslk/external/composable_kernel/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/mslk/external/composable_kernel/LICENSE
 ==============================================================================
 
 Copyright (c) 2018-    , Advanced Micro Devices, Inc. (Chao Liu, Jing Zhang)
@@ -4251,7 +4251,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/mslk/external/composable_kernel/docs/license.rst
+torch-2.14.0+cpu.dist-info/licenses/third_party/mslk/external/composable_kernel/docs/LICENSE.rst
 ==============================================================================
 
 .. meta::
@@ -4267,7 +4267,7 @@ License
 .. include:: ../LICENSE
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/mslk/external/cutlass/LICENSE.txt
+torch-2.14.0+cpu.dist-info/licenses/third_party/mslk/external/cutlass/LICENSE.txt
 ==============================================================================
 
 Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
@@ -4306,7 +4306,7 @@ Certain files within this repository are subject to separate licensing terms:
   for the full terms.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/mslk/external/cutlass/python/LICENSE.txt
+torch-2.14.0+cpu.dist-info/licenses/third_party/mslk/external/cutlass/python/LICENSE.txt
 ==============================================================================
 
 Copyright (c) 2017 - 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
@@ -4338,7 +4338,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/mslk/external/googletest/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/mslk/external/googletest/LICENSE
 ==============================================================================
 
 Copyright 2008, Google Inc.
@@ -4371,7 +4371,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/mslk/external/hipify_torch/LICENSE.txt
+torch-2.14.0+cpu.dist-info/licenses/third_party/mslk/external/hipify_torch/LICENSE.txt
 ==============================================================================
 
 MIT License
@@ -4397,7 +4397,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/mslk/mslk/attention/flash_attn/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/mslk/mslk/attention/flash_attn/LICENSE
 ==============================================================================
 
 BSD 3-Clause License
@@ -4431,7 +4431,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/onnx/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/onnx/LICENSE
 ==============================================================================
 
 
@@ -4638,7 +4638,7 @@ torch-2.14.0.dist-info/licenses/third_party/onnx/LICENSE
    limitations under the License.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/onnx/third_party/pybind11/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/onnx/third_party/pybind11/LICENSE
 ==============================================================================
 
 Copyright (c) 2016 Wenzel Jakob <wenzel.jakob@epfl.ch>, All rights reserved.
@@ -4672,7 +4672,7 @@ Please also refer to the file .github/CONTRIBUTING.md, which clarifies licensing
 external contributions to this project including patches, pull requests, etc.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/perfetto/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/perfetto/LICENSE
 ==============================================================================
 
                                  Apache License
@@ -4962,7 +4962,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/protobuf/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/protobuf/LICENSE
 ==============================================================================
 
 Copyright 2008 Google Inc.  All rights reserved.
@@ -4999,7 +4999,7 @@ standalone and requires a support library to be linked with it.  This
 support library is itself covered by the above license.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/protobuf/third_party/benchmark/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/protobuf/third_party/benchmark/LICENSE
 ==============================================================================
 
 
@@ -5206,7 +5206,7 @@ torch-2.14.0.dist-info/licenses/third_party/protobuf/third_party/benchmark/LICEN
    limitations under the License.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/protobuf/third_party/googletest/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/protobuf/third_party/googletest/LICENSE
 ==============================================================================
 
 Copyright 2008, Google Inc.
@@ -5239,7 +5239,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/protobuf/third_party/googletest/googlemock/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/protobuf/third_party/googletest/googlemock/LICENSE
 ==============================================================================
 
 Copyright 2008, Google Inc.
@@ -5272,7 +5272,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/protobuf/third_party/googletest/googlemock/scripts/generator/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/protobuf/third_party/googletest/googlemock/scripts/generator/LICENSE
 ==============================================================================
 
 
@@ -5480,7 +5480,7 @@ torch-2.14.0.dist-info/licenses/third_party/protobuf/third_party/googletest/goog
    limitations under the License.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/protobuf/third_party/googletest/googletest/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/protobuf/third_party/googletest/googletest/LICENSE
 ==============================================================================
 
 Copyright 2008, Google Inc.
@@ -5513,7 +5513,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/protobuf/third_party/utf8_range/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/protobuf/third_party/utf8_range/LICENSE
 ==============================================================================
 
 MIT License
@@ -5539,7 +5539,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/psimd/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/psimd/LICENSE
 ==============================================================================
 
 The MIT License (MIT)
@@ -5555,7 +5555,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/pthreadpool/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/pthreadpool/LICENSE
 ==============================================================================
 
 Copyright 2019 Google LLC
@@ -5585,7 +5585,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/pybind11/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/pybind11/LICENSE
 ==============================================================================
 
 Copyright (c) 2016 Wenzel Jakob <wenzel.jakob@epfl.ch>, All rights reserved.
@@ -5619,7 +5619,7 @@ Please also refer to the file .github/CONTRIBUTING.md, which clarifies licensing
 external contributions to this project including patches, pull requests, etc.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/python-peachpy/LICENSE.rst
+torch-2.14.0+cpu.dist-info/licenses/third_party/python-peachpy/LICENSE.rst
 ==============================================================================
 
 ==============================
@@ -5639,7 +5639,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/sleef/LICENSE.txt
+torch-2.14.0+cpu.dist-info/licenses/third_party/sleef/LICENSE.txt
 ==============================================================================
 
 Boost Software License - Version 1.0 - August 17th, 2003
@@ -5667,7 +5667,7 @@ ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/tensorpipe/LICENSE.txt
+torch-2.14.0+cpu.dist-info/licenses/third_party/tensorpipe/LICENSE.txt
 ==============================================================================
 
 BSD License
@@ -5702,7 +5702,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/tensorpipe/third_party/googletest/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/tensorpipe/third_party/googletest/LICENSE
 ==============================================================================
 
 Copyright 2008, Google Inc.
@@ -5735,7 +5735,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/tensorpipe/third_party/googletest/googlemock/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/tensorpipe/third_party/googletest/googlemock/LICENSE
 ==============================================================================
 
 Copyright 2008, Google Inc.
@@ -5768,7 +5768,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/tensorpipe/third_party/googletest/googlemock/scripts/generator/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/tensorpipe/third_party/googletest/googlemock/scripts/generator/LICENSE
 ==============================================================================
 
 
@@ -5976,7 +5976,7 @@ torch-2.14.0.dist-info/licenses/third_party/tensorpipe/third_party/googletest/go
    limitations under the License.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/tensorpipe/third_party/googletest/googletest/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/tensorpipe/third_party/googletest/googletest/LICENSE
 ==============================================================================
 
 Copyright 2008, Google Inc.
@@ -6009,7 +6009,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/tensorpipe/third_party/libnop/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/tensorpipe/third_party/libnop/LICENSE
 ==============================================================================
 
 Copyright 2017 The Native Object Protocols Authors
@@ -6027,7 +6027,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/tensorpipe/third_party/libuv/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/tensorpipe/third_party/libuv/LICENSE
 ==============================================================================
 
 Copyright (c) 2015-present libuv project contributors.
@@ -6051,7 +6051,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/tensorpipe/third_party/pybind11/LICENSE
+torch-2.14.0+cpu.dist-info/licenses/third_party/tensorpipe/third_party/pybind11/LICENSE
 ==============================================================================
 
 Copyright (c) 2016 Wenzel Jakob <wenzel.jakob@epfl.ch>, All rights reserved.
@@ -6085,7 +6085,7 @@ Please also refer to the file CONTRIBUTING.md, which clarifies licensing of
 external contributions to this project including patches, pull requests, etc.
 
 ==============================================================================
-torch-2.14.0.dist-info/licenses/third_party/tensorpipe/third_party/pybind11/tools/clang/LICENSE.TXT
+torch-2.14.0+cpu.dist-info/licenses/third_party/tensorpipe/third_party/pybind11/tools/clang/LICENSE.txt
 ==============================================================================
 
 ==============================================================================

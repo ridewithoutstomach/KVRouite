@@ -1,0 +1,60 @@
+# KVRouite - the voice remover's packages (since 7.0). OPTIONAL.
+#
+#     pip install -r requirements.txt          # the application
+#     pip install -r requirements-audio.txt    # plus this, for "Remove voices"
+#
+# Run pip from the project directory - two lines below are relative paths.
+# Without this file KVRouite is the Lite application: it runs completely,
+# but the page Audio in the encoder setup is locked and videos are exported
+# without a sound track, as before 7.0. The Windows build script needs it: it
+# builds the full application and splits the result into the Lite zip and
+# the Audio add-on zip (build_with_pyinstaller.py).
+#
+# python-audio-separator is the separation core of Ultimate Vocal Remover as
+# a library; it pulls in torch, onnxruntime, scipy, numpy and librosa (about
+# 750 MB installed).
+#
+# The library declares a dependency on "diffq" (Windows: "diffq-fixed") that
+# must not come in: diffq-fixed is licensed CC BY-NC 4.0 and cannot be
+# shipped, and on Python 3.14 it has no wheel and its source package does not
+# even build. The two lines below install KVRouite's own stand-ins under
+# those names FIRST (tools/diffq_platzhalter), so pip sees the library's
+# demand as met and never asks PyPI for the originals.
+#
+# torch: the extra index below is PyTorch's own CPU index. Without it pip
+# would take torch from PyPI, which on Linux is the CUDA build (2.5 GB); the
+# CPU build there is "2.14.0+cpu", which pip prefers over plain 2.14.0 on
+# every platform (checked on 10.09.2026: pip resolves torch-2.14.0+cpu and
+# torchvision-0.29.0+cpu). Same command on Linux, Windows and macOS.
+#
+# Building the executable needs Python 3.12.1 or newer: 3.12.0 has a bug
+# (CPython issue 110543) that breaks scipy inside a PyInstaller build. The
+# packer checks the Python version and that "diffq-fixed" is the stand-in.
+--extra-index-url https://download.pytorch.org/whl/cpu
+./tools/diffq_platzhalter/diffq_fixed
+./tools/diffq_platzhalter/diffq
+audio-separator==0.47.0
+audioop-lts==0.2.2; python_version >= "3.13"
+audioread==3.1.0
+beartype==0.18.5
+einops==0.8.2
+julius==0.2.8
+librosa==1.0.0
+ml_collections==1.1.0
+numpy==2.5.3
+onnx-weekly==1.24.0.dev20260907
+onnx2torch-py313==1.6.0
+onnxruntime==1.29.0
+packaging==26.3
+pydub==0.25.1
+PyYAML==6.0.3
+requests==2.34.2
+resampy==0.4.3
+rotary-embedding-torch==0.6.5
+samplerate==0.1.0
+scipy==1.18.1
+six==1.17.0
+soundfile==0.14.0
+torch==2.14.0
+torchvision==0.29.0
+tqdm==4.70.0

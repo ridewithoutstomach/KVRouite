@@ -120,17 +120,22 @@ class AudioSeite(QWidget):
             "measured to leave the ride noise more intact. Both are shipped "
             "with KVRouite.")
         sform.addRow("Model:", self.voice_combo)
-        # Ohne Bibliothek oder Modelle bleibt die Gruppe grau und sagt warum -
-        # sichtbar in der Gruppe, nicht nur im Tooltip: ein ausgegrauter
-        # Schalter ohne Grund war am 10.09.2026 das Erste, was aufgefallen ist.
+        aussen.addWidget(stimme_gruppe)
+
+        # LITE IST OHNE AUDIO (Bernd, 10.09.2026): fehlt das Audio-Zusatzpaket
+        # (gepackt) beziehungsweise requirements-audio.txt (ungepackt), ist die
+        # ganze Seite grau - Tonspur, Daempfer und Stimmen. Der Grund steht
+        # oben auf der Seite, nicht nur im Tooltip: ein ausgegrauter Schalter
+        # ohne Grund war das Erste, was aufgefallen ist.
         self._voice_ok, grund = stimme.verfuegbar()
         if not self._voice_ok:
-            self.voice_check.setToolTip("Voice removal is not available: " + grund)
-            hinweis_voice = QLabel("Not available: " + grund, stimme_gruppe)
-            hinweis_voice.setWordWrap(True)
-            hinweis_voice.setStyleSheet("color: gray;")
-            sform.addRow(hinweis_voice)
-        aussen.addWidget(stimme_gruppe)
+            sperre = QLabel("Audio is part of the KVRouite Audio add-on and "
+                            "not available here: " + grund, self)
+            sperre.setWordWrap(True)
+            sperre.setStyleSheet("color: gray;")
+            aussen.insertWidget(0, sperre)
+            for w in (gruppe, verkehr_gruppe, stimme_gruppe):
+                w.setEnabled(False)
 
         # Platz fuer die naechsten Werkzeuge - siehe Modulkopf.
         hinweis = QLabel(
@@ -148,6 +153,8 @@ class AudioSeite(QWidget):
     def _audio_umgeschaltet(self, an):
         """Ohne Tonspur gibt es nichts zu daempfen und nichts zu entfernen -
         die Gruppen folgen dem Schalter, ihre Werte bleiben erhalten."""
+        if not self._voice_ok:
+            return              # Seite gesperrt, siehe __init__
         self.kbps_spin.setEnabled(an)
         self.traffic_check.setEnabled(an)
         self.traffic_spin.setEnabled(an and self.traffic_check.isChecked())
@@ -159,6 +166,12 @@ class AudioSeite(QWidget):
     # Werte in der Schreibweise von "encoder/"
     # ---------------------------
     def werte(self) -> dict:
+        # Ohne Zusatz ist die Seite gesperrt - dann ist Audio aus, was immer
+        # ein gespeicherter Satz sagt.
+        if not self._voice_ok:
+            return {"audio": 0, "audio_kbps": self.kbps_spin.value(),
+                    "traffic": 0, "traffic_db": self.traffic_spin.value(),
+                    "voice": 0, "voice_model": self.voice_combo.currentData() or stimme.VORGABE}
         return {
             "audio": 1 if self.audio_check.isChecked() else 0,
             "audio_kbps": self.kbps_spin.value(),
@@ -188,4 +201,10 @@ class AudioSeite(QWidget):
         self.voice_check.setChecked(bool(self._zahl(werte, "voice", 0)))
         index = self.voice_combo.findData(str(werte.get("voice_model", stimme.VORGABE)))
         self.voice_combo.setCurrentIndex(max(0, index))
+        if not self._voice_ok:
+            # Gesperrte Seite: nichts anhaken, auch nicht aus einem Preset.
+            self.audio_check.setChecked(False)
+            self.traffic_check.setChecked(False)
+            self.voice_check.setChecked(False)
+            return
         self._audio_umgeschaltet(an)

@@ -58,16 +58,12 @@ from build_with_pyinstaller import (      # noqa: E402
     GSTREAMER_PAKETE,
     QT_MODULE_WURZELN,
     QT_PLUGIN_ORDNER,
-    VOICE_MODELLE,
-    VOICE_PAKETE,
-    _dist_info_ist_platzhalter,
     check_ffmpeg_frei,
     check_mpv_frei,
     gio_module_entfernen,
     copy_only_pdfs,
     copy_tree_all,
     load_app_version,
-    voice_voraussetzungen_pruefen,
     write_sha256,
 )
 # Mach-O erkennen und otool -L lesen - dieselben Funktionen wie in der
@@ -186,9 +182,13 @@ def vorhandene_gstreamer_pakete():
 
 
 def buendel_bauen(ziel_ordner):
-    """PyInstaller aufrufen. Rueckgabe: Pfad des .app-Buendels."""
-    # Voice Remover: Python-Version, Lizenzfalle, Modelle - VOR dem Packen.
-    voice_voraussetzungen_pruefen()
+    """PyInstaller aufrufen. Rueckgabe: Pfad des .app-Buendels.
+
+    Das Buendel ist die LITE-Fassung: ohne den Voice Remover. Entscheidung
+    vom 10.09.2026 - fuer den Mac gibt es den Audio-Zusatz vorerst nicht,
+    "Remove voices" bleibt dort grau. Wer ihn spaeter braucht, spiegelt den
+    Doppelbau aus build_with_pyinstaller.build_windows().
+    """
     symbol = os.path.join(BASE_DIR, "MyIcon.icns")
     if not os.path.isfile(symbol):
         print("[WARN] MyIcon.icns fehlt - das Buendel bekommt das Standardsymbol.")
@@ -214,11 +214,6 @@ def buendel_bauen(ziel_ordner):
     # GStreamer muss ausdruecklich mit, aber nur was da ist: ein --collect-all
     # auf ein fehlendes Paket bricht PyInstaller sofort ab.
     befehl += ["--collect-all=" + paket for paket in vorhandene_gstreamer_pakete()]
-    # Voice Remover: Bibliothek und Modelle - siehe VOICE_PAKETE im
-    # Windows-Skript, dieselben Gruende. Die Modelle landen als Daten in
-    # Contents/Resources/voice_models; config.finde_datei sucht dort.
-    befehl += ["--collect-all=" + paket for paket in VOICE_PAKETE]
-    befehl.append("--add-data=" + VOICE_MODELLE + os.pathsep + "voice_models")
     befehl.append("KVRouite.py")
     lauf(befehl)
 
@@ -321,40 +316,6 @@ def gstreamer_pruefen(buendel):
     for p in fehlend:
         print("   FEHLT    :", p)
     return fehlend
-
-
-def voice_pruefen(buendel):
-    """Der Voice Remover im Buendel - das Gegenstueck zu check_voice_payload
-    im Windows-Skript. Gesucht wird im ganzen Buendel: PyInstaller legt auf
-    macOS Binaerdateien nach Contents/Frameworks und Daten nach
-    Contents/Resources. Rueckgabe: Liste der Befunde."""
-    from core import stimme
-    erwartet = set(VOICE_PAKETE + ("torch", "onnxruntime", "voice_models"))
-    gefunden = {}
-    verboten = []
-    for wurzel, ordner, _dateien in os.walk(buendel):
-        for name in ordner:
-            if name in erwartet and name not in gefunden:
-                gefunden[name] = os.path.join(wurzel, name)
-            # Die dist-info von diffq/diffq-fixed muss der Platzhalter sein
-            # (siehe tools/diffq_platzhalter) - erkennbar an "KVRouite".
-            if (name.lower().startswith(("diffq_fixed", "diffq-"))
-                    and name.endswith(".dist-info")
-                    and not _dist_info_ist_platzhalter(os.path.join(wurzel, name))):
-                verboten.append(os.path.join(wurzel, name))
-    befunde = ["%s fehlt im Buendel" % p for p in sorted(erwartet - set(gefunden))]
-    modelle = gefunden.get("voice_models")
-    if modelle:
-        for _kennung, (datei, name) in stimme.MODELLE.items():
-            if not os.path.isfile(os.path.join(modelle, datei)):
-                befunde.append("Modell %s (%s) fehlt" % (datei, name))
-    befunde += ["%s im Buendel - CC BY-NC, nicht auslieferbar" % v
-                for v in verboten]
-    print("[LIZENZ] Voice Remover im Buendel: %d von %d Teilen."
-          % (len(gefunden), len(erwartet)))
-    for b in befunde:
-        print("   FEHLER   :", b)
-    return befunde
 
 
 
@@ -1079,7 +1040,6 @@ def build_macos():
     ressourcen_einlegen(buendel)
     fehlende_rechtstexte = rechtstexte_einlegen(buendel)
     fehlende_gstreamer = gstreamer_pruefen(buendel)
-    voice_befunde = voice_pruefen(buendel)
 
     # Qt abspecken - VOR dem Signieren, wie alles, was das Buendel anfasst.
     qt_abspecken_macos(buendel)
@@ -1098,8 +1058,6 @@ def build_macos():
         raise SystemExit("[ABBRUCH] GStreamer ist unvollstaendig (%s) - das "
                          "Buendel wuerde nicht starten."
                          % ", ".join(fehlende_gstreamer))
-    if voice_befunde:
-        raise SystemExit("[ABBRUCH] Voice Remover: %s." % "; ".join(voice_befunde))
     if fehlende_rechtstexte:
         raise SystemExit("[ABBRUCH] Rechtstexte fehlen (%s) - so darf das "
                          "Buendel nicht ausgeliefert werden."

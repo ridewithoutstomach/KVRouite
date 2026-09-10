@@ -231,6 +231,163 @@ def check_voice_payload(internal_dir):
     return befunde
 
 
+# ---------------------------------------------------------------------------
+# Lite und Audio-Zusatz: EIN Bau, zwei Pakete
+# ---------------------------------------------------------------------------
+# Entscheidung vom 10.09.2026: die meisten Anwender wollen kein Audio, und
+# rund 900 MB fuer alle waere zu viel. Statt zwei Fassungen zu pflegen wird
+# die App einmal VOLLSTAENDIG gebaut und danach in zwei Zips verteilt:
+#
+#   KVRouite_<ver>_Win_x64.zip        die Grund-App ("Lite") - laeuft allein,
+#                                     "Remove voices" bleibt grau
+#   KVRouite_<ver>_Audio_Win_x64.zip  der Zusatz: derselbe Ordnername, wird
+#                                     einfach darueber entpackt
+#
+# Warum nicht die Grund-App OHNE Audio bauen und den Zusatz obendrauf legen:
+# PyInstaller legt allen Python-Code in das Archiv in der exe, als Dateien
+# liegen nur Binaerdateien und Daten in _internal. Eine ohne Audio gebaute
+# exe hat den Python-Code von torch nicht im Archiv, und ein Zusatz aus
+# DLLs allein liefe nicht. Deshalb: die exe des VOLLEN Baus fuer beide (ihr
+# Archiv traegt den Python-Code der Audio-Pakete, einige Dutzend MB), und
+# der Zusatz sind genau die DATEIEN, die der volle Bau hat und ein
+# Lite-Bau nicht. Welche das sind, sagt kein Listenpfleger, sondern ein
+# zweiter, kurzer PyInstaller-Lauf ohne die Audio-Pakete: die Differenz der
+# Dateilisten ist der Zusatz. core/stimme.zusatz_installiert() prueft in der
+# gepackten App, ob diese Dateien da sind.
+
+#: Was der Lite-Referenzbau nicht sehen darf: die Audio-Pakete und ihr
+#: Zahlenunterbau. Nur fuer die Dateiliste - die ausgelieferte Grund-App ist
+#: der volle Bau ohne die Zusatzdateien. Steht ein Paket hier, das KVRouite
+#: selbst braeuchte, faellt es beim Start der Grund-App auf (--selftest).
+LITE_AUSSCHLUSS = VOICE_PAKETE + (
+    "torch", "onnxruntime", "onnx", "onnx2torch", "numpy", "scipy", "librosa",
+    "numba", "llvmlite", "sklearn", "soundfile", "soxr", "resampy",
+    "samplerate", "pydub", "audioread", "julius", "einops", "beartype",
+    "ml_collections", "ml_dtypes", "sympy", "networkx", "rotary_embedding_torch",
+    "diffq",
+)
+
+
+def _dateiliste(wurzel):
+    """Alle Dateien unter wurzel als relative Pfade (mit /), in Kleinschrift.
+
+    Kleinschrift, weil Windows Dateinamen nicht nach Gross und Klein
+    unterscheidet, PyInstaller sie aber so uebernimmt, wie das jeweilige
+    Paket sie schreibt: der volle Bau hatte "msvcp140.dll" (aus torch), der
+    Lite-Bau "MSVCP140.dll" (aus Qt) - dieselbe Datei. Beim ersten Vergleich
+    am 10.09.2026 galt sie als Unterschied und waere aus der Grund-App
+    verschwunden, die ohne sie nicht startet.
+    """
+    liste = set()
+    for ordner, _d, dateien in os.walk(wurzel):
+        for name in dateien:
+            voll = os.path.join(ordner, name)
+            liste.add(os.path.relpath(voll, wurzel).replace("\\", "/").lower())
+    return liste
+
+
+def lite_dateiliste(artifacts_root, exe_name_tmp, main_script, icon_file):
+    """Den Lite-Bau machen, nur um seine Dateiliste zu bekommen.
+
+    Derselbe PyInstaller-Aufruf wie der volle, ohne VOICE_PAKETE und ohne
+    voice_models, in einen eigenen Ordner, der danach wieder weg ist.
+    """
+    ziel = os.path.join(artifacts_root, "lite_tmp")
+    if os.path.isdir(ziel):
+        shutil.rmtree(ziel)
+    print("[INFO] Lite-Bau (nur fuer die Dateiliste) →", ziel)
+    cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--onedir",
+           f"--name={exe_name_tmp}", f"--distpath={ziel}"]
+    if os.path.isfile(icon_file):
+        cmd.append(f"--icon={icon_file}")
+    cmd += [f"--collect-all={paket}" for paket in GSTREAMER_PAKETE]
+    # Die Audio-Pakete AUSDRUECKLICH ausschliessen. PyInstaller folgt jedem
+    # import im Bytecode, auch einem in einer Funktion - core/stimme
+    # importiert audio_separator erst beim Gebrauch, fuer PyInstaller ist das
+    # trotzdem ein Import. Ohne diese Liste war der "Lite"-Bau am 10.09.2026
+    # so gross wie der volle, und die Differenz leer.
+    cmd += [f"--exclude-module={paket}" for paket in LITE_AUSSCHLUSS]
+    cmd += [main_script]
+    run_cmd(cmd)
+    ordner = os.path.join(ziel, exe_name_tmp)
+    if not os.path.isfile(os.path.join(ordner, exe_name_tmp + ".exe")):
+        raise SystemExit("[ABBRUCH] Lite-Bau fehlgeschlagen - keine exe in " + ordner)
+    liste = _dateiliste(ordner)
+    print("[INFO] Lite-Bau: %d Dateien" % len(liste))
+    shutil.rmtree(ziel, ignore_errors=True)
+    return liste
+
+
+def zusatz_bestimmen(pyi_out_dir, lite_dateien):
+    """Die Differenz der beiden PyInstaller-Ausgaben: was der volle Bau hat
+    und der Lite-Bau nicht. Auf den ROHEN Ausgaben gerechnet, bevor der
+    Packer umbenennt, kopiert, Lizenztexte dazulegt oder Qt abspeckt -
+    sonst zaehlten Lizenzordner und Symbole als "Audio"."""
+    voll = _dateiliste(pyi_out_dir)
+    zusatz = sorted(voll - lite_dateien)
+    # Gegenprobe: die Kernstuecke muessen im Zusatz liegen, exe und
+    # Python-Laufzeit duerfen es nicht.
+    muss = ("_internal/torch/lib/", "_internal/onnxruntime/capi/",
+            "_internal/voice_models/")
+    for praefix in muss:
+        if not any(p.startswith(praefix) for p in zusatz):
+            raise SystemExit("[ABBRUCH] Zusatzpaket: nichts unter %s - die "
+                             "Differenz der Dateilisten stimmt nicht." % praefix)
+    for p in zusatz:
+        # Verboten: die Programmdatei selbst und die Python-Laufzeit. Eine
+        # exe TIEF in einem Paket ist erlaubt - torch bringt torch/bin/protoc.exe.
+        if (p.endswith(".exe") and "/" not in p) or p == "_internal/base_library.zip" \
+                or p.startswith("_internal/python3"):
+            raise SystemExit("[ABBRUCH] Zusatzpaket enthielte %s - die "
+                             "Differenz der Dateilisten stimmt nicht." % p)
+    print("[INFO] Audio-Zusatz: %d von %d Dateien des vollen Baus"
+          % (len(zusatz), len(voll)))
+    return zusatz
+
+
+def audio_zusatz_abtrennen(target_dir, zusatz_dir, zusatz):
+    """Die Zusatzdateien aus target_dir nach zusatz_dir verschieben - mit
+    denselben relativen Pfaden. Was die Nachbearbeitung (Qt abspecken u. a.)
+    schon entfernt hat, wird uebergangen."""
+    if os.path.isdir(zusatz_dir):
+        shutil.rmtree(zusatz_dir)
+    # Die Liste ist in Kleinschrift (_dateiliste); die wirklichen Namen im
+    # Zielordner nachschlagen, damit die Dateien mit ihrer Schreibweise
+    # wandern.
+    wirklich = {}
+    for ordner, _d, dateien in os.walk(target_dir):
+        for name in dateien:
+            voll = os.path.join(ordner, name)
+            wirklich[os.path.relpath(voll, target_dir).replace("\\", "/").lower()] = voll
+    zusatz_menge = set(zusatz)
+    groesse = 0
+    bewegt = 0
+    for rel, quelle in wirklich.items():
+        if rel not in zusatz_menge:
+            continue
+        ziel = os.path.join(zusatz_dir, os.path.relpath(quelle, target_dir))
+        os.makedirs(os.path.dirname(ziel), exist_ok=True)
+        groesse += os.path.getsize(quelle)
+        shutil.move(quelle, ziel)
+        bewegt += 1
+    # leer gewordene Ordner in der Grund-App entfernen - von unten nach oben,
+    # und mit Blick auf den JETZIGEN Inhalt: die Liste aus os.walk nennt
+    # Unterordner, die gerade eben entfernt wurden.
+    for ordner, _dirs, _dateien in os.walk(target_dir, topdown=False):
+        if ordner != target_dir and not os.listdir(ordner):
+            os.rmdir(ordner)
+    print("[INFO] Audio-Zusatz: %d Dateien, %d MB → %s"
+          % (bewegt, groesse // 1_000_000, zusatz_dir))
+    # Nachweis: die Grund-App hat die Merkmale nicht mehr, der Zusatz hat sie.
+    from core import stimme
+    for teil in stimme.ZUSATZ_MERKMALE:
+        if os.path.isdir(os.path.join(target_dir, "_internal", teil)):
+            raise SystemExit("[ABBRUCH] Grund-App enthaelt noch _internal/%s" % teil)
+        if not os.path.isdir(os.path.join(zusatz_dir, "_internal", teil)):
+            raise SystemExit("[ABBRUCH] Zusatzpaket ohne _internal/%s" % teil)
+    return zusatz
+
+
 def write_sha256(path: str) -> str:
     """
     Erzeugt neben <path> eine Datei <path>.sha256 mit Inhalt:
@@ -875,12 +1032,15 @@ def copy_only_pdfs(src_dir, dst_dir):
                 print("[COPY PDF]", sfile, "->", dfile)
                 shutil.copy2(sfile, dfile)            
 
-def build_windows(build_setup: bool = False):
+def build_windows(build_setup: bool = False, distpath: str = "dist"):
     app_version = load_app_version()
     print(f"[INFO] APP_VERSION: {app_version}")
 
     # ---------------- Basis/Ordner ----------------
-    artifacts_root = os.path.join("dist", f"KVRouite_{app_version}")     # dist/KVRouite_<ver>
+    # distpath: wohin. Vorgabe "dist" - dort liegen auch die Release-Artefakte
+    # der Version, und ein zweiter Bau ueberschreibt sie. Fuer einen Probebau
+    # nebenher deshalb --distpath auf einen anderen Ordner.
+    artifacts_root = os.path.join(distpath, f"KVRouite_{app_version}")     # <distpath>/KVRouite_<ver>
     os.makedirs(artifacts_root, exist_ok=True)
 
     exe_name_tmp = "KVRTmp"     # temporärer PyInstaller-Ordnername
@@ -895,7 +1055,11 @@ def build_windows(build_setup: bool = False):
     # Voice Remover: Python-Version, Lizenzfalle, Modelle - VOR dem Packen.
     voice_voraussetzungen_pruefen()
 
-    # ---------------- PyInstaller -----------------
+    # ---------------- Lite-Bau: Dateiliste fuer den Zusatz ----------------
+    lite_dateien = lite_dateiliste(artifacts_root, exe_name_tmp, main_script,
+                                   icon_file)
+
+    # ---------------- PyInstaller (voller Bau) -----------------
     # WICHTIG: --distpath = artifacts_root → erzeugt <artifacts_root>\KVRTmp
     print("[INFO] Starte PyInstaller (onedir) → Ziel:", artifacts_root)
     cmd = [
@@ -921,6 +1085,10 @@ def build_windows(build_setup: bool = False):
     exe_path    = os.path.join(pyi_out_dir, f"{exe_name_tmp}.exe")
     if not os.path.isfile(exe_path):
         raise RuntimeError(f"[ERROR] {exe_name_tmp}.exe fehlt in {pyi_out_dir} – PyInstaller-Build fehlgeschlagen.")
+
+    # Die Zusatzdateien JETZT bestimmen, auf der rohen Ausgabe - siehe
+    # zusatz_bestimmen(). Verschoben wird erst ganz am Ende.
+    zusatz_dateien = zusatz_bestimmen(pyi_out_dir, lite_dateien)
 
     target_dirname = f"KVRouite_{app_version}"
     target_dir     = os.path.join(artifacts_root, target_dirname)          # dist/KVRouite_<ver>/KVRouite_<ver>
@@ -1068,11 +1236,24 @@ def build_windows(build_setup: bool = False):
                          "nicht ausgeliefert werden."
                          % ", ".join(fehlende_rechtstexte))
 
-    # ---------------- portable ZIP + SHA ----------------
+    # Versionstext neben der EXE - der Audio-Installer prueft damit, dass der
+    # Zusatz zur installierten Version passt (installer/KVRouite_Audio.iss).
+    with open(os.path.join(target_dir, "version.txt"), "w", encoding="utf-8") as vf:
+        vf.write(str(app_version))
+
+    # ---------------- Lite / Audio-Zusatz trennen ----------------
+    # Ganz zum Schluss, wenn nichts mehr dazukommt: alles, was der Lite-Bau
+    # nicht hatte, wandert in einen eigenen Ordner mit demselben inneren
+    # Namen - so entpackt sich das Zusatz-Zip ueber die Grund-App.
+    zusatz_root = os.path.join(artifacts_root, f"{target_dirname}_Audio")
+    zusatz_dir = os.path.join(zusatz_root, target_dirname)
+    audio_zusatz_abtrennen(target_dir, zusatz_dir, zusatz_dateien)
+
+    # ---------------- portable ZIPs + SHA ----------------
     ARCH_SUFFIX = "Win_x64"
     zip_name_wo_ext = f"KVRouite_{app_version}_{ARCH_SUFFIX}"
     zip_base = os.path.join(artifacts_root, zip_name_wo_ext)
-    print(f"[INFO] Erzeuge ZIP → {zip_base}.zip (Inhalt = {target_dirname}/)")
+    print(f"[INFO] Erzeuge ZIP → {zip_base}.zip (Inhalt = {target_dirname}/, Lite)")
     zip_path = shutil.make_archive(
         base_name=zip_base,
         format="zip",
@@ -1082,17 +1263,23 @@ def build_windows(build_setup: bool = False):
     print("[INFO] ZIP erstellt:", zip_path)
     write_sha256(zip_path)
 
+    audio_zip_base = os.path.join(artifacts_root, f"KVRouite_{app_version}_Audio_{ARCH_SUFFIX}")
+    print(f"[INFO] Erzeuge ZIP → {audio_zip_base}.zip (Inhalt = {target_dirname}/, Audio-Zusatz)")
+    audio_zip_path = shutil.make_archive(
+        base_name=audio_zip_base,
+        format="zip",
+        root_dir=zusatz_root,
+        base_dir=target_dirname
+    )
+    print("[INFO] ZIP erstellt:", audio_zip_path)
+    write_sha256(audio_zip_path)
+
     # ---------------- Inno Setup (optional) + SHA ---------------
     if build_setup:
         print("[INFO] Erzeuge Windows-Installer (Inno Setup) …")
-        # Versionstext neben EXE (nice-to-have)
-        try:
-            with open(os.path.join(target_dir, "version.txt"), "w", encoding="utf-8") as vf:
-                vf.write(str(app_version))
-        except Exception as e:
-            print("[WARN] version.txt konnte nicht geschrieben werden:", e)
+        # version.txt liegt schon neben der EXE (siehe oben, vor der Trennung).
 
-        iscc = os.environ.get("ISCC", r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe")
+        iscc =os.environ.get("ISCC", r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe")
         if not os.path.isfile(iscc):
             print("[ERROR] ISCC.exe nicht gefunden. Setze ENV ISCC oder installiere Inno Setup 6.")
             sys.exit(2)
@@ -1141,6 +1328,25 @@ def build_windows(build_setup: bool = False):
             write_sha256(installer_path)
         else:
             print("[WARN] Installer nicht gefunden (erwartet):", installer_path)
+
+        # Der zweite Installer: der Audio-Zusatz in eine vorhandene
+        # Installation derselben Version (installer/KVRouite_Audio.iss).
+        audio_iss = os.path.join(BASE_DIR, "installer", "KVRouite_Audio.iss")
+        if not os.path.isfile(audio_iss):
+            print("[ERROR] installer\\KVRouite_Audio.iss fehlt – kann Audio-Installer nicht bauen.")
+            sys.exit(2)
+        audio_defines = [
+            f"/DMyDistDir={os.path.abspath(zusatz_dir)}",
+            f"/DMyAppVersion={app_version}",
+        ]
+        print("[RUN] ISCC (Audio) → OutputDir =", os.path.abspath(artifacts_root))
+        subprocess.run([iscc, "/O" + os.path.abspath(artifacts_root)] + audio_defines + [audio_iss], check=True)
+        audio_installer = os.path.join(artifacts_root, f"KVRouite_v{app_version}_Audio_Win_x64_Installer.exe")
+        if os.path.isfile(audio_installer):
+            print("[INFO] Audio-Installer erstellt:", audio_installer)
+            write_sha256(audio_installer)
+        else:
+            print("[WARN] Audio-Installer nicht gefunden (erwartet):", audio_installer)
     try:
         print("[CLEAN] Entferne temporären PyInstaller-Ordner:", os.path.abspath(pyi_out_dir))
         shutil.rmtree(pyi_out_dir, ignore_errors=True)
@@ -1160,11 +1366,14 @@ def main():
     import argparse
     p = argparse.ArgumentParser()
     p.add_argument("--build-installer", action="store_true", help="Build Windows installer via Inno Setup")
+    p.add_argument("--distpath", default="dist",
+                   help="Zielordner (Vorgabe: dist). Fuer einen Probebau, der "
+                        "die Release-Artefakte in dist/ nicht ueberschreibt.")
     args = p.parse_args()
     if platform.system() != "Windows":
         print("[WARN] Only Windows supported here.")
         sys.exit(1)
-    build_windows(build_setup=args.build_installer)
+    build_windows(build_setup=args.build_installer, distpath=args.distpath)
 
 if __name__ == "__main__":
     main()

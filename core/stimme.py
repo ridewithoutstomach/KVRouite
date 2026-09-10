@@ -122,13 +122,53 @@ def modellordner():
     return config.finde_datei("voice_models")
 
 
+#: Dateien, die das Audio-Zusatzpaket in die gepackte App bringt und ohne
+#: die der Voice Remover nicht laeuft. Relativ zu _internal (sys._MEIPASS).
+#: torch/lib traegt die Rechenbibliotheken, onnxruntime/capi die
+#: Laufzeit, audio_separator seine Datendateien, voice_models die Modelle.
+ZUSATZ_MERKMALE = (
+    os.path.join("torch", "lib"),
+    os.path.join("onnxruntime", "capi"),
+    "audio_separator",
+    "voice_models",
+)
+
+
+def zusatz_installiert():
+    """Gepackte App: liegen die Dateien des Audio-Zusatzpakets in _internal?
+
+    Die Grund-App ("Lite") traegt den Python-Code der Audio-Bibliotheken im
+    Archiv der exe, aber nicht deren Binaerdateien und Modelle - die kommen
+    mit dem Zusatzpaket (build_with_pyinstaller.py teilt den Bau auf). Ein
+    "import torch" liefe ohne sie in einen Fehler, und importlib.find_spec
+    faende das Modul trotzdem - deshalb wird hier nach DATEIEN gesehen.
+    """
+    import sys
+    basis = getattr(sys, "_MEIPASS", None)
+    if not basis:
+        return True             # ungepackt: pip entscheidet, siehe verfuegbar()
+    return all(os.path.isdir(os.path.join(basis, teil)) for teil in ZUSATZ_MERKMALE)
+
+
 def verfuegbar(modell=None):
     """(True, "") wenn die Bibliothek und die Modelldatei(en) da sind, sonst
     (False, Grund). Importiert nichts Schweres - nur nachsehen."""
-    for paket in ("audio_separator", "torch", "onnxruntime"):
-        if importlib.util.find_spec(paket) is None:
-            return False, (f"the package {paket} is not installed "
-                           f"(pip install -r requirements.txt)")
+    import sys
+    if getattr(sys, "frozen", False):
+        # Gepackte App: der Anwender hat Zip oder Installer, nie pip. Die
+        # Meldung nennt deshalb die Datei, die er braucht.
+        if not zusatz_installiert():
+            version = getattr(config, "APP_VERSION", "")
+            return False, (f"install the KVRouite Audio add-on: unpack "
+                           f"KVRouite_{version}_Audio_Win_x64.zip into the "
+                           f"KVRouite folder, or run "
+                           f"KVRouite_v{version}_Audio_Win_x64_Installer.exe")
+    else:
+        # Aus dem Quelltext gestartet: hier ist pip der Weg.
+        for paket in ("audio_separator", "torch", "onnxruntime"):
+            if importlib.util.find_spec(paket) is None:
+                return False, (f"the package {paket} is not installed "
+                               f"(pip install -r requirements-audio.txt)")
     ordner = modellordner()
     if not os.path.isdir(ordner):
         return False, f"the folder voice_models is missing ({ordner})"
