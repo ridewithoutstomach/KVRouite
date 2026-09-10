@@ -37,7 +37,21 @@ Die Schnittsemantik ist absichtlich identisch:
                         Material hinter der Kante. Die Gesamtlaenge aendert
                         sich dadurch nicht.
 
-Ton wird wie beim ffmpeg-Weg nicht ausgegeben (dort "-an").
+TON
+---
+Bis 6.14 wurde kein Ton ausgegeben (das Profil hiess woertlich "MP4 without
+audio", wie beim ffmpeg-Weg mit "-an"). Seit 7.0 bekommt das Profil ein
+Audioprofil (AAC), wenn die Konfiguration "audio" auf wahr hat - der Schalter
+dazu steht im Encoder Setup auf der Seite "Audio". Die Blenden gelten dann
+auch fuer den Ton: die einblendende Haelfte kommt von 0 auf volle Lautstaerke,
+die ausblendende geht gleichzeitig auf 0 (_volume_rampe). Anders als beim
+Bild reicht EINE Rampe nicht - die obere Ebene deckt das Bild ab, der Ton
+beider Ebenen wird vom audiomixer ADDIERT.
+
+Gemessen am 10.09.2026 mit GES-Testclips (GStreamer 1.28.6): voaacenc und
+mfaacenc stehen im Bundle mit Rank 128, avenc_aac mit Rank 0; eine lineare
+Lautstaerkerampe von 1 auf 0 ueber 2 s ergab RMS 22152 / 11737 / 1459 am
+Anfang, in der Mitte und am Ende.
 """
 
 import json
@@ -113,6 +127,20 @@ _CPU_ENCODER = {
 # auseinanderlaufen und die Erkennung etwas anderes prueft als der Export.
 _HW_ENCODER = GST_HW_ENCODER
 
+# Tonspur: AAC in MP4. Die Kandidaten in der Reihenfolge, in der sie
+# genommen werden - der erste, der im laufenden GStreamer vorhanden ist.
+#
+#   voaacenc   im Windows-/macOS-Bundle (gstreamer_plugins_restricted),
+#              unter Linux in gstreamer1.0-plugins-bad. Rank 128, "bitrate"
+#              in bit/s, gemessen: laeuft durch encodebin.
+#   fdkaacenc  gstreamer1.0-plugins-bad, wo die Distribution ihn baut.
+#   avenc_aac  gstreamer1.0-libav, also ueberall, wo die Vorschau laeuft.
+#              Rank 0 - encodebin nimmt ihn erst nach _anmelden().
+#   mfaacenc   Windows Media Foundation; nur als letzter Ausweg, sein
+#              "bitrate" kennt nur feste Stufen.
+_AAC_ENCODER = ("voaacenc", "fdkaacenc", "avenc_aac", "mfaacenc")
+_AAC = "audio/mpeg,mpegversion=4"
+
 # x264/x265 kennen dieselben Namen wie auf der ffmpeg-Kommandozeile.
 _SPEED_PRESET = ("ultrafast", "superfast", "veryfast", "faster", "fast",
                  "medium", "slow", "slower", "veryslow", "placebo")
@@ -183,6 +211,22 @@ class _Quellen:
         num = s.get_framerate_num() or 30
         den = s.get_framerate_denom() or 1
         return s.get_width(), s.get_height(), num, den
+
+    def ohne_ton(self):
+        """Pfade der Quellen, die keine Tonspur haben.
+
+        GES legt fuer so einen Clip kein Audio-Element an; auf der Tonspur
+        der Ausgabe ist dort Stille. Das ist kein Fehler, soll aber im
+        Protokoll stehen - sonst sucht jemand die Ursache im Encoder.
+        """
+        ergebnis = []
+        for pfad, asset in zip(self.pfade, self.assets):
+            try:
+                if not asset.get_info().get_audio_streams():
+                    ergebnis.append(pfad)
+            except Exception:
+                pass
+        return ergebnis
 
     def index_bei(self, roh_ns):
         """Platz in der Videoliste, zu dem diese Rohzeit gehoert.
@@ -262,6 +306,62 @@ def _alpha_rampe(element, von_ns, bis_ns, inpoint_ns, start_wert, ziel_wert):
     element.set_control_source(quelle, "alpha", "direct")
     quelle.set(inpoint_ns + von_ns, start_wert)
     quelle.set(inpoint_ns + bis_ns, ziel_wert)
+
+
+def _volume_rampe(clip, von_ns, bis_ns, start_wert, ziel_wert):
+    """Blendet die Lautstaerke eines Clips linear - das Gegenstueck zu
+    _alpha_rampe fuer den Ton.
+
+    von_ns/bis_ns zaehlen ab dem ANFANG DES CLIPS auf der Timeline; die
+    Umrechnung in Medienzeit (ab inpoint, siehe _alpha_rampe) passiert hier.
+    Liegt von_ns hinter dem Clipanfang, wird davor ausdruecklich voller Pegel
+    gesetzt: eine Steuerquelle ohne Stuetzstelle vor dem ersten Punkt liesse
+    den Wert dort undefiniert.
+
+    Linear wie das Bild, nicht leistungsgleich: beide Rampen sollen dieselbe
+    Kurve haben, damit Bild und Ton an derselben Stelle "halb" sind. Bei
+    zwei unabhaengigen Geraeuschkulissen sinkt der Pegel in der Mitte der
+    Blende dadurch um 3 dB - bei Fahrtwind und Strasse kaum zu hoeren.
+
+    Die Bindung MUSS "direct-absolute" sein, nicht "direct" wie bei der
+    Deckkraft. "direct" legt den Wert 0..1 auf den BEREICH der Eigenschaft,
+    und der reicht bei "volume" bis 10: aus 1.0 wird zehnfache Lautstaerke,
+    aus 0.5 fuenffache, alles uebersteuert. Bei "alpha" faellt das nicht auf,
+    weil deren Bereich 0..1 ist. Gemessen am 10.09.2026 an einem 440-Hz-Clip
+    (RMS 23165 ohne Steuerung): konstant 0.05 ergab mit "direct" 11582,
+    mit "direct-absolute" 1158.
+    """
+    inpoint = clip.get_inpoint()
+    for element in clip.find_track_elements(None, GES.TrackType.AUDIO,
+                                            GES.AudioSource):
+        quelle = GstController.InterpolationControlSource()
+        quelle.props.mode = GstController.InterpolationMode.LINEAR
+        element.set_control_source(quelle, "volume", "direct-absolute")
+        if von_ns > 0:
+            quelle.set(inpoint, 1.0)
+        quelle.set(inpoint + von_ns, start_wert)
+        quelle.set(inpoint + bis_ns, ziel_wert)
+
+
+def _ausblenden(clips, fade_start_ns, blende_ns):
+    """Den Ton der ausblendenden Seite einer Blende auf 0 fuehren.
+
+    clips: [(clip, start_ns, dauer_ns)] - die Stuecke des vorigen Teils auf
+    der unteren Ebene, in Ausgabezeit. Die Blende liegt in der Ausgabe bei
+    [fade_start_ns, fade_start_ns + blende_ns]; jedes Stueck bekommt den
+    Teil der Rampe, der in es hineinfaellt. Ein Stueck kann VOR der Blende
+    beginnen (dann bleibt es davor auf vollem Pegel) oder an einer
+    Dateigrenze mitten in der Blende wechseln.
+    """
+    ende = fade_start_ns + blende_ns
+    for clip, start, dauer in clips:
+        a = max(start, fade_start_ns)
+        b = min(start + dauer, ende)
+        if b <= a:
+            continue
+        _volume_rampe(clip, a - start, b - start,
+                      1.0 - (a - fade_start_ns) / float(blende_ns),
+                      1.0 - (b - fade_start_ns) / float(blende_ns))
 
 
 def _raster(sekunden, fps_n, fps_d):
@@ -397,6 +497,11 @@ def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_
     zeit_ns = 0
     blenden = 0
     abbildung = []   # (roh_von, roh_bis, ausgabe_start_ns) je Teilstueck
+    # Die Stuecke des VORIGEN Teils auf der unteren Ebene, in Ausgabezeit:
+    # [(clip, start_ns, dauer_ns)]. Ueberlappt sie die einblendende Haelfte
+    # des naechsten Teils, wird ihr Ton ueber dieselbe Spanne ausgeblendet -
+    # genau dann und nur dann, wenn auch das Bild blendet.
+    vorige_unten = []
     for index, (von, bis, bl_davor, bl_danach) in enumerate(stuecke):
         halb_davor = bl_davor / 2.0
         halb_danach = bl_danach / 2.0
@@ -445,14 +550,26 @@ def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_
                 for element in clip.find_track_elements(None, GES.TrackType.VIDEO,
                                                         GES.VideoSource):
                     _alpha_rampe(element, 0, blende_ns, inpoint, 0.0, 1.0)
+                # Ton der einblendenden Haelfte: wie das Bild von 0 auf 1,
+                # ueber die Stelle des Stuecks in der Blende (an einer
+                # Dateigrenze kann die Haelfte aus zwei Stuecken bestehen).
+                lage = rohstart - ns(roh_von)
+                _volume_rampe(clip, 0, dauer,
+                              lage / float(blende_ns),
+                              (lage + dauer) / float(blende_ns))
+            # Ton der ausblendenden Seite: der vorige Teil laeuft unten
+            # ueber die ganze Blende weiter, sein Pegel geht auf 0.
+            _ausblenden(vorige_unten, start_ns, blende_ns)
             blenden += 1
             roh_von = roh_von + bl_davor
 
         # Der Rest des Stuecks liegt unten und schliesst luecklos an.
+        vorige_unten = []
         for asset, inpoint, dauer, rohstart in quellen.stuecke(
                 ns(roh_von), ns(roh_bis)):
-            clip_setzen(unten, asset, zeit_ns + (rohstart - ns(roh_von)),
-                        inpoint, dauer, rohstart)
+            start = zeit_ns + (rohstart - ns(roh_von))
+            clip = clip_setzen(unten, asset, start, inpoint, dauer, rohstart)
+            vorige_unten.append((clip, start, dauer))
 
         abbildung.append((roh_anfang, roh_bis, out_anfang))
         zeit_ns += ns(roh_bis) - ns(roh_von)
@@ -711,7 +828,13 @@ def _overlays_setzen(layer, overlay_list, breite, hoehe, abbildung,
 # Encoding-Profil
 # ---------------------------------------------------------------------------
 
-def _profil(encoder, hw_encode, crf, preset, bitrate_mbps, log):
+def _profil(encoder, hw_encode, crf, preset, bitrate_mbps, log, audio=None):
+    """Das Encoding-Profil fuer encodebin.
+
+    audio: None fuer ein Video ohne Tonspur (so war es bis 6.14, und so
+    laeuft weiterhin der Probelauf der Hardware-Erkennung), sonst die
+    Bitrate der AAC-Tonspur in kbit/s.
+    """
     hw = (hw_encode or "none").lower()
     if hw and hw != "none":
         # KEIN stiller Rueckfall auf die CPU. Wer im Setup eine GPU einstellt,
@@ -739,7 +862,7 @@ def _profil(encoder, hw_encode, crf, preset, bitrate_mbps, log):
         return _profil_bauen(element, caps,
                              _gpu_eigenschaften(element, crf, preset,
                                                 bitrate_mbps),
-                             log)
+                             log, audio)
 
     element, caps = _CPU_ENCODER.get((encoder or "libx265").lower(),
                                      ("x265enc", _H265))
@@ -748,7 +871,7 @@ def _profil(encoder, hw_encode, crf, preset, bitrate_mbps, log):
             f"Encoder {element} is missing. On Linux: "
             f"sudo apt install gstreamer1.0-plugins-ugly")
     return _profil_bauen(element, caps,
-                         _cpu_eigenschaften(element, crf, preset), log)
+                         _cpu_eigenschaften(element, crf, preset), log, audio)
 
 
 # Ein Deckel, der praktisch nie greift. x264enc benutzt seine
@@ -872,37 +995,68 @@ def _anmelden(element, log):
         fabrik.set_rank(Gst.Rank.MARGINAL)
 
 
-def _profil_bauen(element, video_caps, eigenschaften, log):
+def _eigenschaften_setzen(profil, element, eigenschaften, log):
+    """Elementeigenschaften an ein Teilprofil haengen.
+
+    Die Werte laufen erst durch ein Probe-Element. Grund: "speed-preset"
+    ist eine Aufzaehlung, und ein Text wird dafuer abgelehnt ("unable to set
+    property 'speed-preset' ... from value of type 'gchararray'"). Setzt man
+    ihn am Element, uebernimmt PyGObject die Umwandlung, und der
+    zurueckgelesene Wert hat den richtigen Typ. Ausserdem faellt so gleich
+    auf, wenn eine Eigenschaft gar nicht existiert - dann steht es im Log
+    statt spaeter still danebenzugehen.
+    """
+    if not eigenschaften:
+        log(f"[GES] Encoder: {element}")
+        return
+    probe = Gst.ElementFactory.make(element, None)
+    struktur = Gst.Structure.new_empty("element-properties")
+    for name, wert in eigenschaften.items():
+        try:
+            probe.set_property(name, wert)
+            struktur.set_value(name, probe.get_property(name))
+        except Exception as exc:
+            log(f"[GES] {element}: {name}={wert} not set ({exc})")
+    profil.set_element_properties(struktur)
+    log(f"[GES] Encoder: {element} ({struktur.to_string()})")
+
+
+def _audio_profil(kbps, log):
+    """Das Teilprofil der Tonspur: AAC ueber den ersten vorhandenen
+    Encoder aus _AAC_ENCODER, mit der Bitrate aus dem Encoder Setup."""
+    element = next((e for e in _AAC_ENCODER if _element_da(e)), None)
+    if element is None:
+        raise GesRenderError(
+            "No AAC encoder found (" + ", ".join(_AAC_ENCODER) + "). "
+            "Nothing was encoded. On Linux: sudo apt install "
+            "gstreamer1.0-libav gstreamer1.0-plugins-bad - or switch "
+            "audio off in the encoder setup.")
+    _anmelden(element, log)
+    profil = GstPbutils.EncodingAudioProfile.new(
+        Gst.Caps.from_string(_AAC), None, None, 0)
+    profil.set_preset_name(element)
+    werte = {}
+    if kbps:
+        werte["bitrate"] = int(kbps) * 1000
+    _eigenschaften_setzen(profil, element, werte, log)
+    return profil
+
+
+def _profil_bauen(element, video_caps, eigenschaften, log, audio=None):
     _anmelden(element, log)
     behaelter = GstPbutils.EncodingContainerProfile.new(
-        "KVRouite", "MP4 without audio",
+        "KVRouite", "MP4" if audio is not None else "MP4 without audio",
         Gst.Caps.from_string("video/quicktime,variant=iso"), None)
     video = GstPbutils.EncodingVideoProfile.new(
         Gst.Caps.from_string(video_caps), None, None, 0)
     video.set_preset_name(element)
-
-    if eigenschaften:
-        # Die Werte laufen erst durch ein Probe-Element. Grund: "speed-preset"
-        # ist eine Aufzaehlung, und ein Text wird dafuer abgelehnt
-        # ("unable to set property 'speed-preset' ... from value of type
-        # 'gchararray'"). Setzt man ihn am Element, uebernimmt PyGObject die
-        # Umwandlung, und der zurueckgelesene Wert hat den richtigen Typ.
-        # Ausserdem faellt so gleich auf, wenn eine Eigenschaft gar nicht
-        # existiert - dann steht es im Log statt spaeter still danebenzugehen.
-        probe = Gst.ElementFactory.make(element, None)
-        struktur = Gst.Structure.new_empty("element-properties")
-        for name, wert in eigenschaften.items():
-            try:
-                probe.set_property(name, wert)
-                struktur.set_value(name, probe.get_property(name))
-            except Exception as exc:
-                log(f"[GES] {element}: {name}={wert} not set ({exc})")
-        video.set_element_properties(struktur)
-        log(f"[GES] Encoder: {element} ({struktur.to_string()})")
-    else:
-        log(f"[GES] Encoder: {element}")
-
+    _eigenschaften_setzen(video, element, eigenschaften, log)
     behaelter.add_profile(video)
+
+    if audio is not None:
+        behaelter.add_profile(_audio_profil(audio, log))
+    else:
+        log("[GES] Audio: off")
     return behaelter
 
 
@@ -1192,6 +1346,10 @@ def ges_xfade_main(cfg_path, abbruch=None):
     view360_cfg = cfg.get("view360") or {}
     bitrate_mbps = QSettings("KVRouite", "KVRouite").value(
         "encoder/bitrate_mbps", 20, type=int)
+    # Tonspur (seit 7.0): "audio" wahr/falsch, "audio_kbps" die AAC-Bitrate.
+    # Aeltere Konfigurationen kennen die Schluessel nicht - dann ohne Ton,
+    # wie bis 6.14.
+    audio_kbps = int(cfg.get("audio_kbps", 128) or 128) if cfg.get("audio") else None
 
     log = print
     log("[GES] Render engine: GStreamer Editing Services (second path)")
@@ -1202,6 +1360,12 @@ def ges_xfade_main(cfg_path, abbruch=None):
     log(f"[GES] Source: {len(videos)} file(s), "
         f"{quellen.gesamt_ns / NS:.6f}s, {q_breite}x{q_hoehe} @ "
         f"{q_num}/{q_den}")
+    if audio_kbps is not None:
+        ohne = quellen.ohne_ton()
+        log(f"[GES] Audio: AAC {audio_kbps} kbit/s"
+            + (f" - {len(ohne)} source file(s) without an audio track "
+               f"(silent there): " + ", ".join(os.path.basename(p) for p in ohne)
+               if ohne else ""))
 
     # Zielgroesse wie ffmpegs "scale=BREITE:-2": Seitenverhaeltnis halten,
     # Hoehe auf eine gerade Zahl bringen.
@@ -1263,7 +1427,8 @@ def ges_xfade_main(cfg_path, abbruch=None):
     timeline, gesamt_ns = _timeline_bauen(quellen, skip_list, overlay_list,
                                           breite, hoehe, fps_n, fps_d, log,
                                           blicke, merge_fades)
-    profil = _profil(encoder, hw_encode, crf, preset, bitrate_mbps, log)
+    profil = _profil(encoder, hw_encode, crf, preset, bitrate_mbps, log,
+                     audio_kbps)
 
     ordner = os.path.dirname(os.path.abspath(final_out))
     if ordner and not os.path.isdir(ordner):

@@ -53,6 +53,12 @@ FELDER = (
     ("fps", "30"),
     ("xfade", 2),
     ("bitrate_mbps", 20),
+    # Seite "Audio" (ab 7.0): Tonspur an (1) oder aus (0), als Zahl statt
+    # bool - QSettings liefert aus Registry und .ini Text zurueck, und
+    # _lesen() bringt nur Zahlen und Text sicher auf ihren Typ. Dazu die
+    # AAC-Bitrate in kbit/s.
+    ("audio", 1),
+    ("audio_kbps", 128),
 )
 
 

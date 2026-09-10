@@ -8121,6 +8121,10 @@ class MainWindow(QMainWindow):
                 *framerate.parsen(s.value("encoder/fps", "30", type=str)))
             preset_val  = s.value("encoder/preset", "fast", type=str)
             width_val   = s.value("encoder/res_w", 1280, type=int)
+            # Seite "Audio" im Encoder Setup (ab 7.0): Tonspur an/aus und
+            # ihre Bitrate. Als Zahl abgelegt, siehe core/encoder_presets.
+            audio_an    = bool(s.value("encoder/audio", 1, type=int))
+            audio_kbps  = s.value("encoder/audio_kbps", 128, type=int)
 
             # 2) Cuts => skip_instructions
             #   Format [start_s, end_s, xfade]
@@ -8195,6 +8199,10 @@ class MainWindow(QMainWindow):
                 "fps": fps_val,
                 "width": width_val,
                 "preset": preset_val,
+                # Tonspur: ohne "audio" rendert ges_encoder_manager wie bis
+                # 6.14 ohne Ton.
+                "audio": audio_an,
+                "audio_kbps": audio_kbps,
                 # 360: derselbe Abschnitt wie in der Projektdatei. Ist er an,
                 # rendert ges_encoder_manager das projizierte 16:9-Bild statt
                 # des verzerrten 2:1-Equirects.

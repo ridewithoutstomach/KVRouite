@@ -24,12 +24,13 @@ import json
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QDialogButtonBox,
     QLabel, QComboBox, QSpinBox, QPushButton, QMessageBox,
-    QProgressDialog, QHBoxLayout, QInputDialog
+    QProgressDialog, QHBoxLayout, QInputDialog, QTabWidget, QWidget
 )
 from PySide6.QtCore import QSettings, Qt
 
 from core import framerate
 from core import encoder_presets
+from views.audio_setup_seite import AudioSeite
 
 
 # Hilfsfunktion: kurzer Test, ob ein FFmpeg-Encoder läuft
@@ -71,8 +72,19 @@ class EncoderSetupDialog(QDialog):
         preset_zeile.addWidget(self.btn_vorlage_loeschen)
         main_layout.addLayout(preset_zeile)
 
-        form_layout = QFormLayout()
-        main_layout.addLayout(form_layout)
+        # Zwei Seiten (ab 7.0): "Video" mit den Feldern, die es seit jeher
+        # gibt, und "Audio" (views/audio_setup_seite.py) fuer die Tonspur und
+        # kommende Werkzeuge fuer den Ton. Preset-Zeile und Knoepfe gelten
+        # fuer beide Seiten zusammen; ein Preset umfasst alle Felder.
+        self.seiten = QTabWidget(self)
+        main_layout.addWidget(self.seiten)
+
+        video_seite = QWidget(self.seiten)
+        form_layout = QFormLayout(video_seite)
+        self.seiten.addTab(video_seite, "Video")
+
+        self.audio_seite = AudioSeite(self.seiten)
+        self.seiten.addTab(self.audio_seite, "Audio")
 
         # (A) Resolution
         self.resolution_combo = QComboBox()
@@ -184,7 +196,7 @@ class EncoderSetupDialog(QDialog):
         w, h = self.resolution_combo.currentData()
         hw_ui = self.hw_combo.currentText()
         wert = self.fps_combo.currentData()
-        return {
+        werte = {
             "res_w": int(w),
             "res_h": int(h),
             "container": self.container_combo.currentText(),
@@ -196,6 +208,8 @@ class EncoderSetupDialog(QDialog):
             "xfade": self.xfade_spin.value(),
             "bitrate_mbps": self.bitrate_spin.value(),
         }
+        werte.update(self.audio_seite.werte())
+        return werte
 
     def _felder_setzen(self, werte: dict):
         """Alle Felder aus einem Satz fuellen.
@@ -239,6 +253,7 @@ class EncoderSetupDialog(QDialog):
 
         self.xfade_spin.setValue(int(werte.get("xfade", 2)))
         self.bitrate_spin.setValue(int(werte.get("bitrate_mbps", 20)))
+        self.audio_seite.setzen(werte)
 
     def _on_vorlage_gewaehlt(self, _index):
         name = self.vorlage_combo.currentData()
@@ -390,7 +405,12 @@ class EncoderSetupDialog(QDialog):
         if bitrate_val is None:
             bitrate_val = self._default_bitrate_for(stored_res)
         self.bitrate_spin.setValue(int(bitrate_val))
-        
+
+        # 7b) Seite "Audio" - als Zahlen abgelegt, siehe core/encoder_presets
+        self.audio_seite.setzen({
+            "audio": self.settings.value("encoder/audio", 1, type=int),
+            "audio_kbps": self.settings.value("encoder/audio_kbps", 128, type=int),
+        })
 
         # 8) Detected HW laden (wenn vorhanden)
         hw_json = self.settings.value("encoder/detected_hw_list", "")
@@ -556,5 +576,9 @@ class EncoderSetupDialog(QDialog):
             return
         self.settings.setValue("encoder/xfade", xfade_val)
         self.settings.setValue("encoder/bitrate_mbps", self.bitrate_spin.value())
+
+        # Seite "Audio"
+        for schluessel, wert in self.audio_seite.werte().items():
+            self.settings.setValue(f"encoder/{schluessel}", wert)
 
         self.accept()
