@@ -173,12 +173,11 @@ python KVRouite.py
 ```
 
 That is the Lite application. For the page Audio (sound track, traffic
-damper, voice remover) add the audio packages, once, in the same venv. On
-Linux install the CPU build of torch first - the one PyPI would pick ships
-CUDA and weighs 2.5 GB:
+damper, voice remover) add the audio packages, once, in the same venv -
+about 750 MB (the file points pip at PyTorch's CPU build, so no CUDA
+download):
 
 ```bash
-pip install torch==2.14.0 torchvision==0.29.0 --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements-audio.txt
 ```
 
