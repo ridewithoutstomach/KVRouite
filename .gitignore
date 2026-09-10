@@ -9,6 +9,10 @@ dist/
 *.egg-info/
 /scan_deadcode
 
+# Modelle des Voice Removers (core/stimme): 144 MB, geholt mit
+# tools/modelle_holen.py, vom Packer eingesammelt - nicht ins Repo.
+/voice_models/
+
 
 Homepage/
 alle_dateien.txt

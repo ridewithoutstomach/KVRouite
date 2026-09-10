@@ -291,32 +291,34 @@ def _cache_datei(pfad):
     return os.path.join(config.TEMP_SEGMENTS_CONTAINER, "verkehr", name + ".json")
 
 
-def analyse(pfad, log=None, fortschritt=None, abbruch=None):
+def analyse(pfad, log=None, fortschritt=None, abbruch=None, name=None):
     """Fundstellen einer Datei, aus dem Zwischenspeicher oder frisch.
 
+    name: wie die Datei im Protokoll heissen soll - beim Voice Remover wird
+    die WAV ohne Stimme abgefahren, genannt werden soll aber die Quelle.
     Rueckgabe: {"dauer": Sekunden, "ereignisse": [siehe ereignisse_finden]}
     """
     log = log or (lambda text: None)
+    name = name or os.path.basename(pfad)
     datei = _cache_datei(pfad)
     try:
         with open(datei, "r", encoding="utf-8") as f:
             daten = json.load(f)
         if daten.get("version") == VERSION and "ereignisse" in daten:
-            log(f"[TRAFFIC] {os.path.basename(pfad)}: "
-                f"{len(daten['ereignisse'])} spot(s) from cache")
+            log(f"[TRAFFIC] {name}: {len(daten['ereignisse'])} spot(s) from cache")
             return daten
     except (OSError, ValueError):
         pass
 
-    log(f"[TRAFFIC] {os.path.basename(pfad)}: scanning the audio track...")
+    log(f"[TRAFFIC] {name}: scanning the audio track...")
     pegel = pegel_messen(pfad, fortschritt, abbruch)
     daten = {
         "version": VERSION,
         "dauer": round(len(pegel) * RAHMEN_S, 3),
         "ereignisse": ereignisse_finden(pegel),
     }
-    log(f"[TRAFFIC] {os.path.basename(pfad)}: {len(daten['ereignisse'])} "
-        f"spot(s) in {daten['dauer']:.1f}s")
+    log(f"[TRAFFIC] {name}: {len(daten['ereignisse'])} spot(s) in "
+        f"{daten['dauer']:.1f}s")
     try:
         os.makedirs(os.path.dirname(datei), exist_ok=True)
         with open(datei, "w", encoding="utf-8") as f:

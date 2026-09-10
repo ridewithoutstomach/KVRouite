@@ -99,6 +99,138 @@ GSTREAMER_PAKETE = (
     "gstreamer_ext_runtime",
 )
 
+# Voice Remover (core/stimme, ab 7.0): die Trennbibliothek und ihre Modelle
+# kommen komplett in die App - Entscheidung vom 10.09.2026, kein Nachladen.
+#
+# audio_separator wird von core/stimme erst beim ersten Gebrauch importiert
+# (der Import kostet Sekunden), deshalb sieht PyInstaller ihn nicht von
+# selbst: --collect-all. torchvision ebenfalls: onnx2torch zieht es herein,
+# und seine native Bibliothek (_C_stable.pyd) uebersieht der Hook - ohne
+# --collect-all bricht der erste Gebrauch mit "operator torchvision::nms does
+# not exist" ab (gemessen am 10.09.2026 an einem Probebau).
+VOICE_PAKETE = ("audio_separator", "torchvision")
+#: Die Modelldateien, geholt mit tools/modelle_holen.py; landen in
+#: _internal/voice_models, wo core/stimme sie ueber config.finde_datei findet.
+VOICE_MODELLE = os.path.join(BASE_DIR, "voice_models")
+
+
+def _ist_platzhalter(name):
+    """Ist die installierte Verteilung 'name' der KVRouite-Platzhalter aus
+    tools/diffq_platzhalter? Erkennung: "KVRouite" in der Beschreibung."""
+    import importlib.metadata
+    try:
+        dist = importlib.metadata.distribution(name)
+    except importlib.metadata.PackageNotFoundError:
+        return False
+    return "KVRouite" in (dist.metadata.get("Summary") or "")
+
+
+def _dist_info_ist_platzhalter(pfad):
+    """Dasselbe fuer einen dist-info-Ordner im fertigen Build."""
+    try:
+        with open(os.path.join(pfad, "METADATA"), "r", encoding="utf-8",
+                  errors="replace") as f:
+            return "KVRouite" in f.read()
+    except OSError:
+        return False
+
+
+def voice_voraussetzungen_pruefen():
+    """Was VOR dem Packen stimmen muss, sonst ist der Build wertlos oder
+    nicht auslieferbar. Bricht mit klarer Meldung ab."""
+    # 1) Python 3.12.1 oder neuer. 3.12.0 traegt CPython-Fehler 110543:
+    #    code.replace() verliert das Kennzeichen inliner Komprehensionen, und
+    #    PyInstaller ruft es fuer jede Datei. Folge: scipy.stats bricht beim
+    #    Import mit "NameError: name 'obj' is not defined" - gemessen am
+    #    10.09.2026, mit 3.12.10 verschwunden.
+    if sys.version_info[:3] < (3, 12, 1):
+        raise SystemExit("[ABBRUCH] Python %d.%d.%d - der Voice Remover "
+                         "braucht zum Packen Python 3.12.1 oder neuer "
+                         "(CPython-Fehler 110543 in 3.12.0)."
+                         % sys.version_info[:3])
+    # 2) "diffq-fixed" (Original: CC BY-NC 4.0) und "diffq" muessen die
+    #    Platzhalter aus tools/diffq_platzhalter sein - requirements.txt
+    #    installiert sie unter genau diesen Namen, erkennbar an "KVRouite"
+    #    in der Beschreibung. Alles andere darf nicht ausgeliefert werden.
+    for name in ("diffq-fixed", "diffq"):
+        if not _ist_platzhalter(name):
+            raise SystemExit("[ABBRUCH] Das Paket %s ist nicht der KVRouite-"
+                             "Platzhalter (oder fehlt). Das Original steht "
+                             "unter CC BY-NC: pip uninstall -y diffq-fixed "
+                             "diffq, dann pip install -r requirements.txt "
+                             "aus dem Projektverzeichnis." % name)
+    # 3) Bibliothek und Modelle da?
+    for paket in ("audio_separator", "torchvision", "torch", "onnxruntime"):
+        if importlib.util.find_spec(paket) is None:
+            raise SystemExit("[ABBRUCH] %s ist nicht installiert - "
+                             "pip install -r requirements.txt" % paket)
+    sys.path.insert(0, BASE_DIR)
+    from core import stimme
+    ok, grund = stimme.verfuegbar()
+    if not ok:
+        raise SystemExit("[ABBRUCH] Voice Remover: %s - "
+                         "python tools/modelle_holen.py" % grund)
+    # 4) Lizenztexte auf dem Stand DIESER venv: das Inventar in
+    #    third-party-licenses/voice muss zu den Paketen passen, die gleich
+    #    eingepackt werden (audioop-lts etwa gibt es nur ab Python 3.13).
+    #    Das Werkzeug schreibt das Inventar neu; fehlt einem Paket der Text,
+    #    bricht es mit Rueckgabewert 1 ab - und damit auch der Bau.
+    lauf = subprocess.run([sys.executable,
+                           os.path.join(BASE_DIR, "tools", "lizenzen_sammeln.py")],
+                          capture_output=True, text=True)
+    if lauf.returncode != 0:
+        print(lauf.stdout[-2000:])
+        raise SystemExit("[ABBRUCH] Lizenztexte des Voice Removers unvollstaendig "
+                         "- siehe tools/lizenzen_sammeln.py oben.")
+    print("[INFO] Voice Remover: Python %d.%d.%d, Bibliothek und Modelle da, "
+          "Lizenzinventar aus dieser venv geschrieben."
+          % sys.version_info[:3])
+
+
+def check_voice_payload(internal_dir):
+    """Ist der Voice Remover wirklich im Build gelandet, und nichts, was
+    nicht hinein darf? Rueckgabe: Liste der Befunde, leer heisst gut."""
+    befunde = []
+    for paket in VOICE_PAKETE + ("torch", "onnxruntime"):
+        if not os.path.isdir(os.path.join(internal_dir, paket)):
+            befunde.append("%s fehlt in _internal" % paket)
+    modelle = os.path.join(internal_dir, "voice_models")
+    if not os.path.isdir(modelle):
+        befunde.append("voice_models fehlt in _internal")
+    else:
+        from core import stimme
+        for _kennung, (datei, name) in stimme.MODELLE.items():
+            if not os.path.isfile(os.path.join(modelle, datei)):
+                befunde.append("Modell %s (%s) fehlt" % (datei, name))
+    for name in os.listdir(internal_dir):
+        pfad = os.path.join(internal_dir, name)
+        if name.lower().startswith(("diffq_fixed", "diffq-")) and name.endswith(".dist-info"):
+            if not _dist_info_ist_platzhalter(pfad):
+                befunde.append("%s im Build ist nicht der KVRouite-Platzhalter "
+                               "- CC BY-NC, nicht auslieferbar" % name)
+        elif name.lower() == "diffq" and os.path.isdir(pfad):
+            # Der Platzhalter ist reines Python und wandert ins PYZ-Archiv;
+            # ein Ordner _internal/diffq mit Binaerdateien waere das Original.
+            if any(f.endswith((".pyd", ".so", ".dll")) for f in os.listdir(pfad)):
+                befunde.append("_internal/diffq enthaelt Binaerdateien - "
+                               "das ist nicht der Platzhalter")
+    print("-" * 70)
+    if befunde:
+        print("[FEHLER] Voice Remover unvollstaendig oder nicht auslieferbar:")
+        for b in befunde:
+            print("            ", b)
+    else:
+        groesse = 0
+        for paket in VOICE_PAKETE + ("torch", "onnxruntime", "voice_models"):
+            for wurzel, _d, dateien in os.walk(os.path.join(internal_dir, paket)):
+                groesse += sum(os.path.getsize(os.path.join(wurzel, f)) for f in dateien)
+        print("[OK]     Voice Remover vollstaendig: torch, onnxruntime, "
+              "audio_separator, torchvision, voice_models - %d MB."
+              % (groesse // 1_000_000))
+    print("-" * 70)
+    return befunde
+
+
 def write_sha256(path: str) -> str:
     """
     Erzeugt neben <path> eine Datei <path>.sha256 mit Inhalt:
@@ -760,6 +892,9 @@ def build_windows(build_setup: bool = False):
     else:
         print("[WARN] icon_icon.ico nicht gefunden – PyInstaller nutzt Default-Icon.")
 
+    # Voice Remover: Python-Version, Lizenzfalle, Modelle - VOR dem Packen.
+    voice_voraussetzungen_pruefen()
+
     # ---------------- PyInstaller -----------------
     # WICHTIG: --distpath = artifacts_root → erzeugt <artifacts_root>\KVRTmp
     print("[INFO] Starte PyInstaller (onedir) → Ziel:", artifacts_root)
@@ -773,6 +908,9 @@ def build_windows(build_setup: bool = False):
     ]
     # GStreamer muss ausdruecklich mit, siehe GSTREAMER_PAKETE oben.
     cmd += [f"--collect-all={paket}" for paket in GSTREAMER_PAKETE]
+    # Voice Remover: Bibliothek und Modelle, siehe VOICE_PAKETE oben.
+    cmd += [f"--collect-all={paket}" for paket in VOICE_PAKETE]
+    cmd += [f"--add-data={VOICE_MODELLE}{os.pathsep}voice_models"]
     cmd += [main_script]
     # leere Strings aus cmd entfernen
     cmd = [c for c in cmd if c]
@@ -826,6 +964,7 @@ def build_windows(build_setup: bool = False):
 
     cli_werkzeuge_entfernen(internal_dir)
     fehlende_gstreamer_pakete = check_gstreamer_payload(internal_dir)
+    voice_befunde = check_voice_payload(internal_dir)
     qt_abspecken(internal_dir)
     qt_befunde = check_qt_payload(internal_dir)
 
@@ -917,6 +1056,8 @@ def build_windows(build_setup: bool = False):
     if fehlende_gstreamer_pakete:
         raise SystemExit("[ABBRUCH] GStreamer ist unvollstaendig - der Build "
                          "wuerde nicht starten.")
+    if voice_befunde:
+        raise SystemExit("[ABBRUCH] Voice Remover: %s." % "; ".join(voice_befunde))
     if qt_befunde:
         raise SystemExit("[ABBRUCH] Qt ist nach dem Abspecken unvollstaendig "
                          "(%d Befund(e), siehe [QT] FEHLER oben) - so wuerde "

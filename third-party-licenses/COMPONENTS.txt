@@ -7,8 +7,9 @@ each package is the one it declares in its own metadata, quoted unchanged.
 
 --------------------------------------------------------------------------------
 
-CPython 3.12
-  The Python runtime: python312.dll and the standard library modules in
+CPython 3.12 or 3.14 (the version the build was made with; the Copyright
+dialog in the application names it exactly)
+  The Python runtime: python3xx.dll and the standard library modules in
   "_internal". PyInstaller embeds them so the application runs without a
   separate Python installation.
   --> REQUIRED: KVRouite is a Python application.
@@ -46,6 +47,65 @@ fitparse 1.2.0
   --> REQUIRED by KVRouite: importing FIT recordings.
   https://github.com/dtcooper/python-fitparse
   License: MIT
+
+--------------------------------------------------------------------------------
+ Voice remover (since 7.0) - the packages in "voice/"
+--------------------------------------------------------------------------------
+KVRouite 7.0 can remove voices from the sound track (Encoder Setup, page
+Audio, "Remove voices"). This is done by trained separation models, run
+through the library python-audio-separator. Everything needed for it is
+shipped inside the build - nothing is downloaded at run time.
+
+The Python packages this brings in (about fifty, torch being the largest)
+are listed with version and declared license in voice/INVENTAR.txt; the
+full license texts are the voice/LICENSE.<package> files. Both are produced
+by tools/lizenzen_sammeln.py from the build environment. Highlights:
+
+python-audio-separator 0.47.0  (MIT, Andrew Beveridge)
+  The separation core of Ultimate Vocal Remover as a library. Its
+  architecture code comes from Meta (Demucs), tsurumeso (VR), kuielab /
+  Woosung Choi (MDX-Net) and Roman Solovyev / ZFTurbo (MDX23C) - all MIT.
+  Their notices are in voice/LICENSE.audio-separator and, for the ones the
+  library omits, in NOTICE.txt in this folder.
+  --> REQUIRED by KVRouite: voice removal.
+
+torch 2.14.0 (BSD-3-Clause and others, see voice/LICENSE.torch),
+onnxruntime 1.29.0 (MIT, Microsoft), numpy, scipy, scikit-learn, librosa,
+numba, llvmlite - the numeric stack the models run on. CPU builds only.
+
+libsndfile (LGPL-2.1-or-later) and libsoxr (LGPL-2.1-or-later)
+  Shipped inside the soundfile and soxr wheels as separate shared
+  libraries (_soundfile_data/libsndfile_x64.dll, soxr/). Texts:
+  voice/LICENSE.libsndfile, voice/LICENSE.soxr. As for GStreamer, the LGPL
+  asks for the library to stay replaceable (it is a separate file) and for
+  its source to be obtainable - see NOTICE.txt.
+
+The models themselves - the trained weights in "voice_models/":
+  UVR-MDX-NET-Inst_HQ_3.onnx   trained by the Ultimate Vocal Remover team
+                               (Anjok07, aufr33), released under MIT per the
+                               UVR README, credit requested and given here.
+  htdemucs (955717e8-8726e21a.th)  Demucs v4 by Meta Platforms, MIT.
+  The metadata files next to them (*.json, htdemucs.yaml) come from the
+  same sources.
+
+NOT shipped: diffq-fixed, a Windows dependency of audio-separator. It is
+licensed CC BY-NC 4.0 (non-commercial), which does not fit a GPL program.
+KVRouite installs its own stand-ins under the names "diffq-fixed" and
+"diffq" instead (tools/diffq_platzhalter in the source tree, GPL like the
+rest of KVRouite); the original is only needed for quantised Demucs models,
+which KVRouite does not use. The stand-in's metadata says "KVRouite
+stand-in" so it cannot be mistaken for the original.
+
+--------------------------------------------------------------------------------
+ Traffic damper (since 7.0) - no third-party code
+--------------------------------------------------------------------------------
+"Damp passing vehicles" (Encoder Setup, page Audio) is KVRouite's own code:
+GStreamer's level element finds the passing vehicles, the treatment is
+built from clips on the GStreamer Editing Services timeline. The treatment
+follows the method of Kinotomo Audio by benilerouge.org (MIT): pull the
+stretch down and lay nearby ride noise over it. No code was taken from it,
+so no license obligation arises; the mention is a courtesy to its author,
+who shared the source.
 
 --------------------------------------------------------------------------------
  Not shipped, although KVRouite can use them

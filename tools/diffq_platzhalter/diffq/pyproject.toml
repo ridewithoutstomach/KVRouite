@@ -1,0 +1,27 @@
+# KVRouite - Platzhalter fuer "diffq" (Linux, macOS). NICHT das Original.
+#
+# Ausserhalb von Windows verlangt python-audio-separator "diffq>=0.2", das
+# MIT-lizenzierte Original von facebookresearch. Es gibt davon nur ein
+# Quellpaket mit Cython-Erweiterung, das beim Installieren einen Compiler
+# braucht - und KVRouite braucht das Paket gar nicht (siehe ../diffq_fixed).
+#
+# Diese Verteilung ist leer: sie liefert KEIN Modul. Das Modul "diffq"
+# kommt auf allen Systemen aus ../diffq_fixed, das requirements.txt
+# ebenfalls nennt. Zwei Verteilungen mit demselben Modul wuerden sich beim
+# Installieren gegenseitig ueberschreiben; deshalb traegt nur eine davon
+# Dateien.
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "diffq"
+version = "0.2.4"
+description = "KVRouite stand-in for diffq (NOT the original): empty distribution, the diffq module comes from the diffq-fixed stand-in"
+license = {text = "GPL-3.0-or-later"}
+authors = [{name = "Bernd Eller"}]
+requires-python = ">=3.10"
+
+[tool.setuptools]
+packages = []

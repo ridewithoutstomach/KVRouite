@@ -23,6 +23,8 @@
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QCheckBox, QDialogButtonBox, QScrollArea
 )
+import sys
+
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 
@@ -109,12 +111,22 @@ class DisclaimerDialog(QDialog):
             "<a href='https://pyside.org'>pyside.org</a></li>"
             "<li><b>OpenLayers 7.3.0</b> \u2013 BSD-2-Clause \u2013 "
             "<a href='https://openlayers.org'>openlayers.org</a></li>"
-            "<li><b>CPython 3.12</b> (PSF), <b>OpenSSL 3</b> (Apache-2.0), "
+            "<li><b>CPython %d.%d</b> (PSF), <b>OpenSSL 3</b> (Apache-2.0), "
+            % (sys.version_info.major, sys.version_info.minor) +
             "<b>Pillow</b> (MIT-CMU), <b>fitparse</b> (MIT)</li>"
             "<li><b>GStreamer 1.28.6, incl. GStreamer Editing Services (GES) "
             "and PyGObject</b> – LGPL-2.1-or-later; the bundled x264 and x265 "
             "encoder plugins are GPL-2.0-or-later – "
             "<a href='https://gstreamer.freedesktop.org'>gstreamer.freedesktop.org</a></li>"
+            "<li><b>Voice remover</b> (since 7.0) – "
+            "<a href='https://github.com/nomadkaraoke/python-audio-separator'>python-audio-separator</a> "
+            "(MIT) with PyTorch (BSD-3-Clause), ONNX Runtime (MIT), NumPy, SciPy, "
+            "librosa and further packages (BSD, MIT, ISC, Apache-2.0, MPL-2.0); "
+            "libsndfile and libsoxr among them are LGPL-2.1-or-later and "
+            "replaceable shared libraries. Separation models: MDX-Net trained by "
+            "the <a href='https://github.com/Anjok07/ultimatevocalremovergui'>Ultimate "
+            "Vocal Remover</a> team (MIT) and Demucs v4 by Meta (MIT) – list and "
+            "texts in <code>_internal/third-party-licenses/voice</code></li>"
             "</ul>"
             "The GStreamer bundle also contains the FFmpeg 7.1 shared libraries "
             "(LGPL build)<br>used by its gst-libav plugin – see "
@@ -165,9 +177,18 @@ class DisclaimerDialog(QDialog):
         # (2) Signal abfangen ⇒ Linkklick
         self.label_info.linkActivated.connect(self._on_link_clicked)
 
-        # (3) CheckBox
+        # (3) CheckBox - erst anklickbar, wenn der Text bis unten gerollt
+        # wurde (Berns Wunsch vom 10.09.2026, wie bei anderen Programmen
+        # ueblich). Passt der Text ohne Rollen ins Fenster, ist er sofort
+        # frei. Beides entscheidet der Rollbalken: rangeChanged kommt, sobald
+        # die Hoehe des Textes bekannt ist, valueChanged beim Rollen.
         self.chkConfirm = QCheckBox("I confirm I have read and accept these terms.", self)
+        self.chkConfirm.setEnabled(False)
+        self.chkConfirm.setToolTip("Scroll to the end of the text first.")
         layout.addWidget(self.chkConfirm)
+        self._rollbalken = bereich.verticalScrollBar()
+        self._rollbalken.valueChanged.connect(self._gelesen_pruefen)
+        self._rollbalken.rangeChanged.connect(self._gelesen_pruefen)
 
         # (4) ButtonBox => OK / Cancel
         btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
@@ -182,6 +203,15 @@ class DisclaimerDialog(QDialog):
 
     def on_checkbox_changed(self, state):
         self.btn_ok.setEnabled(self.chkConfirm.isChecked())
+
+    def _gelesen_pruefen(self, *_args):
+        """Unten angekommen (oder nichts zu rollen)? Dann den Haken freigeben.
+        Einmal frei bleibt frei - wer zurueckrollt, muss nicht noch einmal."""
+        if self.chkConfirm.isEnabled():
+            return
+        if self._rollbalken.value() >= self._rollbalken.maximum():
+            self.chkConfirm.setEnabled(True)
+            self.chkConfirm.setToolTip("")
 
     def _on_link_clicked(self, url: str):
         """

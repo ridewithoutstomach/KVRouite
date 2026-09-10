@@ -80,6 +80,7 @@ from PySide6.QtCore import QUrl, QTimer
 from PySide6.QtGui import QDesktopServices
 
 from .encoder_setup_dialog import EncoderSetupDialog  # Import Dialog
+from .export_bestaetigung import ExportBestaetigung
 
 from config import TMP_KEYFRAME_DIR, MY_GLOBAL_TMP_DIR, is_soft_opengl_enabled
 from core.mp4_keyframes import keyframe_times_from_index
@@ -5892,15 +5893,22 @@ class MainWindow(QMainWindow):
 
 
     def _show_copyright_dialog(self):
-        from PySide6.QtGui import QPixmap
-        from PySide6.QtWidgets import QMessageBox
+        """Hilfe -> Copyright + License: die Hinweise zum Nachlesen.
+
+        Ein eigener Dialog mit rollbarem Text statt einer QMessageBox: die
+        Box waechst mit ihrem Inhalt, und seit dem Voice Remover (7.0) fuellte
+        sie die ganze Bildschirmhoehe. Und ohne den Satz "By clicking 'I
+        Accept'": der gehoert in den Disclaimer beim ersten Start, hier gibt
+        es nichts anzunehmen, nur zu lesen. Beides von Bernd am 10.09.2026
+        gemeldet.
+        """
+        from PySide6.QtWidgets import QTextBrowser
         from PySide6.QtCore import Qt
         import os
         import base64
 
-    
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Copyright")
+        msg = QDialog(self)
+        msg.setWindowTitle("Copyright + License")
     
         # Ueber config.finde_datei() - siehe dort, warum mehrere Orte.
         from config import finde_datei
@@ -5943,7 +5951,7 @@ class MainWindow(QMainWindow):
             <b>2. OpenLayers 7.3.0</b> -
             <a href='https://openlayers.org'>openlayers.org</a> (BSD-2-Clause),
             the map library<br>
-            <b>3. CPython 3.12</b> (PSF), <b>OpenSSL 3</b> (Apache-2.0),
+            <b>3. CPython {sys.version_info.major}.{sys.version_info.minor}</b> (PSF), <b>OpenSSL 3</b> (Apache-2.0),
             <b>Pillow</b> (MIT-CMU), <b>fitparse</b> (MIT)<br>
             <b>4. GStreamer 1.28.6</b>, incl. GStreamer Editing Services (GES) and
             PyGObject -
@@ -5951,7 +5959,20 @@ class MainWindow(QMainWindow):
             (LGPL-2.1-or-later; the bundled x264 and x265 encoder plugins are
             GPL-2.0-or-later). The bundle also contains the FFmpeg 7.1 shared
             libraries (LGPL build) used by its gst-libav plugin - see
-            <code>COMPONENTS.txt</code>.<br><br>
+            <code>COMPONENTS.txt</code>.<br>
+            <b>5. Voice remover</b> (since 7.0) -
+            <a href='https://github.com/nomadkaraoke/python-audio-separator'>python-audio-separator</a>
+            (MIT) with <b>PyTorch</b> (BSD-3-Clause), <b>ONNX Runtime</b> (MIT),
+            NumPy, SciPy, librosa and further packages (BSD, MIT, ISC, Apache-2.0,
+            MPL-2.0), listed with their license texts in
+            <code>_internal/third-party-licenses/voice</code>. Two of them are
+            LGPL-2.1-or-later and replaceable shared libraries: <b>libsndfile</b>
+            and <b>libsoxr</b>. The separation models are the MDX-Net model
+            trained by the <a href='https://github.com/Anjok07/ultimatevocalremovergui'>Ultimate
+            Vocal Remover</a> team (Anjok07, aufr33; MIT) and <b>Demucs v4</b>
+            by Meta (MIT); their architecture code comes from Meta, tsurumeso,
+            kuielab and ZFTurbo (all MIT) - see
+            <code>_internal/third-party-licenses/LICENSE.UVR-upstreams</code>.<br><br>
 
             GStreamer is what plays, cuts and renders video in KVRouite, so it is
             always loaded. On Linux it is not distributed with KVRouite at all -
@@ -5987,16 +6008,22 @@ class MainWindow(QMainWindow):
             <i>Claude</i> (Anthropic). Copyright and responsibility for the code
             remain with the author named above.<br><br>
 
-            <b>By clicking 'I Accept', you acknowledge that you have read and
-            understood the GNU General Public License terms.</b><br><br>
-            
             <div style='text-align: center; margin-top: 20px;'>
                 <img src='data:image/png;base64,{logo_base64}' width='200' style='max-width: 200px;'>
             </div>
         </div>
         """
-    
-        msg.setText(message_text)
+
+        text = QTextBrowser(msg)
+        text.setOpenExternalLinks(True)
+        text.setHtml(message_text)
+        knopf = QDialogButtonBox(QDialogButtonBox.Ok, msg)
+        knopf.accepted.connect(msg.accept)
+        aussen = QVBoxLayout(msg)
+        aussen.addWidget(text, 1)
+        aussen.addWidget(knopf, 0, Qt.AlignRight)
+        # Feste, bildschirmtaugliche Groesse; der Text rollt darin.
+        msg.resize(720, 640)
         msg.exec()
     
     
@@ -8088,14 +8115,32 @@ class MainWindow(QMainWindow):
         
     ## on_safe_click
     def on_render_clicked(self):
-        # 1) Sicherheitsabfrage
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Are you sure?")
-        msg.setText("We are now creating the final video, changes are no longer possible! Sure?")
-        msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        r = msg.exec()
-        if r == QMessageBox.No:
-            return
+        # 1) Sicherheitsabfrage. Im Encode-Mode zeigt sie zugleich die
+        # Encoder-Einstellungen und die drei Schalter der Tonspur
+        # (views/export_bestaetigung) - was dort umgeschaltet wird, steht
+        # danach in den Einstellungen und wird unten gelesen.
+        if self._edit_mode == "encode":
+            # Fuer den Zeithinweis zaehlt, was im Ergebnis landet: die
+            # Gesamtlaenge ohne die Schnitte.
+            gesamt = float(getattr(self, "real_total_duration", 0.0) or 0.0)
+            try:
+                gesamt -= sum(max(0.0, float(e) - float(s))
+                              for (s, e) in self.cut_manager.get_cut_intervals())
+            except Exception:
+                pass
+            frage = ExportBestaetigung(
+                self, gesamt_sekunden=max(0.0, gesamt),
+                dateien=len(self.playlist))
+            if frage.exec() != QDialog.Accepted:
+                return
+        else:
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Are you sure?")
+            msg.setText("We are now creating the final video, changes are no longer possible! Sure?")
+            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            r = msg.exec()
+            if r == QMessageBox.No:
+                return
 
         if not self.playlist:
             QMessageBox.warning(self, "Error", "No videos in playlist!")
@@ -8127,6 +8172,8 @@ class MainWindow(QMainWindow):
             audio_kbps  = s.value("encoder/audio_kbps", 128, type=int)
             traffic_an  = bool(s.value("encoder/traffic", 0, type=int))
             traffic_db  = s.value("encoder/traffic_db", 12, type=int)
+            voice_an    = bool(s.value("encoder/voice", 0, type=int))
+            voice_model = s.value("encoder/voice_model", "mdx", type=str)
 
             # 2) Cuts => skip_instructions
             #   Format [start_s, end_s, xfade]
@@ -8208,6 +8255,9 @@ class MainWindow(QMainWindow):
                 # Verkehr daempfen (core/verkehr): Schalter und Daempfer.
                 "traffic": traffic_an,
                 "traffic_db": traffic_db,
+                # Stimmen entfernen (core/stimme): Schalter und Modell.
+                "voice": voice_an,
+                "voice_model": voice_model,
                 # 360: derselbe Abschnitt wie in der Projektdatei. Ist er an,
                 # rendert ges_encoder_manager das projizierte 16:9-Bild statt
                 # des verzerrten 2:1-Equirects.

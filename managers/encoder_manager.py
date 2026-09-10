@@ -57,18 +57,31 @@ class _StringStream:
 
 
 # --- NEU: print() nur innerhalb eines Blocks wieder aktivieren ---
+def _std_print(*args, **kwargs):
+    """Das print des Exportfensters: schreibt nach sys.stdout, das waehrend
+    des Exports ins Textfeld umgeleitet ist.
+
+    AUF MODULEBENE, nicht in __enter__ verschachtelt: numba prueft beim Import
+    (numba/core/typing/templates.py, register_global) fuer jedes eingebaute
+    Objekt, ob getattr(sys.modules[obj.__module__], obj.__name__) noch dasselbe
+    Objekt ist. Fuer builtins.print landet es dann hier - und eine
+    verschachtelte Funktion gibt es unter ihrem Namen im Modul nicht. So
+    brach am 10.09.2026 der Voice Remover (librosa importiert numba) mit
+    "module 'managers.encoder_manager' has no attribute '_std_print'" ab.
+    """
+    sep   = kwargs.get("sep", " ")
+    end   = kwargs.get("end", "\n")
+    file  = kwargs.get("file", sys.stdout)
+    flush = kwargs.get("flush", False)
+    file.write(sep.join(map(str, args)) + end)
+    if flush:
+        try: file.flush()
+        except Exception: pass
+
+
 class _EnablePrintTemporarily(contextlib.AbstractContextManager):
     def __enter__(self):
         self._old_print = builtins.print
-        def _std_print(*args, **kwargs):
-            sep   = kwargs.get("sep", " ")
-            end   = kwargs.get("end", "\n")
-            file  = kwargs.get("file", sys.stdout)
-            flush = kwargs.get("flush", False)
-            file.write(sep.join(map(str, args)) + end)
-            if flush:
-                try: file.flush()
-                except Exception: pass
         builtins.print = _std_print
         return self
     def __exit__(self, exc_type, exc, tb):

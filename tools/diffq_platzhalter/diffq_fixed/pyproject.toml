@@ -1,0 +1,32 @@
+# KVRouite - Platzhalter fuer "diffq-fixed". NICHT das Originalpaket.
+#
+# python-audio-separator verlangt unter Windows "diffq-fixed>=0.2". Das
+# Original steht unter Creative Commons BY-NC 4.0 (nicht kommerziell, mit
+# der GPL unvereinbar) und baut auf Python 3.14 nicht einmal (kein Wheel,
+# bitpack.pyx fehlt im Quellpaket). KVRouite braucht es nicht: es dient nur
+# quantisierten Demucs-Modellen, htdemucs ist keines.
+#
+# requirements.txt nennt dieses Verzeichnis VOR audio-separator. pip
+# installiert es dadurch als "diffq-fixed 0.2.4" und sieht die Forderung
+# von audio-separator damit als erfuellt an - ohne PyPI zu fragen. Es liefert
+# das Modul "diffq" mit den drei Namen, die audio-separator importiert; sie
+# werfen eine klare Meldung, falls doch einmal ein quantisiertes Modell
+# geladen wird.
+#
+# Die Version ist bewusst die des Originals, damit ">=0.2" passt. Der Packer
+# erkennt den Platzhalter an "KVRouite" in der Beschreibung.
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "diffq-fixed"
+version = "0.2.4"
+description = "KVRouite stand-in for diffq-fixed (NOT the original): empty diffq module, quantised Demucs models unsupported"
+license = {text = "GPL-3.0-or-later"}
+authors = [{name = "Bernd Eller"}]
+requires-python = ">=3.10"
+
+[tool.setuptools]
+packages = ["diffq"]

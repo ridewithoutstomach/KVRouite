@@ -20,7 +20,12 @@ KVRouite is a Python-based desktop application designed to synchronize GPX data 
 Requirements
 ------------
 
-- Python 3.10.9 (64-bit) or Python 3.12.0 (64-bit)
+- Python 3.12.10 or newer (64-bit), or Python 3.14.x (64-bit). Take the
+  regular build, not the free-threaded "3.14t" one. Since 7.0 the voice
+  remover pulls in PyTorch and friends, whose wheels exist for 3.12 to 3.14;
+  3.10 is no longer supported. **Building** the executable needs at least
+  3.12.1 - 3.12.0 has a bug (CPython issue 110543) that breaks scipy inside a
+  PyInstaller build; the build scripts refuse it.
 - ffmpeg and ffprobe in your PATH - **only** for the Copy-Mode. They are not
   shipped with KVRouite; without them Copy-Mode stays disabled and everything
   else works.
@@ -34,7 +39,11 @@ There are two requirements files:
 - "requirements-build.txt" - additional packages needed only to build the
   Windows executable (PyInstaller and its dependencies).
 
-If you just want to run KVRouite, "requirements.txt" is all you need.
+If you just want to run KVRouite, "requirements.txt" is all you need. Run
+pip from the project directory: two lines in it point at small stand-in
+packages inside the project (tools/diffq_platzhalter), which the voice
+remover's library would otherwise pull from PyPI under a non-commercial
+license.
 
 -------------------------------------------------------------------------------
 ## 🔧 Installation & Usage (Linux, Windows & macOS)
@@ -144,6 +153,8 @@ source venv/bin/activate
 # needs it while being installed, and setuptools provides the replacement -
 # so install it before the requirements.
 pip install --upgrade pip setuptools
+# torch from PyPI ships CUDA on Linux (2.5 GB); the CPU build is enough:
+pip install torch==2.14.0 torchvision==0.29.0 --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements.txt
 python KVRouite.py
 ```
@@ -246,9 +257,9 @@ for all platforms at the top of this chapter:
   libraries. The ready-made bundles contain the same libraries and have the
   same floor. Measured on 2026-09-04 in the shipped 6.03 bundles: 18 files
   declare a minimum of macOS 15.0, on both architectures.
-- **Python 3.12 (64-bit)** from [python.org](https://www.python.org/downloads/macos/)
-  - take the *macOS 64-bit universal2 installer*. Neither Homebrew nor pyenv is
-  needed.
+- **Python 3.12.10 or newer, or 3.14.x (64-bit)** from
+  [python.org](https://www.python.org/downloads/macos/) - take the *macOS
+  64-bit universal2 installer*. Neither Homebrew nor pyenv is needed.
 - Apple Silicon and Intel are both supported; the wheels are universal2.
 
 #### Setup and Run
@@ -375,11 +386,14 @@ Building the Windows Executable Manually
 ----------------------------------------
 
 To create your own Windows executable, install the build packages on top of
-the runtime ones:
+the runtime ones. Building needs Python 3.12.1 or newer (3.12.0 has a bug
+that breaks scipy inside a PyInstaller build), and the voice remover's
+models must be fetched once - they are packed into the executable:
 
     pip install --upgrade pip setuptools
     pip install -r requirements.txt
     pip install -r requirements-build.txt
+    python tools/modelle_holen.py
     python build_with_pyinstaller.py
 
 The resulting executable will be located at:
@@ -391,11 +405,13 @@ The resulting executable will be located at:
 Building the macOS Bundle Manually
 ----------------------------------
 
-On a Mac, with Python 3.12 and the runtime requirements already installed:
+On a Mac, with Python 3.12.1 or newer and the runtime requirements already
+installed (the voice remover's models are fetched once and packed in):
 
     pip install --upgrade pip setuptools
     pip install -r requirements.txt
     pip install -r requirements-build-macos.txt
+    python3 tools/modelle_holen.py
     python3 build_macos.py
 
 The build refuses to finish if anything is missing that must not be missing:
@@ -493,13 +509,54 @@ OpenLayers, CPython, OpenSSL, Pillow, fitparse
 - OpenLayers 7.3.0 (BSD-2-Clause) - the map library, shipped as "ol.js" and
   "ol.css" next to the executable, in the macOS bundle next to the program in
   "KVRouite.app/Contents/MacOS"
-- CPython 3.12 (Python Software Foundation License), OpenSSL 3 (Apache-2.0),
+- CPython 3.12 or 3.14, whichever the build was made with - the Copyright
+  dialog in the application shows the exact version (Python Software
+  Foundation License), OpenSSL 3 (Apache-2.0),
   Pillow 12.3.0 (MIT-CMU), fitparse 1.2.0 (MIT)
 - All permissive; none requires us to supply source code, but each requires
   its notice to travel with the binaries.
 - Notice and license texts: "third-party-licenses/" (in the Windows build:
   "_internal/third-party-licenses/"; in the macOS bundle:
   "KVRouite.app/Contents/Resources/third-party-licenses/")
+
+Voice remover (since 7.0)
+- Library: python-audio-separator 0.47.0 (MIT, Andrew Beveridge) - the
+  separation core of Ultimate Vocal Remover as a library. It brings in
+  PyTorch 2.14.0 (BSD-3-Clause and others), ONNX Runtime 1.29.0 (MIT), NumPy,
+  SciPy, scikit-learn, librosa, numba, llvmlite and about forty further Python
+  packages under MIT, BSD, ISC, Apache-2.0 and MPL-2.0. The complete list with
+  versions and declared licenses is "third-party-licenses/voice/INVENTAR.txt",
+  the license texts are the "third-party-licenses/voice/LICENSE.<package>"
+  files; both are generated from the build environment by
+  "tools/lizenzen_sammeln.py".
+- LGPL: two of those packages carry a library under LGPL-2.1-or-later -
+  libsndfile (inside "soundfile") and libsoxr (inside "soxr"). Both are
+  separate shared library files in the build, so they can be replaced, and
+  both are unmodified upstream releases whose source the respective projects
+  publish - see "third-party-licenses/NOTICE.txt".
+- Models, shipped in "voice_models" and packed into the build:
+  UVR-MDX-NET-Inst_HQ_3, trained by the Ultimate Vocal Remover team
+  (Anjok07, aufr33; MIT per the UVR README, credit requested and given), and
+  htdemucs, Demucs v4 by Meta Platforms (MIT). The models' architecture code
+  inside the library comes from Meta (Demucs), tsurumeso (VR), kuielab /
+  Woosung Choi (MDX-Net) and Roman Solovyev / ZFTurbo (MDX23C), all MIT; the
+  library omits some of their notices, which
+  "third-party-licenses/LICENSE.UVR-upstreams" restores.
+- Not shipped: diffq-fixed, a dependency the library declares on Windows,
+  licensed CC BY-NC 4.0. KVRouite installs its own GPL stand-in under that
+  name instead ("tools/diffq_platzhalter"); it is only needed for quantised
+  models, which KVRouite does not use. The build scripts refuse to package
+  the original.
+- Binaries: **Windows and macOS.** Installed by pip, placed into "_internal"
+  of the Windows build and into "KVRouite.app/Contents/Frameworks" of the
+  macOS bundle; the models go to "_internal/voice_models" and
+  "Contents/Resources/voice_models". On Linux nothing of this is distributed
+  with KVRouite.
+
+Traffic damper (since 7.0)
+- KVRouite's own code, no third-party component. The treatment follows the
+  method of Kinotomo Audio by benilerouge.org (MIT) - mentioned as a courtesy,
+  no code was taken.
 
 GoPro GPS Extraction
 - Based on: gopro2gpx by Juan M. Casillas (https://github.com/juanmcasillas/gopro2gpx)
@@ -516,9 +573,10 @@ licenses.
 KVRouite distributes no FFmpeg program - neither "ffmpeg" nor "ffprobe" - and
 no libmpv. Both build scripts check for them and refuse to package a build that
 contains either. The third-party binaries KVRouite does ship are the GStreamer
-ones and Qt/PySide6, together with the Python runtime, OpenSSL, Pillow and the
-other components listed above. Every one of them is passed on unchanged, and
-each is covered by its own entry above.
+ones and Qt/PySide6, together with the Python runtime, OpenSSL, Pillow, the
+voice remover's packages and models, and the other components listed above.
+Every one of them is passed on unchanged, and each is covered by its own entry
+above.
 
 For GStreamer no source archive is hosted here, and none needs to be: those
 binaries are the

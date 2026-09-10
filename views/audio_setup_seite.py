@@ -37,9 +37,11 @@ und in Presets abgelegt werden sie vom Dialog.
 """
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QFormLayout, QGroupBox, QCheckBox, QSpinBox, QLabel
+    QWidget, QVBoxLayout, QFormLayout, QGroupBox, QCheckBox, QSpinBox, QLabel,
+    QComboBox
 )
 
+from core import stimme
 from core import verkehr
 
 #: Grenzen der AAC-Bitrate in kbit/s. voaacenc nimmt bis 320 an; darunter
@@ -98,10 +100,41 @@ class AudioSeite(QWidget):
         vform.addRow("Damper (dB):", self.traffic_spin)
         aussen.addWidget(verkehr_gruppe)
 
+        # (C) Stimmen entfernen - core/stimme
+        stimme_gruppe = QGroupBox("Voices", self)
+        sform = QFormLayout(stimme_gruppe)
+        self.voice_check = QCheckBox("Remove voices", stimme_gruppe)
+        self.voice_check.setToolTip(
+            "Runs a separation model over the sound track of every source "
+            "file once (cached) and keeps everything but the voices. No "
+            "marking needed: the model listens to the whole track. On the "
+            "CPU this takes roughly as long as the audio lasts. "
+            "Encode-Mode with audio only.")
+        sform.addRow(self.voice_check)
+        self.voice_combo = QComboBox(stimme_gruppe)
+        for kennung, (_datei, name) in stimme.MODELLE.items():
+            self.voice_combo.addItem(name, userData=kennung)
+        self.voice_combo.setToolTip(
+            "MDX-Net: the UVR model, removes the voice directly. Demucs v4: "
+            "Meta's model, separates the voice and KVRouite subtracts it; "
+            "measured to leave the ride noise more intact. Both are shipped "
+            "with KVRouite.")
+        sform.addRow("Model:", self.voice_combo)
+        # Ohne Bibliothek oder Modelle bleibt die Gruppe grau und sagt warum -
+        # sichtbar in der Gruppe, nicht nur im Tooltip: ein ausgegrauter
+        # Schalter ohne Grund war am 10.09.2026 das Erste, was aufgefallen ist.
+        self._voice_ok, grund = stimme.verfuegbar()
+        if not self._voice_ok:
+            self.voice_check.setToolTip("Voice removal is not available: " + grund)
+            hinweis_voice = QLabel("Not available: " + grund, stimme_gruppe)
+            hinweis_voice.setWordWrap(True)
+            hinweis_voice.setStyleSheet("color: gray;")
+            sform.addRow(hinweis_voice)
+        aussen.addWidget(stimme_gruppe)
+
         # Platz fuer die naechsten Werkzeuge - siehe Modulkopf.
         hinweis = QLabel(
-            "Further audio tools (voice removal, volume) will appear on "
-            "this page.", self)
+            "Further audio tools (volume) will appear on this page.", self)
         hinweis.setWordWrap(True)
         hinweis.setStyleSheet("color: gray;")
         aussen.addWidget(hinweis)
@@ -109,13 +142,18 @@ class AudioSeite(QWidget):
 
         self.audio_check.toggled.connect(self._audio_umgeschaltet)
         self.traffic_check.toggled.connect(self.traffic_spin.setEnabled)
+        self.voice_check.toggled.connect(self.voice_combo.setEnabled)
+        self._audio_umgeschaltet(self.audio_check.isChecked())
 
     def _audio_umgeschaltet(self, an):
-        """Ohne Tonspur gibt es nichts zu daempfen - die Gruppe folgt dem
-        Schalter, ihre Werte bleiben erhalten."""
+        """Ohne Tonspur gibt es nichts zu daempfen und nichts zu entfernen -
+        die Gruppen folgen dem Schalter, ihre Werte bleiben erhalten."""
         self.kbps_spin.setEnabled(an)
         self.traffic_check.setEnabled(an)
         self.traffic_spin.setEnabled(an and self.traffic_check.isChecked())
+        voice = an and self._voice_ok
+        self.voice_check.setEnabled(voice)
+        self.voice_combo.setEnabled(voice and self.voice_check.isChecked())
 
     # ---------------------------
     # Werte in der Schreibweise von "encoder/"
@@ -126,6 +164,8 @@ class AudioSeite(QWidget):
             "audio_kbps": self.kbps_spin.value(),
             "traffic": 1 if self.traffic_check.isChecked() else 0,
             "traffic_db": self.traffic_spin.value(),
+            "voice": 1 if self.voice_check.isChecked() else 0,
+            "voice_model": self.voice_combo.currentData() or stimme.VORGABE,
         }
 
     @staticmethod
@@ -145,4 +185,7 @@ class AudioSeite(QWidget):
         db = self._zahl(werte, "traffic_db", verkehr.DAEMPFER_VORGABE_DB)
         self.traffic_spin.setValue(
             max(verkehr.DAEMPFER_MIN_DB, min(verkehr.DAEMPFER_MAX_DB, db)))
+        self.voice_check.setChecked(bool(self._zahl(werte, "voice", 0)))
+        index = self.voice_combo.findData(str(werte.get("voice_model", stimme.VORGABE)))
+        self.voice_combo.setCurrentIndex(max(0, index))
         self._audio_umgeschaltet(an)

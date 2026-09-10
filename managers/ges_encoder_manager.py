@@ -68,6 +68,7 @@ from PySide6.QtCore import QSettings
 
 # view360 faengt einen fehlenden GStreamer selbst ab und bleibt importierbar -
 # wer den ffmpeg-Weg benutzt, merkt davon nichts.
+from core import stimme
 from core import verkehr
 from core import view360
 from core.hardware_detect import GST_HW_ENCODER
@@ -205,6 +206,48 @@ class _Quellen:
             self.grenzen.append((lauf, lauf + dauer))
             lauf += dauer
         self.gesamt_ns = lauf
+        # Ersatz-Tonspuren (Voice Remover, core/stimme): Kennung des
+        # Quell-Assets -> Asset der WAV ohne Stimme. Leer, wenn aus.
+        self._ton_ersatz = {}
+
+    def ton_ersetzen(self, ersatz):
+        """WAV-Dateien als Ersatz fuer den Ton der Quellen anmelden.
+
+        ersatz: {Quellpfad: [(von_s, bis_s, WAV-Pfad), ...]} - je Bereich der
+        Datei eine WAV, die bei von_s beginnt (core/stimme.entfernen). Steht
+        dieselbe Datei zweimal in der Videoliste, liefert GES beidemal
+        dasselbe Asset; die Zuordnung ueber seine Kennung (die URI) trifft
+        deshalb beide.
+        """
+        for pfad, asset in zip(self.pfade, self.assets):
+            liste = ersatz.get(pfad) or []
+            eintraege = []
+            for von_s, bis_s, wav in liste:
+                uri = GLib.filename_to_uri(os.path.abspath(wav), None)
+                ton = GES.UriClipAsset.request_sync(uri)
+                if not ton.get_duration():
+                    raise GesRenderError(f"Replacement audio not readable: {wav}")
+                eintraege.append((int(round(von_s * NS)), int(round(bis_s * NS)),
+                                  wav, ton))
+            if eintraege:
+                self._ton_ersatz[asset.get_id()] = eintraege
+
+    def tonersatz_liste(self, asset):
+        """[(von_ns, bis_ns, wav_pfad, wav_asset)] fuer diese Quelle, oder []."""
+        return self._ton_ersatz.get(asset.get_id(), [])
+
+    def ton_fuer(self, asset, inpoint_ns, dauer_ns):
+        """Der Ersatz fuer den Ton eines Stuecks: (wav_asset, inpoint in der
+        WAV, wav_pfad), oder None wenn kein Bereich das Stueck abdeckt.
+
+        Ein Rahmen Toleranz an den Kanten: die Bereiche wurden auf
+        Millisekunden gerundet, die Stuecke liegen auf dem Bildraster.
+        """
+        toleranz = NS // 10
+        for von_ns, bis_ns, wav, ton in self.tonersatz_liste(asset):
+            if von_ns - toleranz <= inpoint_ns and inpoint_ns + dauer_ns <= bis_ns + toleranz:
+                return ton, max(0, inpoint_ns - von_ns), wav
+        return None
 
     def masse(self):
         """Breite, Hoehe und Bildrate der ersten Datei."""
@@ -441,9 +484,20 @@ def _verkehr_setzen(tonclips, verkehr_cfg, quellen, timeline, log):
     analysen = verkehr_cfg.get("analysen") or {}
     je_uri = {}
     for pfad, asset in zip(quellen.pfade, quellen.assets):
-        daten = analysen.get(pfad)
-        if daten:
-            je_uri[asset.get_id()] = daten.get("ereignisse") or []
+        # Traegt eine Ersatz-WAV den Ton (Voice Remover), haengen die
+        # Tonclips an IHREM Asset, und die Fundstellen wurden auf ihr
+        # gesucht (ges_xfade_main) - in IHRER Zeit, wie der inpoint der
+        # Tonclips. Sonst gilt die Quelldatei.
+        liste = quellen.tonersatz_liste(asset)
+        if liste:
+            for _von, _bis, wav, ton in liste:
+                daten = analysen.get(wav)
+                if daten:
+                    je_uri[ton.get_id()] = daten.get("ereignisse") or []
+        else:
+            daten = analysen.get(pfad)
+            if daten:
+                je_uri[asset.get_id()] = daten.get("ereignisse") or []
     if daempfer <= 0 or not je_uri:
         return 0, 0, 0
 
@@ -536,6 +590,106 @@ def _blicke_liste(quellen, view360_cfg):
             for i in range(len(quellen.assets))]
 
 
+def _stuecke_berechnen(skip_list, gesamt_s):
+    """Die Teilstuecke der Timeline aus der Schnittliste.
+
+    Rueckgabe je Stueck: [von, bis, blende_davor, blende_danach] in
+    Rohsekunden - der Bereich zwischen zwei Kanten, und wie lang die Blende
+    an seiner vorderen und hinteren Kante ist. Die halben Blenden reichen
+    ueber von/bis hinaus, siehe _rohbereich().
+    """
+    keeps = _keep_segmente(skip_list, gesamt_s)
+
+    # Schnitte, die INNERHALB des behaltenen Materials liegen: sie erzeugen
+    # keine neue Datei, sondern eine Kante in der Timeline.
+    kanten = []
+    for s, e, v in skip_list:
+        if v in (-2, -1):
+            continue
+        kanten.append((float(s), float(e), max(0.0, float(v))))
+    kanten.sort()
+
+    stuecke = []
+    for k_von, k_bis in keeps:
+        grenzen = [k_von]
+        for s, e, _v in kanten:
+            if k_von <= s and e <= k_bis:
+                grenzen += [s, e]
+        grenzen.append(k_bis)
+        for i in range(0, len(grenzen) - 1, 2):
+            von, bis = grenzen[i], grenzen[i + 1]
+            if bis - von <= 0:
+                continue
+            blende_davor = 0.0
+            blende_danach = 0.0
+            for s, e, v in kanten:
+                if v <= 0:
+                    continue
+                if abs(e - von) < 1e-6:
+                    blende_davor = v
+                if abs(s - bis) < 1e-6:
+                    blende_danach = v
+            stuecke.append([von, bis, blende_davor, blende_danach])
+    return stuecke
+
+
+def _rohbereich(von, bis, bl_davor, bl_danach):
+    """Welches Rohmaterial ein Stueck wirklich braucht.
+
+    Das Stueck reicht eine halbe Blende ueber seine hintere Kante hinaus und
+    beginnt eine halbe Blende vor seiner vorderen Kante - genau das
+    Material, das ohne Blende weggeschnitten worden waere. Ein Stueck muss
+    lang genug fuer seine beiden halben Blenden sein, sonst faellt die
+    Blende weg.
+
+    Rueckgabe: (roh_von, roh_bis, bl_davor, bl_danach, halb_davor, halb_danach)
+    """
+    halb_davor = bl_davor / 2.0
+    halb_danach = bl_danach / 2.0
+    if halb_davor + halb_danach >= (bis - von):
+        halb_davor = halb_danach = 0.0
+        bl_davor = bl_danach = 0.0
+    return (von - halb_davor, bis + halb_danach, bl_davor, bl_danach,
+            halb_davor, halb_danach)
+
+
+def _ton_bereiche(quellen, stuecke, rand_s):
+    """Welche Bereiche jeder Quelldatei der Ton wirklich braucht.
+
+    Fuer den Voice Remover: nur die Rohbereiche der Stuecke werden
+    ausgelesen und getrennt, nicht die ganze Datei - bei einem Schnitt von
+    vier Minuten aus fuenf spart das vier Fuenftel der Rechenzeit. Jeder
+    Bereich bekommt rand_s Sekunden Rand auf beiden Seiten: Kontext fuer das
+    Modell an den Kanten, und Luft fuer das Bildraster. Bereiche, die sich
+    beruehren oder ueberlappen, werden verschmolzen.
+
+    Rueckgabe: {Quellpfad: [(von_s, bis_s), ...]} in Sekunden DER DATEI.
+    """
+    ergebnis = {}
+    for pfad, (a_ns, b_ns) in zip(quellen.pfade, quellen.grenzen):
+        a, b = a_ns / NS, b_ns / NS
+        liste = []
+        for stueck in stuecke:
+            roh_von, roh_bis = _rohbereich(*stueck)[:2]
+            von = max(a, roh_von - rand_s)
+            bis = min(b, roh_bis + rand_s)
+            if bis - von > 0:
+                liste.append([von - a, bis - a])
+        liste.sort()
+        verschmolzen = []
+        for von, bis in liste:
+            if verschmolzen and von <= verschmolzen[-1][1]:
+                verschmolzen[-1][1] = max(verschmolzen[-1][1], bis)
+            else:
+                verschmolzen.append([von, bis])
+        if verschmolzen:
+            ergebnis.setdefault(pfad, [])
+            for von, bis in verschmolzen:
+                if (von, bis) not in ergebnis[pfad]:
+                    ergebnis[pfad].append((round(von, 3), round(bis, 3)))
+    return ergebnis
+
+
 def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_d,
                     log, blicke=None, merge_fades=None, verkehr_cfg=None):
     """verkehr_cfg: None, oder {"daempfer_db": dB, "analysen": {pfad: daten}}
@@ -586,7 +740,13 @@ def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_
         ebene.set_auto_transition(False)
 
     def clip_setzen(layer, asset, start, inpoint, dauer, rohstart=0):
-        clip = layer.add_asset(asset, start, inpoint, dauer, GES.TrackType.UNKNOWN)
+        # Hat die Quelle fuer dieses Stueck eine Ersatz-Tonspur (Voice
+        # Remover), kommt von ihr nur das BILD; den Ton legt ton_setzen() aus
+        # der WAV daneben. Dieselbe Frage dort - beide muessen gleich
+        # entscheiden, sonst gibt es den Ton doppelt oder gar nicht.
+        typ = (GES.TrackType.VIDEO if quellen.ton_fuer(asset, inpoint, dauer)
+               else GES.TrackType.UNKNOWN)
+        clip = layer.add_asset(asset, start, inpoint, dauer, typ)
         if clip is None:
             raise GesRenderError("Clip could not be inserted")
         richtung = _orientierung(asset)
@@ -607,40 +767,31 @@ def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_
             view360.rahmen_setzen(clip, breite, hoehe)
         return clip
 
-    keeps = _keep_segmente(skip_list, quellen.gesamt_ns / NS)
+    def ton_setzen(layer, clip, asset, start, inpoint, dauer):
+        """Der Clip, der den TON dieses Stuecks traegt, und sein Asset.
 
-    # Schnitte, die INNERHALB des behaltenen Materials liegen: sie erzeugen
-    # keine neue Datei, sondern eine Kante in der Timeline.
-    kanten = []
-    for s, e, v in skip_list:
-        if v in (-2, -1):
-            continue
-        kanten.append((float(s), float(e), max(0.0, float(v))))
-    kanten.sort()
+        Ohne Ersatz ist das der Clip selbst (Bild und Ton aus der Quelle).
+        Mit Ersatz (Voice Remover) ein reiner Tonclip aus der WAV auf
+        derselben Ebene, zeitgleich zum Bild; die WAV beginnt wie die Datei
+        bei 0, der inpoint gilt also unveraendert. Ist die WAV ein paar
+        Millisekunden kuerzer als der Container (AAC-Vorlauf), wird der
+        Tonclip entsprechend gekuerzt - GES nimmt keinen Clip ueber das
+        Ende seines Assets hinaus.
+        """
+        gefunden = quellen.ton_fuer(asset, inpoint, dauer)
+        if gefunden is None:
+            return clip, asset
+        ersatz, wav_inpoint, _wav = gefunden
+        rest = ersatz.get_duration() - wav_inpoint
+        laenge = min(dauer, rest)
+        if laenge <= 0:
+            return clip, asset
+        ton = layer.add_asset(ersatz, start, wav_inpoint, laenge, GES.TrackType.AUDIO)
+        if ton is None:
+            raise GesRenderError("Replacement audio clip could not be inserted")
+        return ton, ersatz
 
-    # Rohbereiche, die tatsaechlich im Ergebnis landen, samt ihrer Kante.
-    # Aufbau je Stueck: (roh_von, roh_bis, blende_davor, blende_danach)
-    stuecke = []
-    for k_von, k_bis in keeps:
-        grenzen = [k_von]
-        for s, e, _v in kanten:
-            if k_von <= s and e <= k_bis:
-                grenzen += [s, e]
-        grenzen.append(k_bis)
-        for i in range(0, len(grenzen) - 1, 2):
-            von, bis = grenzen[i], grenzen[i + 1]
-            if bis - von <= 0:
-                continue
-            blende_davor = 0.0
-            blende_danach = 0.0
-            for s, e, v in kanten:
-                if v <= 0:
-                    continue
-                if abs(e - von) < 1e-6:
-                    blende_davor = v
-                if abs(s - bis) < 1e-6:
-                    blende_danach = v
-            stuecke.append([von, bis, blende_davor, blende_danach])
+    stuecke = _stuecke_berechnen(skip_list, quellen.gesamt_ns / NS)
 
     # ---- auf die Timeline legen -------------------------------------------
     zeit_ns = 0
@@ -653,20 +804,10 @@ def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_
     # hinein - genau dann und nur dann, wenn auch das Bild blendet.
     tonclips = []
     vorige_rampen = []
-    for index, (von, bis, bl_davor, bl_danach) in enumerate(stuecke):
-        halb_davor = bl_davor / 2.0
-        halb_danach = bl_danach / 2.0
-
-        # Ein Stueck muss lang genug fuer seine beiden halben Blenden sein.
-        if halb_davor + halb_danach >= (bis - von):
-            halb_davor = halb_danach = 0.0
-            bl_davor = bl_danach = 0.0
-
-        # Das Stueck reicht eine halbe Blende ueber seine hintere Kante hinaus
-        # und beginnt eine halbe Blende vor seiner vorderen Kante - genau das
-        # Material, das ohne Blende weggeschnitten worden waere.
-        roh_von = von - halb_davor
-        roh_bis = bis + halb_danach
+    for index, stueck in enumerate(stuecke):
+        von, bis = stueck[0], stueck[1]
+        roh_von, roh_bis, bl_davor, bl_danach, halb_davor, halb_danach = \
+            _rohbereich(*stueck)
 
         # GES zaehlt die Endkante mit: eine Timeline ueber 60 Bilder liefert 61
         # Bilder, das letzte liegt genau auf der Grenze. ffmpeg laesst es weg
@@ -705,8 +846,9 @@ def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_
                 for element in clip.find_track_elements(None, GES.TrackType.VIDEO,
                                                         GES.VideoSource):
                     _alpha_rampe(element, 0, blende_ns, inpoint, 0.0, 1.0)
-                tonclips.append(_Tonclip(clip, start, inpoint, dauer, asset,
-                                         rampen_oben))
+                ton, tonasset = ton_setzen(oben, clip, asset, start, inpoint, dauer)
+                tonclips.append(_Tonclip(ton, start, ton.get_inpoint(), dauer,
+                                         tonasset, rampen_oben))
             # Ton der ausblendenden Seite: der vorige Teil laeuft unten
             # ueber die ganze Blende weiter, sein Pegel geht auf 0.
             vorige_rampen.append([(start_ns, 1.0), (start_ns + blende_ns, 0.0)])
@@ -719,8 +861,11 @@ def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_
                 ns(roh_von), ns(roh_bis)):
             start = zeit_ns + (rohstart - ns(roh_von))
             clip = clip_setzen(unten, asset, start, inpoint, dauer, rohstart)
-            tonclips.append(_Tonclip(clip, start, inpoint, dauer, asset,
-                                     vorige_rampen))
+            ton, tonasset = ton_setzen(unten, clip, asset, start, inpoint, dauer)
+            # inpoint des TONclips: bei einer Ersatz-WAV zaehlt er ab deren
+            # Anfang, nicht ab dem der Quelldatei.
+            tonclips.append(_Tonclip(ton, start, ton.get_inpoint(), dauer,
+                                     tonasset, vorige_rampen))
 
         abbildung.append((roh_anfang, roh_bis, out_anfang))
         zeit_ns += ns(roh_bis) - ns(roh_von)
@@ -1478,6 +1623,17 @@ def probelauf(hw_encode, encoder="libx264"):
     return True, "", zeilen
 
 
+def _zehner_fortschritt(log, marke, pfad, was):
+    """Eine Fortschrittsmeldung je volle zehn Prozent ins Protokoll."""
+    zuletzt = [-1]
+
+    def fortschritt(prozent):
+        if prozent // 10 != zuletzt[0]:
+            zuletzt[0] = prozent // 10
+            log(f"{marke} {os.path.basename(pfad)}: {was} {prozent:3d}%")
+    return fortschritt
+
+
 # ---------------------------------------------------------------------------
 # Einstieg - gleiche Signatur wie xfade_main()
 # ---------------------------------------------------------------------------
@@ -1584,6 +1740,49 @@ def ges_xfade_main(cfg_path, abbruch=None):
         log(f"[GES] 360: {len(blicke)} source(s) are projected, "
             f"output {breite}x{hoehe}")
 
+    # Stimmen entfernen (core/stimme): je Quelldatei einmal die Tonspur
+    # durch das Trennmodell - mit Zwischenspeicher - und die WAV ohne Stimme
+    # als Ersatz-Tonspur anmelden. Ohne Tonspur im Export gibt es nichts
+    # zu entfernen. Kommt VOR dem Verkehrsdaempfer: der faehrt dann die
+    # WAV ab, nicht die Quelle.
+    ersatz = {}
+    if cfg.get("voice"):
+        if audio_kbps is None:
+            log("[VOICE] audio is off - nothing to remove")
+        else:
+            modell = str(cfg.get("voice_model") or stimme.VORGABE)
+            if modell not in stimme.MODELLE:
+                raise GesRenderError(f"Unknown voice model '{modell}'")
+            ok, grund = stimme.verfuegbar(modell)
+            if not ok:
+                raise GesRenderError(
+                    f"Voice removal is switched on but not available: {grund}. "
+                    f"Nothing was encoded.")
+            log(f"[VOICE] Model: {stimme.MODELLE[modell][1]}")
+            # Nur die Bereiche, die die Timeline braucht (_ton_bereiche):
+            # was weggeschnitten ist, wird weder ausgelesen noch getrennt.
+            bereiche = _ton_bereiche(
+                quellen, _stuecke_berechnen(skip_list, quellen.gesamt_ns / NS),
+                stimme.RAND_S)
+            for pfad in videos:
+                if pfad in ersatz:
+                    continue
+                teile = bereiche.get(pfad)
+                if not teile:
+                    log(f"[VOICE] {os.path.basename(pfad)}: nothing of it is "
+                        f"in the output - skipped")
+                    continue
+                try:
+                    # Kein eigener Fortschrittsruf: core/stimme schreibt
+                    # seine Durchgaenge und Lebenszeichen selbst ins Protokoll.
+                    liste = stimme.entfernen(pfad, modell, log, None, abbruch,
+                                             bereiche=teile)
+                except stimme.Abgebrochen:
+                    raise GesRenderAbgebrochen("Export stopped by user")
+                if liste:
+                    ersatz[pfad] = liste
+            quellen.ton_ersetzen(ersatz)
+
     # Verkehr daempfen (core/verkehr): je Quelldatei einmal die Tonspur
     # abfahren - mit Zwischenspeicher - und die Fundstellen mitgeben. Ohne
     # Tonspur im Export gibt es nichts zu daempfen.
@@ -1596,20 +1795,24 @@ def ges_xfade_main(cfg_path, abbruch=None):
                            or verkehr.DAEMPFER_VORGABE_DB)
             analysen = {}
             for pfad in videos:
-                if pfad in analysen:
-                    continue
-                zuletzt = [-1]
-
-                def fortschritt(prozent, _z=zuletzt, _p=pfad):
-                    if prozent // 10 != _z[0]:
-                        _z[0] = prozent // 10
-                        log(f"[TRAFFIC] {os.path.basename(_p)}: scanning "
-                            f"{prozent:3d}%")
-                try:
-                    analysen[pfad] = verkehr.analyse(pfad, log, fortschritt,
-                                                     abbruch)
-                except verkehr.Abgebrochen:
-                    raise GesRenderAbgebrochen("Export stopped by user")
+                # Mit Voice Remover: jede Ersatz-WAV einzeln abfahren, die
+                # Fundstellen gelten dann in der Zeit der WAV. Ohne: die
+                # Quelldatei als Ganzes.
+                if pfad in ersatz:
+                    laeufe = [(wav, f"{os.path.basename(pfad)} {von:.0f}-{bis:.0f}s")
+                              for von, bis, wav in ersatz[pfad]]
+                else:
+                    laeufe = [(pfad, os.path.basename(pfad))]
+                for datei, name in laeufe:
+                    if datei in analysen:
+                        continue
+                    try:
+                        analysen[datei] = verkehr.analyse(
+                            datei, log,
+                            _zehner_fortschritt(log, "[TRAFFIC]", name, "scanning"),
+                            abbruch, name=name)
+                    except verkehr.Abgebrochen:
+                        raise GesRenderAbgebrochen("Export stopped by user")
             verkehr_cfg = {"daempfer_db": daempfer, "analysen": analysen}
 
     timeline, gesamt_ns = _timeline_bauen(quellen, skip_list, overlay_list,

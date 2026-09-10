@@ -1,0 +1,64 @@
+KVRouite - copyright notices for the voice remover's separation code and models
+================================================================================
+
+The voice remover runs through python-audio-separator (voice/LICENSE.audio-
+separator), which took its separation code from Ultimate Vocal Remover, which
+in turn took it from the projects below. All of them are under the MIT
+license, whose one condition is that the copyright notice and the license
+text stay with the code. Two of the projects in that chain dropped the
+notices of the code they copied; this file restores them. The MIT text
+follows once at the end and applies to every notice above it.
+
+  Demucs (hybrid transformer source separation) - the demucs/ modules
+    Copyright (c) Meta Platforms, Inc. and affiliates.
+    https://github.com/facebookresearch/demucs
+
+  VR architecture (vocal-remover) - the vr_network/ modules
+    Copyright (c) 2019 tsurumeso
+    https://github.com/tsurumeso/vocal-remover
+
+  MDX-Net - mdxnet.py, modules.py
+    Copyright (c) 2020 KINoAI (Kuielab, Woosung Choi)
+    https://github.com/kuielab/mdx-net
+
+  MDX23C / TFC-TDF v3 - tfc_tdf_v3.py
+    Copyright (c) 2024 Roman Solovyev (ZFTurbo)
+    https://github.com/ZFTurbo/Music-Source-Separation-Training
+
+  Ultimate Vocal Remover GUI - the assembled separation code and the trained
+  MDX-Net model shipped in voice_models/ (UVR-MDX-NET-Inst_HQ_3)
+    Copyright (c) 2022 Anjok07, Aufr33
+    https://github.com/Anjok07/ultimatevocalremovergui
+    (The repository states "the code is MIT-licensed" in its README; its
+    LICENSE file, quoted above, was present until 19 December 2022. The
+    README asks that applications using the models credit UVR and its
+    developers, which this file does.)
+
+  python-audio-separator - the library itself
+    Copyright (c) 2023 karaokenerds (Andrew Beveridge)
+    https://github.com/nomadkaraoke/python-audio-separator
+
+  Demucs v4 model htdemucs (voice_models/955717e8-8726e21a.th)
+    Copyright (c) Meta Platforms, Inc. and affiliates. Released under the
+    MIT license of the Demucs repository.
+
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

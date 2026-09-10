@@ -62,6 +62,9 @@ FELDER = (
     # Verkehr daempfen (core/verkehr): an/aus und der Daempfer in dB.
     ("traffic", 0),
     ("traffic_db", 12),
+    # Stimmen entfernen (core/stimme): an/aus und das Modell ("mdx", "demucs").
+    ("voice", 0),
+    ("voice_model", "mdx"),
 )
 
 

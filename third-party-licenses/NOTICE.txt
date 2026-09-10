@@ -16,6 +16,11 @@ Files here:
   LICENSE.Pillow          the MIT-CMU license of Pillow
   LICENSE.Apache-2.0      Apache License, version 2.0 (for OpenSSL 3)
   LICENSE.OpenLayers      the BSD 2-Clause license of OpenLayers
+  LICENSE.UVR-upstreams   copyright notices of the separation-model code and
+                          models (voice remover) that the library omits
+  voice/                  the Python packages of the voice remover (since
+                          7.0): INVENTAR.txt lists them, LICENSE.<package>
+                          carries each package's own license text
 
 On LINUX none of this is distributed with KVRouite; Python and the packages are
 installed by the user.
@@ -23,11 +28,19 @@ installed by the user.
 --------------------------------------------------------------------------------
  Licenses
 --------------------------------------------------------------------------------
-None of the components in this folder is copyleft. They are distributed under
-the Python Software Foundation License, the MIT-CMU license, the MIT license,
-the BSD 2-Clause license and the Apache License 2.0. All of them permit redistribution in binary form
-as long as the copyright notice and license text travel with the software -
-which is what this folder is for.
+Apart from two libraries named below, none of the components in this folder
+is copyleft. They are distributed under the Python Software Foundation
+License, the MIT-CMU license, the MIT license, the BSD 2- and 3-Clause
+licenses, the ISC license, the Mozilla Public License 2.0 and the Apache
+License 2.0. All of them permit redistribution in binary form as long as the
+copyright notice and license text travel with the software - which is what
+this folder is for.
+
+Two libraries of the voice remover are under the GNU LGPL 2.1 or later:
+libsndfile (inside the soundfile package) and libsoxr (inside the soxr
+package). Both are separate shared libraries in the build, so they can be
+replaced, and their source is available - see below. The texts are
+voice/LICENSE.libsndfile and voice/LICENSE.soxr.
 
 KVRouite as a whole is licensed GNU GPL version 3 or later. All of the above
 are compatible with that.
@@ -35,15 +48,21 @@ are compatible with that.
 --------------------------------------------------------------------------------
  Source code
 --------------------------------------------------------------------------------
-None of these licenses obliges us to supply source code. The components are
-unmodified upstream releases and their sources are published by their own
-projects:
+Only the LGPL asks us to make source obtainable, and only for the two
+libraries above. All components are unmodified upstream releases and their
+sources are published by their own projects:
 
   OpenLayers      https://github.com/openlayers/openlayers
   Python          https://www.python.org/downloads/source/
   Pillow          https://pypi.org/project/pillow/#files
   fitparse        https://github.com/dtcooper/python-fitparse
   OpenSSL         https://www.openssl.org/source/
+  libsndfile      https://github.com/libsndfile/libsndfile (the copy in the
+                  soundfile wheel: https://github.com/bastibe/python-soundfile)
+  libsoxr         https://github.com/chirlu/soxr (the copy in the soxr wheel:
+                  https://github.com/dofuuz/python-soxr)
+  voice remover   every package in voice/INVENTAR.txt is a release on
+                  https://pypi.org - the version there matches the inventory
 
 These are the upstream projects' own releases; KVRouite compiles none of them.
 If a link stops working, write to bernd@kvrouite.com and you will be pointed at

@@ -1,0 +1,130 @@
+pydub 0.25.1
+License as declared by the package: MIT
+
+==============================================================================
+pydub-0.25.1.dist-info/AUTHORS
+==============================================================================
+
+James Robert
+    github: jiaaro
+    twitter: @jiaaro
+    web: jiaaro.com
+    email: pydub@jiaaro.com
+
+Marc Webbie
+    github: marcwebbie
+
+Jean-philippe Serafin
+    github: jeanphix
+
+Anurag Ramdasan
+    github: AnuragRamdasan
+
+Choongmin Lee
+    github: clee704
+
+Patrick Pittman
+    github: ptpittman
+
+Hunter Lang
+    github: hunterlang
+
+Alexey
+    github: nihisil
+
+Jaymz Campbell
+    github: jaymzcd
+
+Ross McFarland
+    github: ross
+
+John McMellen
+    github: jmcmellen
+
+Johan Lövgren
+    github: dashj
+
+Joachim Krüger
+    github: jkrgr
+
+Shichao An
+    github: shichao-an
+
+Michael Bortnyck
+    github: mbortnyck
+
+André Cloete
+    github: aj-cloete
+
+David Acacio
+    github: dacacioa
+
+Thiago Abdnur
+    github: bolaum
+
+Aurélien Ooms
+    github: aureooms
+
+Mike Mattozzi
+    github: mmattozzi
+
+Marcio Mazza
+    github: marciomazza
+
+Sungsu Lim
+    github: proflim
+
+Evandro Myller
+    github: emyller
+
+Sérgio Agostinho
+    github: SergioRAgostinho
+
+Antonio Larrosa
+    github: antlarr
+
+Aaron Craig
+    github: craigthelinguist
+
+Carlos del Castillo
+    github: greyalien502
+
+Yudong Sun
+    github: sunjerry019
+
+Jorge Perianez
+    github: JPery
+
+Chendi Luo
+    github: Creonalia
+
+Daniel Lefevre
+    gitHub: dplefevre
+
+Grzegorz Kotfis
+    github: gkotfis
+
+==============================================================================
+pydub-0.25.1.dist-info/LICENSE
+==============================================================================
+
+Copyright (c) 2011 James Robert, http://jiaaro.com
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
