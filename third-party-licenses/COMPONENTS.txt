@@ -55,11 +55,12 @@ KVRouite 7.0 can remove voices from the sound track (Encoder Setup, page
 Audio, "Remove voices"). This is done by trained separation models, run
 through the library python-audio-separator. Nothing is downloaded at run
 time. On Windows the binaries and models of these packages come as the
-separate "KVRouite Audio" add-on (zip or installer), unpacked into the
-KVRouite folder; without it the page Audio stays locked and videos are
-exported without a sound track ("Lite", as before 7.0). The Python
-code of the packages is part of KVRouite.exe either way, which is why this
-folder and the license texts in voice/ ship with the base application too.
+separate "KVRouite Voice" add-on (zip or installer), unpacked into the
+KVRouite folder; without it "Remove voices" stays locked ("Lite" - sound
+track and traffic damper still work, they need nothing but GStreamer). The
+Python code of the packages is part of KVRouite.exe either way, which is
+why this folder and the license texts in voice/ ship with the base
+application too.
 
 The Python packages this brings in (about fifty, torch being the largest)
 are listed with version and declared license in voice/INVENTAR.txt; the

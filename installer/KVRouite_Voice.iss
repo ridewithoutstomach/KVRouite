@@ -1,15 +1,16 @@
-; ===== KVRouite Audio - the voice remover add-on =====
+; ===== KVRouite Voice - the voice remover add-on =====
 ;
 ; Installs the files of the voice remover (PyTorch, ONNX Runtime and the
 ; separation models, about 900 MB) INTO an existing KVRouite installation of
-; the same version. KVRouite itself ("Lite") runs without them; with them the
-; switch "Remove voices" in the encoder setup becomes available.
+; the same version. KVRouite itself ("Lite") runs without them - with sound
+; track and traffic damper; with them "Remove voices" in the encoder setup
+; and the voice page of the video control become available.
 ;
 ; Built by build_with_pyinstaller.py --build-installer from the add-on folder
-; dist\KVRouite_<ver>\KVRouite_<ver>_Audio\KVRouite_<ver>, which holds exactly
+; dist\KVRouite_<ver>\KVRouite_<ver>_Voice\KVRouite_<ver>, which holds exactly
 ; the files the full build has and the Lite build does not.
 
-#define MyAppName        "KVRouite Audio"
+#define MyAppName        "KVRouite Voice"
 #define MyBaseAppName    "KVRouite"
 #define MyAppPublisher   "ridewithoutstomach"
 #define MyAppURL         "https://github.com/ridewithoutstomach/KVRouite"
@@ -22,7 +23,7 @@
 #endif
 
 #ifndef MyDistDir
-  #define MyDistDir "dist\\KVRouite_" + MyAppVersion + "\\KVRouite_" + MyAppVersion + "_Audio\\KVRouite_" + MyAppVersion
+  #define MyDistDir "dist\\KVRouite_" + MyAppVersion + "\\KVRouite_" + MyAppVersion + "_Voice\\KVRouite_" + MyAppVersion
 #endif
 
 #ifndef MyEula
@@ -47,7 +48,7 @@ DefaultGroupName={#MyBaseAppName}
 DisableProgramGroupPage=yes
 
 OutputDir={#SourcePath}\..\dist\{#MyAppVersion}
-OutputBaseFilename=KVRouite_v{#MyAppVersion}_Audio_Win_x64_Installer
+OutputBaseFilename=KVRouite_v{#MyAppVersion}_Voice_Win_x64_Installer
 
 WizardStyle=modern
 Compression=lzma2
@@ -85,7 +86,7 @@ begin
 end;
 
 { The add-on only makes sense on top of KVRouite of the SAME version: the
-  Python code of the audio libraries sits inside KVRouite.exe, the add-on
+  Python code of the voice libraries sits inside KVRouite.exe, the add-on
   brings their binaries and models. A mismatch would not start. }
 function VersionInFolder(Dir: string): string;
 var

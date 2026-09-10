@@ -127,7 +127,7 @@ def verfuegbar():
 def hochpass(x):
     """Das tiefe Wummern (Wind, Rumpeln) aus der Kopie fuer den Detektor
     nehmen - Butterworth-Hochpass HOCHPASS_HZ, ueber scipy, das mit dem
-    Audio-Zusatz kommt. Fehlt scipy, bleibt der Ton wie er ist."""
+    Voice-Zusatz kommt. Fehlt scipy, bleibt der Ton wie er ist."""
     if not HOCHPASS_HZ or len(x) == 0:
         return x
     try:
@@ -145,7 +145,7 @@ def wahrscheinlichkeiten(proben):
 
     proben: bytes, S16LE, oder eine Liste solcher Stuecke. Rueckgabe: Liste
     von Werten 0..1, je SCHRITT_S Sekunden einer. Laeuft ueber onnxruntime;
-    numpy fuer die Eingabefelder, beides kommt mit dem Audio-Zusatz.
+    numpy fuer die Eingabefelder, beides kommt mit dem Voice-Zusatz.
     """
     import numpy as np
     import onnxruntime as ort

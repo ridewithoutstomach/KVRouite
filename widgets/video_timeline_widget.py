@@ -1446,8 +1446,9 @@ class VideoTimelineWidget(QWidget):
         return self._ansicht in ("audio", "beides")
 
     def audio_moeglich(self, an: bool):
-        """Ohne Audio-Zusatz (Lite) gibt es keine Tonspur: der Knopf
-        schaltet dann nur zwischen Nichts und Video."""
+        """Ohne Tonspur (z. B. Mac-Buendel ohne Pegelscan) schaltet der
+        Knopf nur zwischen Nichts und Video. Seit dem 10.09.2026 auch in
+        Lite an - der Pegel kommt von GStreamer."""
         self._audio_moeglich = bool(an)
         if not self._audio_moeglich and self.audio_an():
             self.ansicht_setzen("video" if self.bilder_an() else "off")

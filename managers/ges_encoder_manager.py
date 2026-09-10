@@ -497,6 +497,25 @@ def _verkehr_setzen(tonclips, verkehr_cfg, quellen, timeline, log):
         return 0, 0, 0
     daempfer = float(verkehr_cfg.get("daempfer_db") or 0)
     analysen = verkehr_cfg.get("analysen") or {}
+    # Tiefpass auf jedem Fuellclip (core/verkehr.FUELL_TIEFPASS_*): ein
+    # Effekt am Clip, wie der 360-Shader am Bild. audiocheblimit (audiofx,
+    # im Bundle) ist ein Tschebyscheff-Filter; mode=low-pass, 4 Pole.
+    fuell_hz = int(verkehr_cfg.get("fuell_hz") or 0)
+    tiefpass_fehler = []
+
+    def tiefpass_anhaengen(clip):
+        if fuell_hz <= 0:
+            return
+        try:
+            effekt = GES.Effect.new(
+                f"audiocheblimit mode=low-pass cutoff={fuell_hz} poles=4")
+            if effekt is None or not clip.add_top_effect(effekt, -1):
+                raise RuntimeError("effect not accepted")
+        except Exception as exc:
+            if not tiefpass_fehler:
+                log(f"[TRAFFIC] fill low-pass could not be attached ({exc}) "
+                    f"- fill clips stay unfiltered")
+            tiefpass_fehler.append(exc)
     je_uri = {}
     for pfad, asset in zip(quellen.pfade, quellen.assets):
         # Traegt eine Ersatz-WAV den Ton (Voice Remover), haengen die
@@ -563,6 +582,7 @@ def _verkehr_setzen(tonclips, verkehr_cfg, quellen, timeline, log):
                         f"be inserted")
                     continue
                 eintrag[1] = start + laenge
+                tiefpass_anhaengen(clip)
                 fc = _Tonclip(clip, start, inpoint, laenge, tc.asset, tc.rampen)
                 fc.kurven.append([(tc.ausgabe(t), v)
                                   for t, v in verkehr.gegenstueck(kurve)])
@@ -931,9 +951,11 @@ def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_
         f"{naehte} merge-fade(s), "
         f"{gesamt / NS:.6f}s at {breite}x{hoehe} @ {fps_n}/{fps_d}")
     if verkehr_cfg:
+        hz = int(verkehr_cfg.get("fuell_hz") or 0)
         log(f"[TRAFFIC] {stellen} spot(s) damped by up to "
             f"{verkehr_cfg.get('daempfer_db')} dB, {fuellclips} fill clip(s) "
-            f"on {fuellebenen} layer(s)")
+            f"on {fuellebenen} layer(s), fill "
+            + (f"low-passed at {hz} Hz" if hz else "unfiltered"))
     return timeline, gesamt
 
 
@@ -1869,7 +1891,14 @@ def ges_xfade_main(cfg_path, abbruch=None):
                             abbruch, name=name)
                     except verkehr.Abgebrochen:
                         raise GesRenderAbgebrochen("Export stopped by user")
-            verkehr_cfg = {"daempfer_db": daempfer, "analysen": analysen}
+            try:
+                fuell_hz = int(cfg.get("traffic_fill_hz", verkehr.FUELL_TIEFPASS_VORGABE_HZ))
+            except (TypeError, ValueError):
+                fuell_hz = verkehr.FUELL_TIEFPASS_VORGABE_HZ
+            if fuell_hz and fuell_hz < verkehr.FUELL_TIEFPASS_MIN_HZ:
+                fuell_hz = verkehr.FUELL_TIEFPASS_MIN_HZ
+            verkehr_cfg = {"daempfer_db": daempfer, "analysen": analysen,
+                           "fuell_hz": min(fuell_hz, verkehr.FUELL_TIEFPASS_MAX_HZ)}
 
     timeline, gesamt_ns = _timeline_bauen(quellen, skip_list, overlay_list,
                                           breite, hoehe, fps_n, fps_d, log,

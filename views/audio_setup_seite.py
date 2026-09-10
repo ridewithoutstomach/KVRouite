@@ -98,6 +98,27 @@ class AudioSeite(QWidget):
             "12 dB: a quarter, 18 dB: an eighth. The deeper, the more the "
             "filled-in ride noise carries.")
         vform.addRow("Damper (dB):", self.traffic_spin)
+        # Tiefpass auf dem Fuellstueck (verkehr.FUELL_TIEFPASS_*): Haken an/aus
+        # und die Grenze in Hz. Gespeichert wird EIN Wert, traffic_fill_hz,
+        # 0 heisst aus - der Haken ist nur die Bedienung dafuer (Bernd,
+        # 10.09.2026: "ich dachte man kann das ein- und ausschalten").
+        self.fill_check = QCheckBox("Filter the fill below", verkehr_gruppe)
+        self.fill_check.setChecked(True)
+        self.fill_check.setToolTip(
+            "The ride noise laid over a damped vehicle is a copy of the "
+            "nearest quiet stretch. With the filter only its part below the "
+            "frequency is used: wind and tyres lie low, a squeak or rattle "
+            "of the mount lies high and would otherwise sound twice. Off "
+            "uses the copy unfiltered.")
+        self.fill_spin = QSpinBox(verkehr_gruppe)
+        self.fill_spin.setRange(verkehr.FUELL_TIEFPASS_MIN_HZ, verkehr.FUELL_TIEFPASS_MAX_HZ)
+        self.fill_spin.setSingleStep(100)
+        self.fill_spin.setSuffix(" Hz")
+        self.fill_spin.setValue(verkehr.FUELL_TIEFPASS_VORGABE_HZ)
+        self.fill_spin.setToolTip("300-4000 Hz; 1000 keeps tyres and wind, "
+                                  "drops squeaks and rattles.")
+        self.fill_check.toggled.connect(self.fill_spin.setEnabled)
+        vform.addRow(self.fill_check, self.fill_spin)
         aussen.addWidget(verkehr_gruppe)
 
         # (C) Stimmen entfernen - core/stimme
@@ -136,19 +157,19 @@ class AudioSeite(QWidget):
         sform.addRow(hinweis_stellen)
         aussen.addWidget(stimme_gruppe)
 
-        # LITE IST OHNE AUDIO (Bernd, 10.09.2026): fehlt das Audio-Zusatzpaket
-        # (gepackt) beziehungsweise requirements-audio.txt (ungepackt), ist die
-        # ganze Seite grau - Tonspur, Daempfer und Stimmen. Der Grund steht
-        # oben auf der Seite, nicht nur im Tooltip: ein ausgegrauter Schalter
-        # ohne Grund war das Erste, was aufgefallen ist.
+        # Lite (Bernd, 10.09.2026, zweite Entscheidung): Tonspur und Daempfer
+        # sind reines GStreamer und gehen ueberall. Nur die Stimmen brauchen
+        # das Voice-Zusatzpaket (gepackt) beziehungsweise
+        # requirements-voice.txt (ungepackt) - fehlt es, ist allein diese
+        # Gruppe grau, mit dem Grund darin, nicht nur im Tooltip.
         self._voice_ok, grund = stimme.verfuegbar()
         if not self._voice_ok:
-            sperre = QLabel("Audio is part of the KVRouite Audio add-on and "
-                            "not available here: " + grund, self)
+            sperre = QLabel("Part of the KVRouite Voice add-on and not "
+                            "available here: " + grund, stimme_gruppe)
             sperre.setWordWrap(True)
             sperre.setStyleSheet("color: gray;")
-            aussen.insertWidget(0, sperre)
-            for w in (gruppe, verkehr_gruppe, stimme_gruppe):
+            sform.insertRow(0, sperre)
+            for w in (self.voice_check, self.voice_combo, hinweis_stellen):
                 w.setEnabled(False)
 
         # Platz fuer die naechsten Werkzeuge - siehe Modulkopf.
@@ -161,6 +182,7 @@ class AudioSeite(QWidget):
 
         self.audio_check.toggled.connect(self._audio_umgeschaltet)
         self.traffic_check.toggled.connect(self.traffic_spin.setEnabled)
+        self.traffic_check.toggled.connect(self._fuellfilter_nachziehen)
         self.voice_check.toggled.connect(self.voice_combo.setEnabled)
         self._audio_umgeschaltet(self.audio_check.isChecked())
 
@@ -172,6 +194,15 @@ class AudioSeite(QWidget):
         self.kbps_spin.setEnabled(an)
         self.traffic_check.setEnabled(an)
         self.traffic_spin.setEnabled(an and self.traffic_check.isChecked())
+        self._fuellfilter_nachziehen()
+
+    def _fuellfilter_nachziehen(self, *_a):
+        an = self.audio_check.isChecked() and self.traffic_check.isChecked()
+        self.fill_check.setEnabled(an)
+        self.fill_spin.setEnabled(an and self.fill_check.isChecked())
+
+    def fuell_hz(self) -> int:
+        return self.fill_spin.value() if self.fill_check.isChecked() else 0
         voice = an and self._voice_ok
         self.voice_check.setEnabled(voice)
         self.voice_combo.setEnabled(voice and self.voice_check.isChecked())
@@ -185,12 +216,14 @@ class AudioSeite(QWidget):
         if not self._voice_ok:
             return {"audio": 0, "audio_kbps": self.kbps_spin.value(),
                     "traffic": 0, "traffic_db": self.traffic_spin.value(),
+                    "traffic_fill_hz": self.fuell_hz(),
                     "voice": 0, "voice_model": self.voice_combo.currentData() or stimme.VORGABE}
         return {
             "audio": 1 if self.audio_check.isChecked() else 0,
             "audio_kbps": self.kbps_spin.value(),
             "traffic": 1 if self.traffic_check.isChecked() else 0,
             "traffic_db": self.traffic_spin.value(),
+            "traffic_fill_hz": self.fuell_hz(),
             "voice": 1 if self.voice_check.isChecked() else 0,
             "voice_model": self.voice_combo.currentData() or stimme.VORGABE,
         }
@@ -212,6 +245,12 @@ class AudioSeite(QWidget):
         db = self._zahl(werte, "traffic_db", verkehr.DAEMPFER_VORGABE_DB)
         self.traffic_spin.setValue(
             max(verkehr.DAEMPFER_MIN_DB, min(verkehr.DAEMPFER_MAX_DB, db)))
+        hz = self._zahl(werte, "traffic_fill_hz", verkehr.FUELL_TIEFPASS_VORGABE_HZ)
+        self.fill_check.setChecked(hz > 0)
+        if hz > 0:
+            self.fill_spin.setValue(max(verkehr.FUELL_TIEFPASS_MIN_HZ,
+                                        min(verkehr.FUELL_TIEFPASS_MAX_HZ, hz)))
+        self._fuellfilter_nachziehen()
         self.voice_check.setChecked(bool(self._zahl(werte, "voice", 0)))
         index = self.voice_combo.findData(str(werte.get("voice_model", stimme.VORGABE)))
         self.voice_combo.setCurrentIndex(max(0, index))

@@ -1,14 +1,14 @@
 # KVRouite - the voice remover's packages (since 7.0). OPTIONAL.
 #
 #     pip install -r requirements.txt          # the application
-#     pip install -r requirements-audio.txt    # plus this, for "Remove voices"
+#     pip install -r requirements-voice.txt    # plus this, for "Remove voices"
 #
 # Run pip from the project directory - two lines below are relative paths.
 # Without this file KVRouite is the Lite application: it runs completely,
-# but the page Audio in the encoder setup is locked and videos are exported
-# without a sound track, as before 7.0. The Windows build script needs it: it
-# builds the full application and splits the result into the Lite zip and
-# the Audio add-on zip (build_with_pyinstaller.py).
+# sound track and traffic damper included (both are GStreamer); only
+# "Remove voices" and the voice detection stay locked. The Windows build
+# script needs it: it builds the full application and splits the result into
+# the Lite zip and the Voice add-on zip (build_with_pyinstaller.py).
 #
 # python-audio-separator is the separation core of Ultimate Vocal Remover as
 # a library; it pulls in torch, onnxruntime, scipy, numpy and librosa (about

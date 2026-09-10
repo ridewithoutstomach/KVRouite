@@ -185,7 +185,7 @@ def buendel_bauen(ziel_ordner):
     """PyInstaller aufrufen. Rueckgabe: Pfad des .app-Buendels.
 
     Das Buendel ist die LITE-Fassung: ohne den Voice Remover. Entscheidung
-    vom 10.09.2026 - fuer den Mac gibt es den Audio-Zusatz vorerst nicht,
+    vom 10.09.2026 - fuer den Mac gibt es den Voice-Zusatz vorerst nicht,
     "Remove voices" bleibt dort grau. Wer ihn spaeter braucht, spiegelt den
     Doppelbau aus build_with_pyinstaller.build_windows().
     """

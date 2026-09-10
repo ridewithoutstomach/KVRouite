@@ -5,7 +5,7 @@
 #                 README.md. Create the venv with --system-site-packages.
 #
 # The voice remover (since 7.0) is optional and lives in its own file:
-#                 pip install -r requirements-audio.txt
+#                 pip install -r requirements-voice.txt
 
 fitparse==1.2.0
 gstreamer-bundle==1.28.6; sys_platform != "linux"

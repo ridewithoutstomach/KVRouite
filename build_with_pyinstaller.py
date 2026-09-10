@@ -239,18 +239,21 @@ def check_voice_payload(internal_dir):
 
 
 # ---------------------------------------------------------------------------
-# Lite und Audio-Zusatz: EIN Bau, zwei Pakete
+# Lite und Voice-Zusatz: EIN Bau, zwei Pakete
 # ---------------------------------------------------------------------------
-# Entscheidung vom 10.09.2026: die meisten Anwender wollen kein Audio, und
-# rund 900 MB fuer alle waere zu viel. Statt zwei Fassungen zu pflegen wird
-# die App einmal VOLLSTAENDIG gebaut und danach in zwei Zips verteilt:
+# Entscheidung vom 10.09.2026: die meisten Anwender wollen keinen Voice
+# Remover, und rund 900 MB fuer alle waere zu viel. Statt zwei Fassungen zu
+# pflegen wird die App einmal VOLLSTAENDIG gebaut und danach in zwei Zips
+# verteilt:
 #
 #   KVRouite_<ver>_Win_x64.zip        die Grund-App ("Lite") - laeuft allein,
-#                                     "Remove voices" bleibt grau
-#   KVRouite_<ver>_Audio_Win_x64.zip  der Zusatz: derselbe Ordnername, wird
+#                                     mit Tonspur und Verkehrsdaempfer (beides
+#                                     reines GStreamer); "Remove voices" und
+#                                     der Detektor bleiben grau
+#   KVRouite_<ver>_Voice_Win_x64.zip  der Zusatz: derselbe Ordnername, wird
 #                                     einfach darueber entpackt
 #
-# Warum nicht die Grund-App OHNE Audio bauen und den Zusatz obendrauf legen:
+# Warum nicht die Grund-App OHNE Voice bauen und den Zusatz obendrauf legen:
 # PyInstaller legt allen Python-Code in das Archiv in der exe, als Dateien
 # liegen nur Binaerdateien und Daten in _internal. Eine ohne Audio gebaute
 # exe hat den Python-Code von torch nicht im Archiv, und ein Zusatz aus
@@ -347,12 +350,12 @@ def zusatz_bestimmen(pyi_out_dir, lite_dateien):
                 or p.startswith("_internal/python3"):
             raise SystemExit("[ABBRUCH] Zusatzpaket enthielte %s - die "
                              "Differenz der Dateilisten stimmt nicht." % p)
-    print("[INFO] Audio-Zusatz: %d von %d Dateien des vollen Baus"
+    print("[INFO] Voice-Zusatz: %d von %d Dateien des vollen Baus"
           % (len(zusatz), len(voll)))
     return zusatz
 
 
-def audio_zusatz_abtrennen(target_dir, zusatz_dir, zusatz):
+def voice_zusatz_abtrennen(target_dir, zusatz_dir, zusatz):
     """Die Zusatzdateien aus target_dir nach zusatz_dir verschieben - mit
     denselben relativen Pfaden. Was die Nachbearbeitung (Qt abspecken u. a.)
     schon entfernt hat, wird uebergangen."""
@@ -383,7 +386,7 @@ def audio_zusatz_abtrennen(target_dir, zusatz_dir, zusatz):
     for ordner, _dirs, _dateien in os.walk(target_dir, topdown=False):
         if ordner != target_dir and not os.listdir(ordner):
             os.rmdir(ordner)
-    print("[INFO] Audio-Zusatz: %d Dateien, %d MB → %s"
+    print("[INFO] Voice-Zusatz: %d Dateien, %d MB → %s"
           % (bewegt, groesse // 1_000_000, zusatz_dir))
     # torch hat tiefe Pfade (bis 200 Zeichen unter _internal). Liegt der
     # Bauordner selbst tief, ueberschreitet das Inno Setup beim Einpacken
@@ -1254,18 +1257,18 @@ def build_windows(build_setup: bool = False, distpath: str = "dist"):
                          "nicht ausgeliefert werden."
                          % ", ".join(fehlende_rechtstexte))
 
-    # Versionstext neben der EXE - der Audio-Installer prueft damit, dass der
-    # Zusatz zur installierten Version passt (installer/KVRouite_Audio.iss).
+    # Versionstext neben der EXE - der Voice-Installer prueft damit, dass der
+    # Zusatz zur installierten Version passt (installer/KVRouite_Voice.iss).
     with open(os.path.join(target_dir, "version.txt"), "w", encoding="utf-8") as vf:
         vf.write(str(app_version))
 
-    # ---------------- Lite / Audio-Zusatz trennen ----------------
+    # ---------------- Lite / Voice-Zusatz trennen ----------------
     # Ganz zum Schluss, wenn nichts mehr dazukommt: alles, was der Lite-Bau
     # nicht hatte, wandert in einen eigenen Ordner mit demselben inneren
     # Namen - so entpackt sich das Zusatz-Zip ueber die Grund-App.
-    zusatz_root = os.path.join(artifacts_root, f"{target_dirname}_Audio")
+    zusatz_root = os.path.join(artifacts_root, f"{target_dirname}_Voice")
     zusatz_dir = os.path.join(zusatz_root, target_dirname)
-    audio_zusatz_abtrennen(target_dir, zusatz_dir, zusatz_dateien)
+    voice_zusatz_abtrennen(target_dir, zusatz_dir, zusatz_dateien)
 
     # ---------------- portable ZIPs + SHA ----------------
     ARCH_SUFFIX = "Win_x64"
@@ -1281,16 +1284,16 @@ def build_windows(build_setup: bool = False, distpath: str = "dist"):
     print("[INFO] ZIP erstellt:", zip_path)
     write_sha256(zip_path)
 
-    audio_zip_base = os.path.join(artifacts_root, f"KVRouite_{app_version}_Audio_{ARCH_SUFFIX}")
-    print(f"[INFO] Erzeuge ZIP → {audio_zip_base}.zip (Inhalt = {target_dirname}/, Audio-Zusatz)")
-    audio_zip_path = shutil.make_archive(
-        base_name=audio_zip_base,
+    voice_zip_base = os.path.join(artifacts_root, f"KVRouite_{app_version}_Voice_{ARCH_SUFFIX}")
+    print(f"[INFO] Erzeuge ZIP → {voice_zip_base}.zip (Inhalt = {target_dirname}/, Voice-Zusatz)")
+    voice_zip_path = shutil.make_archive(
+        base_name=voice_zip_base,
         format="zip",
         root_dir=zusatz_root,
         base_dir=target_dirname
     )
-    print("[INFO] ZIP erstellt:", audio_zip_path)
-    write_sha256(audio_zip_path)
+    print("[INFO] ZIP erstellt:", voice_zip_path)
+    write_sha256(voice_zip_path)
 
     # ---------------- Inno Setup (optional) + SHA ---------------
     if build_setup:
@@ -1347,24 +1350,24 @@ def build_windows(build_setup: bool = False, distpath: str = "dist"):
         else:
             print("[WARN] Installer nicht gefunden (erwartet):", installer_path)
 
-        # Der zweite Installer: der Audio-Zusatz in eine vorhandene
-        # Installation derselben Version (installer/KVRouite_Audio.iss).
-        audio_iss = os.path.join(BASE_DIR, "installer", "KVRouite_Audio.iss")
-        if not os.path.isfile(audio_iss):
-            print("[ERROR] installer\\KVRouite_Audio.iss fehlt – kann Audio-Installer nicht bauen.")
+        # Der zweite Installer: der Voice-Zusatz in eine vorhandene
+        # Installation derselben Version (installer/KVRouite_Voice.iss).
+        voice_iss = os.path.join(BASE_DIR, "installer", "KVRouite_Voice.iss")
+        if not os.path.isfile(voice_iss):
+            print("[ERROR] installer\\KVRouite_Voice.iss fehlt – kann Voice-Installer nicht bauen.")
             sys.exit(2)
-        audio_defines = [
+        voice_defines = [
             f"/DMyDistDir={os.path.abspath(zusatz_dir)}",
             f"/DMyAppVersion={app_version}",
         ]
-        print("[RUN] ISCC (Audio) → OutputDir =", os.path.abspath(artifacts_root))
-        subprocess.run([iscc, "/O" + os.path.abspath(artifacts_root)] + audio_defines + [audio_iss], check=True)
-        audio_installer = os.path.join(artifacts_root, f"KVRouite_v{app_version}_Audio_Win_x64_Installer.exe")
-        if os.path.isfile(audio_installer):
-            print("[INFO] Audio-Installer erstellt:", audio_installer)
-            write_sha256(audio_installer)
+        print("[RUN] ISCC (Voice) → OutputDir =", os.path.abspath(artifacts_root))
+        subprocess.run([iscc, "/O" + os.path.abspath(artifacts_root)] + voice_defines + [voice_iss], check=True)
+        voice_installer = os.path.join(artifacts_root, f"KVRouite_v{app_version}_Voice_Win_x64_Installer.exe")
+        if os.path.isfile(voice_installer):
+            print("[INFO] Voice-Installer erstellt:", voice_installer)
+            write_sha256(voice_installer)
         else:
-            print("[WARN] Audio-Installer nicht gefunden (erwartet):", audio_installer)
+            print("[WARN] Voice-Installer nicht gefunden (erwartet):", voice_installer)
     try:
         print("[CLEAN] Entferne temporären PyInstaller-Ordner:", os.path.abspath(pyi_out_dir))
         shutil.rmtree(pyi_out_dir, ignore_errors=True)

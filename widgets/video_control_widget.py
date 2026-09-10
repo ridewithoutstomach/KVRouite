@@ -74,7 +74,7 @@ class VideoControlWidget(QWidget):
         # Platz ist knapp - die App soll sich klein ziehen lassen -, darum
         # wechseln die Knoepfe statt sich anzureihen. Transport, [-, -] und
         # x stehen auf beiden Seiten. Den Knopf gibt es nur im Encode-Mode
-        # mit Audio-Zusatz (voice_seite_anbieten).
+        # mit Voice-Zusatz (voice_seite_anbieten).
         self._seite = "video"
         self._edit = False
         self._cut = False
@@ -379,7 +379,7 @@ class VideoControlWidget(QWidget):
 
     # ---- Seite V / A -------------------------------------------------
     def voice_seite_anbieten(self, an: bool):
-        """Den Seitenknopf zeigen (Encode-Mode mit Audio-Zusatz). Ohne ihn
+        """Den Seitenknopf zeigen (Encode-Mode mit Voice-Zusatz). Ohne ihn
         steht die Leiste auf Seite V."""
         self._audio_da = bool(an)
         if not self._audio_da and self._seite != "video":

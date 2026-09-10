@@ -105,18 +105,11 @@ class ExportBestaetigung(QDialog):
         agrid.setColumnStretch(1, 1)
         aussen.addWidget(audio_gruppe)
 
-        # LITE IST OHNE AUDIO: fehlt das Audio-Zusatzpaket, ist die ganze
-        # Gruppe gesperrt und der Export laeuft ohne Tonspur.
+        # Lite: Tonspur und Daempfer gehen ueberall, nur "Remove voices"
+        # braucht das Voice-Zusatzpaket - ohne es bleibt der Schalter grau.
         self._voice_ok, self._voice_grund = stimme.verfuegbar()
         if not self._voice_ok:
-            audio_gruppe.setEnabled(False)
-            sperre = QLabel("Audio is part of the KVRouite Audio add-on and "
-                            "not available here - the video is exported "
-                            "without a sound track. " + self._voice_grund,
-                            self)
-            sperre.setWordWrap(True)
-            sperre.setStyleSheet("color: gray;")
-            aussen.addWidget(sperre)
+            self.voice_check.setEnabled(False)
 
         # Knoepfe
         zeile = QHBoxLayout()
@@ -159,22 +152,18 @@ class ExportBestaetigung(QDialog):
 
         for check in (self.audio_check, self.traffic_check, self.voice_check):
             check.blockSignals(True)
-        self.audio_check.setChecked(bool(int(w.get("audio", 1))) and self._voice_ok)
-        self.traffic_check.setChecked(bool(int(w.get("traffic", 0))) and self._voice_ok)
+        self.audio_check.setChecked(bool(int(w.get("audio", 1))))
+        self.traffic_check.setChecked(bool(int(w.get("traffic", 0))))
         self.voice_check.setChecked(bool(int(w.get("voice", 0))) and self._voice_ok)
         for check in (self.audio_check, self.traffic_check, self.voice_check):
             check.blockSignals(False)
         self._modell = str(w.get("voice_model", stimme.VORGABE))
         self._kbps = w.get("audio_kbps", 128)
         self._daempfer = w.get("traffic_db", 12)
+        self._fuell_hz = int(w.get("traffic_fill_hz", 1000) or 0)
         self._schalter_nachziehen()
 
     def _schalter_nachziehen(self, *_a):
-        if not self._voice_ok:
-            self.audio_info.setText("no sound track - audio add-on not installed")
-            self.traffic_info.setText("")
-            self.voice_info.setText("")
-            return
         audio = self.audio_check.isChecked()
         self.traffic_check.setEnabled(audio)
         self.voice_check.setEnabled(audio and self._voice_ok)
@@ -186,9 +175,11 @@ class ExportBestaetigung(QDialog):
             self.voice_info.setText("")
             return
         if self.traffic_check.isChecked():
+            fuellung = (f"fill below {self._fuell_hz} Hz" if self._fuell_hz
+                        else "fill unfiltered")
             self.traffic_info.setText(
-                f"damper {self._daempfer} dB - scans each source file once "
-                f"(reads the whole file, cached afterwards)")
+                f"damper {self._daempfer} dB, {fuellung} - scans each source "
+                f"file once (reads the whole file, cached afterwards)")
         else:
             self.traffic_info.setText("off")
         if not self._voice_ok:
@@ -221,10 +212,10 @@ class ExportBestaetigung(QDialog):
 
     def _on_export(self):
         """Die drei Schalter in die Einstellungen - wie ein OK im Setup.
-        Ohne Zusatz bleiben die Einstellungen unangetastet; der Export liest
-        die Verfuegbarkeit selbst (mainwindow.on_render_clicked)."""
+        Ohne Voice-Zusatz bleibt "voice" unangetastet; der Export liest die
+        Verfuegbarkeit selbst (mainwindow.on_render_clicked)."""
+        self.settings.setValue("encoder/audio", 1 if self.audio_check.isChecked() else 0)
+        self.settings.setValue("encoder/traffic", 1 if self.traffic_check.isChecked() else 0)
         if self._voice_ok:
-            self.settings.setValue("encoder/audio", 1 if self.audio_check.isChecked() else 0)
-            self.settings.setValue("encoder/traffic", 1 if self.traffic_check.isChecked() else 0)
             self.settings.setValue("encoder/voice", 1 if self.voice_check.isChecked() else 0)
         self.accept()

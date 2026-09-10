@@ -1281,8 +1281,8 @@ class MainWindow(QMainWindow):
         ansicht = s.value(self._TIMELINE_ANSICHT_KEY, "", type=str)
         if not ansicht:
             ansicht = "video" if s.value(self._THUMBS_KEY, False, type=bool) else "off"
-        # Lite: keine Ton-Ansichten im Knopf.
-        self.timeline.audio_moeglich(stimme.verfuegbar()[0])
+        # Die Ton-Ansicht (Pegel ueber GStreamer) gibt es auch in Lite.
+        self.timeline.audio_moeglich(True)
         self.timeline.ansicht_setzen(ansicht, melden=False)
         self._timeline_ansicht_gewechselt(self.timeline.ansicht())
 
@@ -1416,8 +1416,9 @@ class MainWindow(QMainWindow):
             "flow":  ("Chart-Flow",  self.chart_flow),
             "gpx":   ("GPX Table", self.bottom_right_widget),
         }
-        # LITE IST OHNE AUDIO: ohne Zusatzpaket gibt es das Modul nicht
-        # (und in der Zeitleiste keine Ton-Ansicht, siehe audio_moeglich).
+        # Der Audio Zoom dient den Sprechstellen - ohne Voice-Zusatz gibt es
+        # das Modul nicht. Die Ton-Ansicht der Zeitleiste dagegen ist reines
+        # GStreamer und bleibt auch in Lite.
         if stimme.verfuegbar()[0]:
             self._module["audio"] = ("Audio Zoom", self.audio_zoom)
         self._slots["or"].inhalt_setzen("video", self.video_area_widget, "Video")
@@ -2267,7 +2268,7 @@ class MainWindow(QMainWindow):
             print("[DEBUG] => ENCODE")
             self.encoder_setup_action.setEnabled(True)
             self.video_control.show_ovl_button(True)
-            # Seite A (Sprechstellen) nur mit Audio-Zusatz und eingeschaltetem
+            # Seite A (Sprechstellen) nur mit Voice-Zusatz und eingeschaltetem
             # Voice Remover - siehe _sprechstellen_bedienung_nachziehen.
             self._sprechstellen_bedienung_nachziehen()
             self.overlay_setup_action.setEnabled(True)
@@ -4301,8 +4302,9 @@ class MainWindow(QMainWindow):
         """Die Ton-Ansicht braucht den Pegelverlauf: fehlt er fuer eine Datei
         im Zwischenspeicher, wird sie jetzt abgefahren (Fortschrittsdialog,
         abbrechbar). Die Sprechstellen werden dabei NICHT gesetzt, das tut
-        nur "Detect". Nur mit Audio-Zusatz - Lite hat die Ansicht nicht."""
-        if not self.playlist or not stimme.verfuegbar()[0]:
+        nur "Detect". Der Pegel kommt von GStreamer, das geht auch in Lite;
+        die Sprachwerte bleiben dort leer."""
+        if not self.playlist:
             return
         if all(verkehr.aus_cache(p) is not None for p in self.playlist):
             return
@@ -4725,7 +4727,7 @@ class MainWindow(QMainWindow):
 
     def sprechstellen_bedienbar(self) -> bool:
         """Ob Seite A und die Baender ueberhaupt zu sehen sind: nur im
-        Encode-Mode, mit Audio-Zusatz (Lite: nie), und wenn im Encoder Setup
+        Encode-Mode, mit Voice-Zusatz (Lite: nie), und wenn im Encoder Setup
         "Remove voices" an ist. Sonst ergibt Markieren keinen Sinn (Bernd,
         10.09.2026: "dann darf ich das ganze Audio-Gedoens eigentlich nicht
         sehen"). Die Stellen selbst bleiben gespeichert."""
@@ -8666,16 +8668,18 @@ class MainWindow(QMainWindow):
             width_val   = s.value("encoder/res_w", 1280, type=int)
             # Seite "Audio" im Encoder Setup (ab 7.0): Tonspur an/aus und
             # ihre Bitrate. Als Zahl abgelegt, siehe core/encoder_presets.
-            # LITE IST OHNE AUDIO: ohne das Audio-Zusatzpaket (gepackt) bzw.
-            # requirements-audio.txt (ungepackt) wird ohne Tonspur exportiert,
-            # was immer in den Einstellungen steht - wie bis 6.14.
-            from core import stimme as _stimme
-            audio_da    = _stimme.verfuegbar()[0]
-            audio_an    = audio_da and bool(s.value("encoder/audio", 1, type=int))
+            # Tonspur und Daempfer sind reines GStreamer und gehen auch in
+            # Lite. Nur "Remove voices" braucht das Voice-Zusatzpaket
+            # (gepackt) bzw. requirements-voice.txt (ungepackt); ohne es
+            # bleibt der Schalter wirkungslos, was immer in den
+            # Einstellungen steht.
+            voice_da    = stimme.verfuegbar()[0]
+            audio_an    = bool(s.value("encoder/audio", 1, type=int))
             audio_kbps  = s.value("encoder/audio_kbps", 128, type=int)
-            traffic_an  = audio_da and bool(s.value("encoder/traffic", 0, type=int))
+            traffic_an  = bool(s.value("encoder/traffic", 0, type=int))
             traffic_db  = s.value("encoder/traffic_db", 12, type=int)
-            voice_an    = audio_da and bool(s.value("encoder/voice", 0, type=int))
+            traffic_hz  = s.value("encoder/traffic_fill_hz", 1000, type=int)
+            voice_an    = voice_da and bool(s.value("encoder/voice", 0, type=int))
             voice_model = s.value("encoder/voice_model", "mdx", type=str)
 
             # 2) Cuts => skip_instructions
@@ -8758,6 +8762,8 @@ class MainWindow(QMainWindow):
                 # Verkehr daempfen (core/verkehr): Schalter und Daempfer.
                 "traffic": traffic_an,
                 "traffic_db": traffic_db,
+                # Tiefpass auf dem Fuellstueck in Hz, 0 = ungefiltert.
+                "traffic_fill_hz": traffic_hz,
                 # Stimmen entfernen (core/stimme): Schalter und Modell.
                 "voice": voice_an,
                 "voice_model": voice_model,

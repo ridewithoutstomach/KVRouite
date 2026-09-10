@@ -394,22 +394,23 @@ def hw_export_rundlauf(b: Bericht, ordner):
 
 # ------------------------------------------------------------------- Ablauf
 def audio_pruefen(b: Bericht):
-    """Ist das Audio-Zusatzpaket da, und laeuft es?
+    """Ist das Voice-Zusatzpaket da, und laeuft es?
 
-    Seit 7.0 gibt es die App als Lite (ohne Audio) und mit dem Zusatzpaket
-    (Tonspur, Daempfer, Voice Remover). Fehlt der Zusatz, ist das KEIN
-    Fehler - es wird nur gesagt. Ist er da, muessen sich torch, onnxruntime
-    und die Bibliothek laden lassen und die Modelldateien vorhanden sein:
-    genau das, was nach dem Entpacken des Zusatz-Zips schiefgehen kann.
+    Seit 7.0 gibt es die App als Lite (Tonspur und Verkehrsdaempfer, beides
+    GStreamer) und mit dem Zusatzpaket (Voice Remover und Detektor). Fehlt
+    der Zusatz, ist das KEIN Fehler - es wird nur gesagt. Ist er da, muessen
+    sich torch, onnxruntime und die Bibliothek laden lassen und die
+    Modelldateien vorhanden sein: genau das, was nach dem Entpacken des
+    Zusatz-Zips schiefgehen kann.
     """
     from core import stimme
 
     ok, grund = stimme.verfuegbar()
     if not ok:
-        b.sagen("Audio add-on: not installed - this is the Lite application")
+        b.sagen("Voice add-on: not installed - this is the Lite application")
         b.sagen("   (" + grund + ")")
         return
-    b.sagen("Audio add-on: installed, models in " + stimme.modellordner())
+    b.sagen("Voice add-on: installed, models in " + stimme.modellordner())
     try:
         import torch
         b.pruefen(True, "torch %s loads" % torch.__version__)
@@ -451,7 +452,7 @@ def alles_pruefen(ordner=None):
         ("Files shipped with the program", lambda: dateien_pruefen(b)),
         ("Loading the icons", lambda: symbole_pruefen(b)),
         ("GStreamer and GES", lambda: gstreamer_pruefen(b)),
-        ("Audio add-on (Lite or full)", lambda: audio_pruefen(b)),
+        ("Voice add-on (Lite or full)", lambda: audio_pruefen(b)),
         ("Reading, writing and re-reading GPX", lambda: gpx_rundlauf(b, ordner)),
         ("Cutting and exporting a video", lambda: export_rundlauf(b, ordner)),
         ("Really using the hardware encoders",

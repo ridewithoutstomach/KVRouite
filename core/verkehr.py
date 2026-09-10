@@ -99,6 +99,17 @@ DAEMPFER_VORGABE_DB = 12
 DAEMPFER_MIN_DB = 3
 DAEMPFER_MAX_DB = 24
 
+#: Tiefpass auf dem Fuellstueck, in Hz; 0 heisst ungefiltert. Das Fuellstueck
+#: ist eine Kopie der naechsten ruhigen Strecke - alles, was darin hoch und
+#: dauernd ist (ein Quietschen der Halterung, ein Rad), laege an der
+#: Fundstelle sonst DOPPELT: einmal im Original, einmal in der Fuellung.
+#: Bernd, 10.09.2026: nach dem Daempfen war ein Quietschen deutlicher als
+#: vorher. Reifen und Wind liegen tief; unter der Grenze bleibt das
+#: Fahrgeraeusch, darueber faellt die zweite Kopie weg.
+FUELL_TIEFPASS_VORGABE_HZ = 1000
+FUELL_TIEFPASS_MIN_HZ = 300
+FUELL_TIEFPASS_MAX_HZ = 4000
+
 #: Aendert sich an Sucher oder Ablageformat etwas, zaehlt das hoch - alte
 #: Eintraege im Zwischenspeicher werden dann nicht mehr gelesen.
 VERSION = 3     # 2: Pegelverlauf und Sprachwerte im Eintrag (10.09.2026)
@@ -361,7 +372,7 @@ def analyse(pfad, log=None, fortschritt=None, abbruch=None, name=None):
     log(f"[TRAFFIC] {name}: scanning the audio track...")
     # Sprachdetektor (core/sprache) im selben Durchlauf, wenn er da ist: die
     # Pipeline zweigt die Abtastwerte ab, danach rechnet das Modell in
-    # Sekunden. Ohne Audio-Zusatz bleibt "sprache" leer.
+    # Sekunden. Ohne Voice-Zusatz (Lite) bleibt "sprache" leer.
     from core import sprache
     mit_sprache = sprache.verfuegbar()[0]
     proben = [] if mit_sprache else None

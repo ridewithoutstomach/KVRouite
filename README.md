@@ -36,27 +36,26 @@ There are three requirements files:
   included. On Windows and macOS one command installs all of it. On Linux the
   GStreamer line is skipped automatically, because there are no Linux wheels -
   there it comes from the distribution, see below.
-- "requirements-audio.txt" - optional: the audio tools (since 7.0), that is
+- "requirements-voice.txt" - optional: the voice remover (since 7.0), that is
   python-audio-separator with PyTorch, ONNX Runtime and the rest, about
   750 MB. Without it KVRouite is the Lite application: it runs completely,
-  but the page Audio in the encoder setup is locked and videos are exported
-  without a sound track, as before 7.0. Run pip from the project directory - two
-  lines in it point at small stand-in packages inside the project
+  sound track and traffic damper included; only "Remove voices" and the
+  voice detection are locked. Run pip from the project directory - two lines
+  in it point at small stand-in packages inside the project
   (tools/diffq_platzhalter), which the library would otherwise pull from PyPI
   under a non-commercial license.
 - "requirements-build.txt" - additional packages needed only to build the
   Windows executable (PyInstaller and its dependencies).
 
 The Windows download comes in the same two parts: "KVRouite_<ver>_Win_x64"
-(the application, "Lite" - no audio, as before 7.0) and
-"KVRouite_<ver>_Audio_Win_x64" (everything for the page Audio: sound track,
-traffic damper, voice remover; about 900 MB). The Audio zip carries the same
-folder name and is simply unpacked over the KVRouite folder; the Audio
-installer does the same into an existing installation of the same version.
-The macOS bundle is Lite only.
+(the application, "Lite" - with sound track and traffic damper) and
+"KVRouite_<ver>_Voice_Win_x64" (the voice remover and its detection; about
+900 MB). The Voice zip carries the same folder name and is simply unpacked
+over the KVRouite folder; the Voice installer does the same into an existing
+installation of the same version. The macOS bundle is Lite only.
 
-In short: to run KVRouite, install "requirements.txt". To also have the page
-Audio, install "requirements-audio.txt" on top. To build the executable,
+In short: to run KVRouite, install "requirements.txt". To also remove
+voices, install "requirements-voice.txt" on top. To build the executable,
 install "requirements-build.txt" as well. Each platform section below shows
 the exact commands.
 
@@ -172,13 +171,15 @@ pip install -r requirements.txt
 python KVRouite.py
 ```
 
-That is the Lite application. For the page Audio (sound track, traffic
-damper, voice remover) add the audio packages, once, in the same venv -
-about 750 MB (the file points pip at PyTorch's CPU build, so no CUDA
-download):
+The first start takes a while (GStreamer scans its plugins once, see
+"Important Notes"); later starts are quick.
+
+That is the Lite application, sound track and traffic damper included. For
+the voice remover add its packages, once, in the same venv - about 750 MB
+(the file points pip at PyTorch's CPU build, so no CUDA download):
 
 ```bash
-pip install -r requirements-audio.txt
+pip install -r requirements-voice.txt
 ```
 
 ---
@@ -209,12 +210,14 @@ pip install -r requirements.txt
 python KVRouite.py
 ```
 
-That is the Lite application. For the page Audio (sound track, traffic
-damper, voice remover) add the audio packages, once, in the same venv -
-about 750 MB:
+The first start takes a while (GStreamer scans its plugins once, see
+"Important Notes"); later starts are quick.
+
+That is the Lite application, sound track and traffic damper included. For
+the voice remover add its packages, once, in the same venv - about 750 MB:
 
 ```cmd
-pip install -r requirements-audio.txt
+pip install -r requirements-voice.txt
 ```
 
 ---
@@ -308,12 +311,14 @@ pip install -r requirements.txt
 python KVRouite.py
 ```
 
-That is the Lite application. For the page Audio (sound track, traffic
-damper, voice remover) add the audio packages, once, in the same venv -
-about 750 MB:
+The first start takes a while (GStreamer scans its plugins once, see
+"Important Notes"); later starts are quick.
+
+That is the Lite application, sound track and traffic damper included. For
+the voice remover add its packages, once, in the same venv - about 750 MB:
 
 ```bash
-pip install -r requirements-audio.txt
+pip install -r requirements-voice.txt
 ```
 
 The only difference from the Windows instructions above is the activation line:
@@ -359,6 +364,12 @@ Please open an issue at
   Windows executable or the macOS bundle, which carry everything with them:
   - Always create and activate the virtual environment **inside** the `KVRouite` folder.
   - Do **not** run `python KVRouite.py` outside the project folder.
+- **The first start takes noticeably longer** - a minute is normal on a slow
+  disk. GStreamer scans all its plugins once and writes the list to a cache
+  file (under the user's application data, folder "KVRouite"); every start
+  after that reads the cache and is quick. The scan runs again after a fresh
+  venv, after updating the GStreamer packages, and after a new version of the
+  executable. Nothing is wrong while it runs - just wait for the window.
 - On **Linux**, make sure the GStreamer packages listed above are installed. `ffmpeg` is optional and only needed for the Copy-Mode.
 - On **macOS**, nothing has to be installed system-wide - `requirements.txt` brings GStreamer along, same as on Windows.
 - On **macOS**, the ready-made bundle will not open by double-click the first
@@ -430,16 +441,16 @@ that breaks scipy inside a PyInstaller build), the voice remover's packages
 
     pip install --upgrade pip setuptools
     pip install -r requirements.txt
-    pip install -r requirements-audio.txt
+    pip install -r requirements-voice.txt
     pip install -r requirements-build.txt
     python tools/modelle_holen.py
     python build_with_pyinstaller.py
 
 The script builds the application twice - once without the voice remover,
 only to learn which files belong to it, then in full - and splits the result
-into "KVRouite_<ver>_Win_x64.zip" (Lite) and "KVRouite_<ver>_Audio_Win_x64.zip"
+into "KVRouite_<ver>_Win_x64.zip" (Lite) and "KVRouite_<ver>_Voice_Win_x64.zip"
 (the add-on, same folder name, unpacked over the first). With
-"--build-installer" it also produces the two Inno Setup installers; the Audio
+"--build-installer" it also produces the two Inno Setup installers; the Voice
 one installs into an existing KVRouite installation of the same version and
 refuses any other.
 
@@ -454,7 +465,7 @@ Building the macOS Bundle Manually
 
 On a Mac, with Python 3.12.1 or newer and the runtime requirements already
 installed. The macOS bundle is the Lite application: it has no voice remover,
-so neither requirements-audio.txt nor the models are needed:
+so neither requirements-voice.txt nor the models are needed:
 
     pip install --upgrade pip setuptools
     pip install -r requirements.txt
@@ -601,11 +612,11 @@ Voice remover (since 7.0)
   name instead ("tools/diffq_platzhalter"); it is only needed for quantised
   models, which KVRouite does not use. The build scripts refuse to package
   the original.
-- Binaries: **Windows and macOS.** Installed by pip, placed into "_internal"
-  of the Windows build and into "KVRouite.app/Contents/Frameworks" of the
-  macOS bundle; the models go to "_internal/voice_models" and
-  "Contents/Resources/voice_models". On Linux nothing of this is distributed
-  with KVRouite.
+- Binaries: **Windows only**, as the Voice add-on (zip or installer).
+  Installed by pip, placed into "_internal" of the Windows build, the models
+  into "_internal/voice_models". The macOS bundle is the Lite application
+  and carries none of it; on Linux nothing of this is distributed with
+  KVRouite.
 
 Traffic damper (since 7.0)
 - KVRouite's own code, no third-party component. The treatment follows the

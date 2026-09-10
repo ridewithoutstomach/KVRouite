@@ -8,6 +8,173 @@ Versions up to and including 5.0 are documented in the GitHub releases only.
 
 ---
 
+## 7.0 - 2026-09-10
+
+Sound. Up to 6.14 the Encode-Mode wrote videos without a sound track; now
+the track goes into the export, with the same crossfades as the picture,
+and two tools work on it: a damper for passing vehicles and a voice
+remover. The voice remover brings PyTorch and friends, about 900 MB that
+most users do not need - so the Windows download comes in two parts, the
+application ("Lite") and the "Voice" add-on. Around it: a view button on
+the timeline, an "Audio Zoom" module, an export dialog that shows what it
+is about to do, and a second page on the video control for marking where
+someone talks.
+
+### Added
+
+**Sound track in the export**
+
+Encoder Setup has a page "Audio": "Audio track in the exported video" and
+its bitrate (AAC, 32-320 kbit/s, default 128). The crossfade of a cut
+applies to the sound as well - the outgoing side goes to silence while the
+incoming side comes up, so the mixer never adds two full tracks - and so
+does the Merge-Fade at a file join. The AAC encoder is whichever GStreamer
+offers (voaacenc in the bundles, fdkaacenc, avenc_aac or mfaacenc
+elsewhere). Pure GStreamer, nothing to install; the preview still plays
+the original sound (see Known).
+
+**Damp passing vehicles**
+
+A car or motorbike passing the camera is a mountain in the level: seconds
+above the noise of wind and tyres, a short top, down again. The scanner
+reads the sound track of each source file once (GStreamer's level element,
+100 ms frames, no model, no numpy), finds every such mountain against a
+rolling background level, and the export pulls each one down towards the
+background by at most the damper (Encoder Setup, "Damper (dB)", default
+12) while the nearest quiet stretch of the same file is laid over it as
+ride noise. The ride stays as loud as before, the vehicle moves into the
+distance. The treatment follows the method of Kinotomo Audio by
+benilerouge.org - the method only, no code. Scan results are cached under
+the temp folder by path, size and time of the file; the damper is applied
+at export time, so changing it costs no rescan.
+
+**Remove voices**
+
+"Remove voices" on the page Audio separates the voice from the sound with
+a trained model and keeps the rest: MDX-Net (the Ultimate Vocal Remover
+model, default) or Demucs v4 by Meta, which was measured to leave more of
+the ride noise. Runs on the CPU through python-audio-separator, roughly as
+long as the audio it processes, in passes with a progress line and a
+heartbeat; only the material that ends up in the video is read and
+separated, and the result is cached per file and range. With marked
+stretches (next item) it separates only there, with a 2 s margin.
+
+**Detect and mark where someone talks - page A of the video control**
+
+Encode-Mode with the Voice add-on and "Remove voices" on: the video
+control gets a button at its left end, a film strip that turns into a
+speaker. Page V is the control as it was. Page A shows [-, -], x and three
+new buttons: **Voice** marks the area between [- and -] as a stretch with
+voices (like "Ovl" makes an overlay of it), **Detect** finds the voices in
+all loaded videos and marks them at once (Silero VAD, run with ONNX
+Runtime; a 250 Hz high-pass in front of it for wind on the microphone -
+for the search only, the exported sound is untouched), **Sens** sets its
+sensitivity 1-7 (1 clear speech only, 7 everything that might be, default
+3). The stretches are orange bands in the timeline; right-click one on
+page A for "Start and end…", "Remove stretch" and "Remove all stretches".
+Right-click on page V still means cut, overlay and join, nothing else.
+Every change is on the Undo stack ("Voices marked", "Voices removed",
+"Voices detected"…). Stored per file in seconds of that file under
+`voice_regions` in the project file; exported as `voice_regions`, and the
+voice remover then separates only the kept parts of these stretches. The
+detection is never complete - a conversation in the wind can be missed, a
+bird taken for a voice - so the bands are meant to be checked; without any
+band the whole kept material is separated, as it says in the export
+dialog. Without the add-on, or with "Remove voices" off, none of this is
+shown.
+
+**Audio Zoom - a module for the sound**
+
+Selectable in any switchable window like Chart-Flow: the level of the
+sound track around the playing position, a 60 s window (mouse wheel 8-900
+s) that follows the video while the mouse is outside. Drag with the left
+button to mark a stretch with voices, right-click a band to remove it,
+click to jump. Cuts are drawn dark and hatched over it, and what lies
+under a cut is neither shown nor counted. Add-on only.
+
+**Timeline: a view button instead of a menu item**
+
+A small button at the top left of the timeline cycles through "-" (nothing),
+"Video" (the thumbnail strip), "Audio" (the sound level) and "V+A" (the
+level, half transparent, over the thumbnails). The height of the timeline
+does not change. The level comes from the same scan as the traffic damper;
+if a file has not been scanned yet, choosing "Audio" scans it now, with a
+progress dialog. Lite has this too - the scan is GStreamer. The setting
+"Thumbnails in Timeline" in the Config menu is gone; its value is taken
+over once.
+
+**Export: the dialog shows the settings and the three sound switches**
+
+Export in Encode-Mode no longer asks "Are you sure?" and nothing else. The
+dialog lists the encoder settings as saved and has the three switches of
+the sound track - Audio, Damp passing vehicles, Remove voices - to flip
+right there, with a line under each saying what it will cost (the voice
+remover: roughly as long as the audio, and whether that is the marked
+stretches or everything). What is flipped here is written to the settings,
+as OK in the Encoder Setup would; "Encoder Setup…" opens the full setup.
+
+**Lite and the Voice add-on**
+
+The Windows download comes as "KVRouite_<ver>_Win_x64" - the application,
+with sound track, damper and the audio view - and
+"KVRouite_<ver>_Voice_Win_x64", the voice remover and its detection (about
+900 MB unpacked). The Voice zip carries the same folder name and is
+unpacked over the KVRouite folder; the Voice installer does the same into
+an existing installation of the same version and refuses any other.
+Without it, "Remove voices" is locked with a note saying which file to get;
+the self-test (`--selftest`) reports which of the two is installed. From
+source it is the same split in three files: `requirements.txt` (the
+application), `requirements-voice.txt` (the voice remover; PyTorch's CPU
+build, no CUDA download) and `requirements-build.txt` (PyInstaller).
+`build_with_pyinstaller.py` builds the application twice - once without
+the voice packages, only to learn which files belong to them - and splits
+the full build into the two zips and, with `--build-installer`, the two
+installers. The macOS bundle is Lite. One package the library asks for,
+diffq-fixed, is licensed CC BY-NC and is never shipped: the requirements
+install KVRouite's own GPL stand-in under that name
+(`tools/diffq_platzhalter`), and the build script refuses the original.
+
+**Licenses**
+
+All new components are named and their texts ship with the program:
+python-audio-separator (MIT), the UVR models (MIT per the UVR README), Demucs
+(Meta, MIT), the model architectures of tsurumeso, kuielab and ZFTurbo
+(MIT, notices restored in `LICENSE.UVR-upstreams`), Silero VAD (MIT), and
+the fifty-odd Python packages the library pulls in, inventoried per build
+by `tools/lizenzen_sammeln.py` into `third-party-licenses/voice/`. Kinotomo
+Audio is mentioned as a courtesy.
+
+### Changed
+
+**Python: 3.12.10 or newer, or 3.14**
+
+The voice remover's packages have wheels for 3.12 to 3.14; 3.10 is no
+longer supported. Building the executable needs at least 3.12.1: 3.12.0
+has a bug (CPython issue 110543) that breaks scipy inside a PyInstaller
+build, and the build script refuses it.
+
+**Help > Copyright + License is a dialog of its own**
+
+A scrollable text instead of a message box that grew with its content and,
+since the voice remover, filled the whole screen. The sentence "By clicking
+'I Accept'" is gone from it - it belongs to the disclaimer at the first
+start, which now has to be scrolled to its end before it can be accepted.
+
+### Fixed
+
+**New Project left the last frame in the player**
+
+The player stopped, but the last picture stayed and the drop hint did not
+come back. Now the video area shows "Drag & Drop video file(s) here" again,
+and the audio view and the Audio Zoom are emptied too.
+
+### Known
+
+The preview plays the original sound: no damper, no voice removal, and the
+crossfade snippets are silent. Only the export has the treated track.
+
+---
+
 ## 6.14 - 2026-09-09
 
 The join between two video files gets a transition that costs nothing: no
