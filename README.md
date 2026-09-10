@@ -30,20 +30,35 @@ Requirements
   shipped with KVRouite; without them Copy-Mode stays disabled and everything
   else works.
 
-There are two requirements files:
+There are three requirements files:
 
 - "requirements.txt" - everything the application needs to run, GStreamer
   included. On Windows and macOS one command installs all of it. On Linux the
   GStreamer line is skipped automatically, because there are no Linux wheels -
   there it comes from the distribution, see below.
+- "requirements-audio.txt" - optional: the audio tools (since 7.0), that is
+  python-audio-separator with PyTorch, ONNX Runtime and the rest, about
+  750 MB. Without it KVRouite is the Lite application: it runs completely,
+  but the page Audio in the encoder setup is locked and videos are exported
+  without a sound track, as before 7.0. Run pip from the project directory - two
+  lines in it point at small stand-in packages inside the project
+  (tools/diffq_platzhalter), which the library would otherwise pull from PyPI
+  under a non-commercial license.
 - "requirements-build.txt" - additional packages needed only to build the
   Windows executable (PyInstaller and its dependencies).
 
-If you just want to run KVRouite, "requirements.txt" is all you need. Run
-pip from the project directory: two lines in it point at small stand-in
-packages inside the project (tools/diffq_platzhalter), which the voice
-remover's library would otherwise pull from PyPI under a non-commercial
-license.
+The Windows download comes in the same two parts: "KVRouite_<ver>_Win_x64"
+(the application, "Lite" - no audio, as before 7.0) and
+"KVRouite_<ver>_Audio_Win_x64" (everything for the page Audio: sound track,
+traffic damper, voice remover; about 900 MB). The Audio zip carries the same
+folder name and is simply unpacked over the KVRouite folder; the Audio
+installer does the same into an existing installation of the same version.
+The macOS bundle is Lite only.
+
+In short: to run KVRouite, install "requirements.txt". To also have the page
+Audio, install "requirements-audio.txt" on top. To build the executable,
+install "requirements-build.txt" as well. Each platform section below shows
+the exact commands.
 
 -------------------------------------------------------------------------------
 ## 🔧 Installation & Usage (Linux, Windows & macOS)
@@ -153,10 +168,18 @@ source venv/bin/activate
 # needs it while being installed, and setuptools provides the replacement -
 # so install it before the requirements.
 pip install --upgrade pip setuptools
-# torch from PyPI ships CUDA on Linux (2.5 GB); the CPU build is enough:
-pip install torch==2.14.0 torchvision==0.29.0 --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements.txt
 python KVRouite.py
+```
+
+That is the Lite application. For the page Audio (sound track, traffic
+damper, voice remover) add the audio packages, once, in the same venv. On
+Linux install the CPU build of torch first - the one PyPI would pick ships
+CUDA and weighs 2.5 GB:
+
+```bash
+pip install torch==2.14.0 torchvision==0.29.0 --index-url https://download.pytorch.org/whl/cpu
+pip install -r requirements-audio.txt
 ```
 
 ---
@@ -185,6 +208,14 @@ venv\Scripts\activate
 pip install --upgrade pip setuptools
 pip install -r requirements.txt
 python KVRouite.py
+```
+
+That is the Lite application. For the page Audio (sound track, traffic
+damper, voice remover) add the audio packages, once, in the same venv -
+about 750 MB:
+
+```cmd
+pip install -r requirements-audio.txt
 ```
 
 ---
@@ -276,6 +307,14 @@ source venv/bin/activate
 pip install --upgrade pip setuptools
 pip install -r requirements.txt
 python KVRouite.py
+```
+
+That is the Lite application. For the page Audio (sound track, traffic
+damper, voice remover) add the audio packages, once, in the same venv -
+about 750 MB:
+
+```bash
+pip install -r requirements-audio.txt
 ```
 
 The only difference from the Windows instructions above is the activation line:
@@ -387,14 +426,23 @@ Building the Windows Executable Manually
 
 To create your own Windows executable, install the build packages on top of
 the runtime ones. Building needs Python 3.12.1 or newer (3.12.0 has a bug
-that breaks scipy inside a PyInstaller build), and the voice remover's
-models must be fetched once - they are packed into the executable:
+that breaks scipy inside a PyInstaller build), the voice remover's packages
+(the build is made with them and then split), and its models, fetched once:
 
     pip install --upgrade pip setuptools
     pip install -r requirements.txt
+    pip install -r requirements-audio.txt
     pip install -r requirements-build.txt
     python tools/modelle_holen.py
     python build_with_pyinstaller.py
+
+The script builds the application twice - once without the voice remover,
+only to learn which files belong to it, then in full - and splits the result
+into "KVRouite_<ver>_Win_x64.zip" (Lite) and "KVRouite_<ver>_Audio_Win_x64.zip"
+(the add-on, same folder name, unpacked over the first). With
+"--build-installer" it also produces the two Inno Setup installers; the Audio
+one installs into an existing KVRouite installation of the same version and
+refuses any other.
 
 The resulting executable will be located at:
 
@@ -406,12 +454,12 @@ Building the macOS Bundle Manually
 ----------------------------------
 
 On a Mac, with Python 3.12.1 or newer and the runtime requirements already
-installed (the voice remover's models are fetched once and packed in):
+installed. The macOS bundle is the Lite application: it has no voice remover,
+so neither requirements-audio.txt nor the models are needed:
 
     pip install --upgrade pip setuptools
     pip install -r requirements.txt
     pip install -r requirements-build-macos.txt
-    python3 tools/modelle_holen.py
     python3 build_macos.py
 
 The build refuses to finish if anything is missing that must not be missing:
