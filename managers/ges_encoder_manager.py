@@ -52,6 +52,10 @@ Gemessen am 10.09.2026 mit GES-Testclips (GStreamer 1.28.6): voaacenc und
 mfaacenc stehen im Bundle mit Rank 128, avenc_aac mit Rank 0; eine lineare
 Lautstaerkerampe von 1 auf 0 ueber 2 s ergab RMS 22152 / 11737 / 1459 am
 Anfang, in der Mitte und am Ende.
+
+Alle Lautstaerkekurven eines Clips - Blendenrampen, Daempfung des Verkehrs
+(core/verkehr, Konfiguration "traffic"/"traffic_db"), Naht eines
+Fuellstuecks - werden in _Tonclip gesammelt und als EIN Produkt angewendet.
 """
 
 import json
@@ -64,6 +68,7 @@ from PySide6.QtCore import QSettings
 
 # view360 faengt einen fehlenden GStreamer selbst ab und bleibt importierbar -
 # wer den ffmpeg-Weg benutzt, merkt davon nichts.
+from core import verkehr
 from core import view360
 from core.hardware_detect import GST_HW_ENCODER
 
@@ -212,6 +217,25 @@ class _Quellen:
         den = s.get_framerate_denom() or 1
         return s.get_width(), s.get_height(), num, den
 
+    def tonrate(self):
+        """Abtastrate der ersten Datei mit Tonspur, in Hz; 48000 wenn keine.
+
+        GES legt seine Tonspur ab Werk auf 44100 Hz fest (Restriktion der
+        AudioTrack: S32LE, 2 Kanaele, 44100). Ohne diese Abfrage wird jede
+        GoPro-Aufnahme (48000 Hz) beim Export umgerechnet - so am 10.09.2026
+        an einem Export gesehen: Quelle 48000, Ergebnis 44100.
+        """
+        for asset in self.assets:
+            try:
+                stroeme = asset.get_info().get_audio_streams()
+            except Exception:
+                continue
+            if stroeme:
+                rate = stroeme[0].get_sample_rate()
+                if rate and rate > 0:
+                    return int(rate)
+        return 48000
+
     def ohne_ton(self):
         """Pfade der Quellen, die keine Tonspur haben.
 
@@ -308,20 +332,45 @@ def _alpha_rampe(element, von_ns, bis_ns, inpoint_ns, start_wert, ziel_wert):
     quelle.set(inpoint_ns + bis_ns, ziel_wert)
 
 
-def _volume_rampe(clip, von_ns, bis_ns, start_wert, ziel_wert):
-    """Blendet die Lautstaerke eines Clips linear - das Gegenstueck zu
-    _alpha_rampe fuer den Ton.
+def _kurve_wert(kurve, t):
+    """Wert einer stueckweise linearen Kurve [(t, v)] an der Stelle t.
 
-    von_ns/bis_ns zaehlen ab dem ANFANG DES CLIPS auf der Timeline; die
-    Umrechnung in Medienzeit (ab inpoint, siehe _alpha_rampe) passiert hier.
-    Liegt von_ns hinter dem Clipanfang, wird davor ausdruecklich voller Pegel
-    gesetzt: eine Steuerquelle ohne Stuetzstelle vor dem ersten Punkt liesse
-    den Wert dort undefiniert.
+    Vor dem ersten Punkt gilt der erste Wert, nach dem letzten der letzte -
+    so beschreibt [(a, 1.0), (b, 0.0)] eine Ausblendung, die vor a voll ist
+    und nach b still bleibt, ohne dass die Kurve den Clip kennen muss.
+    """
+    if not kurve:
+        return 1.0
+    if t <= kurve[0][0]:
+        return kurve[0][1]
+    if t >= kurve[-1][0]:
+        return kurve[-1][1]
+    for (t0, v0), (t1, v1) in zip(kurve, kurve[1:]):
+        if t0 <= t <= t1:
+            if t1 == t0:
+                return v1
+            return v0 + (v1 - v0) * (t - t0) / float(t1 - t0)
+    return kurve[-1][1]
 
-    Linear wie das Bild, nicht leistungsgleich: beide Rampen sollen dieselbe
-    Kurve haben, damit Bild und Ton an derselben Stelle "halb" sind. Bei
-    zwei unabhaengigen Geraeuschkulissen sinkt der Pegel in der Mitte der
-    Blende dadurch um 3 dB - bei Fahrtwind und Strasse kaum zu hoeren.
+
+class _Tonclip:
+    """Ein Clip mit Ton und die Huellkurven seiner Lautstaerke.
+
+    Jede Kurve ist [(Ausgabezeit ns, Faktor)], stueckweise linear, in
+    AUSGABEZEIT - so lassen sich Rampen beschreiben, ohne zu wissen, aus
+    welchen Stuecken eine Blendenhaelfte besteht. Der Faktor des Clips ist
+    das PRODUKT aller Kurven: `rampen` teilt er sich mit den anderen Clips
+    desselben Teils (die Blendenrampen, die erst beim naechsten Teil bekannt
+    werden), `kurven` sind seine eigenen (Daempfung einer Fundstelle,
+    Gegenstueck und Naht eines Fuellstuecks - siehe core/verkehr).
+
+    Angewendet wird alles erst am Ende (anwenden): GES kennt nur EINE
+    Steuerquelle je Eigenschaft, also muss das Produkt fertig sein.
+
+    Linear wie das Bild, nicht leistungsgleich: Bild und Ton sollen an
+    derselben Stelle "halb" sein. Bei zwei unabhaengigen Geraeuschkulissen
+    sinkt der Pegel in der Mitte einer Blende dadurch um 3 dB - bei
+    Fahrtwind und Strasse kaum zu hoeren.
 
     Die Bindung MUSS "direct-absolute" sein, nicht "direct" wie bei der
     Deckkraft. "direct" legt den Wert 0..1 auf den BEREICH der Eigenschaft,
@@ -331,37 +380,129 @@ def _volume_rampe(clip, von_ns, bis_ns, start_wert, ziel_wert):
     (RMS 23165 ohne Steuerung): konstant 0.05 ergab mit "direct" 11582,
     mit "direct-absolute" 1158.
     """
-    inpoint = clip.get_inpoint()
-    for element in clip.find_track_elements(None, GES.TrackType.AUDIO,
-                                            GES.AudioSource):
-        quelle = GstController.InterpolationControlSource()
-        quelle.props.mode = GstController.InterpolationMode.LINEAR
-        element.set_control_source(quelle, "volume", "direct-absolute")
-        if von_ns > 0:
-            quelle.set(inpoint, 1.0)
-        quelle.set(inpoint + von_ns, start_wert)
-        quelle.set(inpoint + bis_ns, ziel_wert)
+
+    def __init__(self, clip, start_ns, inpoint_ns, dauer_ns, asset, rampen):
+        self.clip = clip
+        self.start = int(start_ns)
+        self.inpoint = int(inpoint_ns)
+        self.dauer = int(dauer_ns)
+        self.asset = asset
+        self.rampen = rampen      # geteilte Liste von Kurven
+        self.kurven = []          # eigene Kurven
+
+    def ausgabe(self, medien_s):
+        """Sekunde in der Quelldatei -> Ausgabezeit in ns, fuer diesen Clip."""
+        return self.start + int(round(medien_s * NS)) - self.inpoint
+
+    def anwenden(self):
+        kurven = [k for k in (list(self.rampen) + self.kurven) if k]
+        if not kurven:
+            return
+        ende = self.start + self.dauer
+        zeiten = {self.start, ende}
+        for kurve in kurven:
+            for t, _v in kurve:
+                if self.start < t < ende:
+                    zeiten.add(int(t))
+        punkte = []
+        for t in sorted(zeiten):
+            wert = 1.0
+            for kurve in kurven:
+                wert *= _kurve_wert(kurve, t)
+            punkte.append((t, max(0.0, min(1.0, wert))))
+        if all(abs(v - 1.0) < 1e-6 for _t, v in punkte):
+            return
+        for element in self.clip.find_track_elements(None, GES.TrackType.AUDIO,
+                                                     GES.AudioSource):
+            quelle = GstController.InterpolationControlSource()
+            quelle.props.mode = GstController.InterpolationMode.LINEAR
+            element.set_control_source(quelle, "volume", "direct-absolute")
+            for t, v in punkte:
+                quelle.set(self.inpoint + (t - self.start), v)
 
 
-def _ausblenden(clips, fade_start_ns, blende_ns):
-    """Den Ton der ausblendenden Seite einer Blende auf 0 fuehren.
+def _verkehr_setzen(tonclips, verkehr_cfg, quellen, timeline, log):
+    """Fundstellen des Verkehrs auf die Timeline bringen (core/verkehr).
 
-    clips: [(clip, start_ns, dauer_ns)] - die Stuecke des vorigen Teils auf
-    der unteren Ebene, in Ausgabezeit. Die Blende liegt in der Ausgabe bei
-    [fade_start_ns, fade_start_ns + blende_ns]; jedes Stueck bekommt den
-    Teil der Rampe, der in es hineinfaellt. Ein Stueck kann VOR der Blende
-    beginnen (dann bleibt es davor auf vollem Pegel) oder an einer
-    Dateigrenze mitten in der Blende wechseln.
+    Fuer jeden Tonclip, dessen Material eine Fundstelle beruehrt: die
+    Daempfungskurve auf den Clip, und je Fuellstueck ein reiner Tonclip aus
+    derselben Datei auf einer Fuellebene, mit Gegenstueck und Nahtkurve.
+    Die Fuellclips erben die Blendenrampen ihres Teils (rampen), damit sie
+    an einer Blende mit ihm zusammen aus- oder einblenden. Fuellebenen
+    liegen ganz unten und tragen nur Ton; ein neuer wird angelegt, wenn auf
+    keiner vorhandenen Platz ist (zwei Clips duerfen auf einer Ebene nicht
+    ueberlappen).
+
+    Rueckgabe: (Fundstellen, Fuellclips, Fuellebenen).
     """
-    ende = fade_start_ns + blende_ns
-    for clip, start, dauer in clips:
-        a = max(start, fade_start_ns)
-        b = min(start + dauer, ende)
-        if b <= a:
+    if not verkehr_cfg:
+        return 0, 0, 0
+    daempfer = float(verkehr_cfg.get("daempfer_db") or 0)
+    analysen = verkehr_cfg.get("analysen") or {}
+    je_uri = {}
+    for pfad, asset in zip(quellen.pfade, quellen.assets):
+        daten = analysen.get(pfad)
+        if daten:
+            je_uri[asset.get_id()] = daten.get("ereignisse") or []
+    if daempfer <= 0 or not je_uri:
+        return 0, 0, 0
+
+    ebenen = []     # [layer, belegt_bis_ns]
+
+    def ebene_frei(start):
+        for eintrag in ebenen:
+            if eintrag[1] <= start:
+                return eintrag
+        layer = timeline.append_layer()
+        layer.set_auto_transition(False)
+        ebenen.append([layer, 0])
+        return ebenen[-1]
+
+    stellen = 0
+    fuellclips = 0
+    neue = []
+    for tc in list(tonclips):
+        ereignisse = je_uri.get(tc.asset.get_id())
+        if not ereignisse:
             continue
-        _volume_rampe(clip, a - start, b - start,
-                      1.0 - (a - fade_start_ns) / float(blende_ns),
-                      1.0 - (b - fade_start_ns) / float(blende_ns))
+        m_von = tc.inpoint / NS
+        m_bis = (tc.inpoint + tc.dauer) / NS
+        for ev in ereignisse:
+            if (ev["bis"] + verkehr.RAMPE_S <= m_von
+                    or ev["von"] - verkehr.RAMPE_S >= m_bis):
+                continue
+            kurve = verkehr.daempfung(ev, daempfer)
+            if not kurve:
+                continue
+            tc.kurven.append([(tc.ausgabe(t), v) for t, v in kurve])
+            stellen += 1
+            stuecke = verkehr.fuellstuecke(ev)
+            for i, (q, lage, dauer) in enumerate(stuecke):
+                a_s = ev["von"] + lage
+                a = max(a_s, m_von)
+                b = min(a_s + dauer, m_bis)
+                if b - a < verkehr.RAHMEN_S:
+                    continue
+                start = tc.ausgabe(a)
+                inpoint = int(round((q + (a - a_s)) * NS))
+                laenge = int(round((b - a) * NS))
+                eintrag = ebene_frei(start)
+                clip = eintrag[0].add_asset(tc.asset, start, inpoint, laenge,
+                                            GES.TrackType.AUDIO)
+                if clip is None:
+                    log(f"[TRAFFIC] fill clip at {start / NS:.2f}s could not "
+                        f"be inserted")
+                    continue
+                eintrag[1] = start + laenge
+                fc = _Tonclip(clip, start, inpoint, laenge, tc.asset, tc.rampen)
+                fc.kurven.append([(tc.ausgabe(t), v)
+                                  for t, v in verkehr.gegenstueck(kurve)])
+                fc.kurven.append([(tc.ausgabe(ev["von"] + t), v)
+                                  for t, v in verkehr.fuellkurve(stuecke, i)])
+                neue.append(fc)
+                fuellclips += 1
+    tonclips.extend(neue)
+    return stellen, fuellclips, len(ebenen)
 
 
 def _raster(sekunden, fps_n, fps_d):
@@ -396,7 +537,9 @@ def _blicke_liste(quellen, view360_cfg):
 
 
 def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_d,
-                    log, blicke=None, merge_fades=None):
+                    log, blicke=None, merge_fades=None, verkehr_cfg=None):
+    """verkehr_cfg: None, oder {"daempfer_db": dB, "analysen": {pfad: daten}}
+    mit den Fundstellen aus core/verkehr.analyse - siehe _verkehr_setzen."""
     timeline = GES.Timeline.new_audio_video()
     blicke = blicke or []
     aspect = view360.ziel_aspect(breite, hoehe)
@@ -419,6 +562,12 @@ def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_
             track.set_restriction_caps(Gst.Caps.from_string(
                 f"video/x-raw,width={breite},height={hoehe},"
                 f"framerate={fps_n}/{fps_d}"))
+        elif track.get_property("track-type") == GES.TrackType.AUDIO:
+            # Die Abtastrate der Quelle behalten - siehe _Quellen.tonrate().
+            # Format und Kanaele bleiben bei der GES-Vorgabe.
+            track.set_restriction_caps(Gst.Caps.from_string(
+                f"audio/x-raw,format=S32LE,channels=2,layout=interleaved,"
+                f"rate={quellen.tonrate()}"))
 
     # Layer 0 liegt in GES OBEN. Das Grundmaterial kommt deshalb nach unten,
     # die einblendende Seite einer Ueberblendung nach oben.
@@ -497,11 +646,13 @@ def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_
     zeit_ns = 0
     blenden = 0
     abbildung = []   # (roh_von, roh_bis, ausgabe_start_ns) je Teilstueck
-    # Die Stuecke des VORIGEN Teils auf der unteren Ebene, in Ausgabezeit:
-    # [(clip, start_ns, dauer_ns)]. Ueberlappt sie die einblendende Haelfte
-    # des naechsten Teils, wird ihr Ton ueber dieselbe Spanne ausgeblendet -
-    # genau dann und nur dann, wenn auch das Bild blendet.
-    vorige_unten = []
+    # Alle Clips mit Ton (_Tonclip) - ihre Lautstaerkekurven werden ganz am
+    # Ende angewendet. `vorige_rampen` ist die geteilte Rampenliste der
+    # Stuecke des VORIGEN Teils auf der unteren Ebene: ueberlappt sie die
+    # einblendende Haelfte des naechsten Teils, kommt dort die Ausblendung
+    # hinein - genau dann und nur dann, wenn auch das Bild blendet.
+    tonclips = []
+    vorige_rampen = []
     for index, (von, bis, bl_davor, bl_danach) in enumerate(stuecke):
         halb_davor = bl_davor / 2.0
         halb_danach = bl_danach / 2.0
@@ -542,37 +693,42 @@ def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_
             blende_ns = ns(bl_davor)
             start_ns = zeit_ns - blende_ns
             out_anfang = start_ns
+            # Ton der einblendenden Haelfte: wie das Bild von 0 auf 1 ueber
+            # die ganze Blende - als Kurve in Ausgabezeit, damit es auch
+            # stimmt, wenn die Haelfte an einer Dateigrenze aus zwei
+            # Stuecken besteht.
+            rampen_oben = [[(start_ns, 0.0), (start_ns + blende_ns, 1.0)]]
             for asset, inpoint, dauer, rohstart in quellen.stuecke(
                     ns(roh_von), ns(roh_von + bl_davor)):
-                clip = clip_setzen(oben, asset,
-                                   start_ns + (rohstart - ns(roh_von)),
-                                   inpoint, dauer, rohstart)
+                start = start_ns + (rohstart - ns(roh_von))
+                clip = clip_setzen(oben, asset, start, inpoint, dauer, rohstart)
                 for element in clip.find_track_elements(None, GES.TrackType.VIDEO,
                                                         GES.VideoSource):
                     _alpha_rampe(element, 0, blende_ns, inpoint, 0.0, 1.0)
-                # Ton der einblendenden Haelfte: wie das Bild von 0 auf 1,
-                # ueber die Stelle des Stuecks in der Blende (an einer
-                # Dateigrenze kann die Haelfte aus zwei Stuecken bestehen).
-                lage = rohstart - ns(roh_von)
-                _volume_rampe(clip, 0, dauer,
-                              lage / float(blende_ns),
-                              (lage + dauer) / float(blende_ns))
+                tonclips.append(_Tonclip(clip, start, inpoint, dauer, asset,
+                                         rampen_oben))
             # Ton der ausblendenden Seite: der vorige Teil laeuft unten
             # ueber die ganze Blende weiter, sein Pegel geht auf 0.
-            _ausblenden(vorige_unten, start_ns, blende_ns)
+            vorige_rampen.append([(start_ns, 1.0), (start_ns + blende_ns, 0.0)])
             blenden += 1
             roh_von = roh_von + bl_davor
 
         # Der Rest des Stuecks liegt unten und schliesst luecklos an.
-        vorige_unten = []
+        vorige_rampen = []
         for asset, inpoint, dauer, rohstart in quellen.stuecke(
                 ns(roh_von), ns(roh_bis)):
             start = zeit_ns + (rohstart - ns(roh_von))
             clip = clip_setzen(unten, asset, start, inpoint, dauer, rohstart)
-            vorige_unten.append((clip, start, dauer))
+            tonclips.append(_Tonclip(clip, start, inpoint, dauer, asset,
+                                     vorige_rampen))
 
         abbildung.append((roh_anfang, roh_bis, out_anfang))
         zeit_ns += ns(roh_bis) - ns(roh_von)
+
+    stellen, fuellclips, fuellebenen = _verkehr_setzen(
+        tonclips, verkehr_cfg, quellen, timeline, log)
+    for tc in tonclips:
+        tc.anwenden()
 
     _overlays_setzen(ovl_ebene, overlay_list, breite, hoehe, abbildung,
                      fps_n, fps_d, log)
@@ -584,6 +740,10 @@ def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_
     log(f"[GES] Timeline: {len(stuecke)} piece(s), {blenden} crossfade(s), "
         f"{naehte} merge-fade(s), "
         f"{gesamt / NS:.6f}s at {breite}x{hoehe} @ {fps_n}/{fps_d}")
+    if verkehr_cfg:
+        log(f"[TRAFFIC] {stellen} spot(s) damped by up to "
+            f"{verkehr_cfg.get('daempfer_db')} dB, {fuellclips} fill clip(s) "
+            f"on {fuellebenen} layer(s)")
     return timeline, gesamt
 
 
@@ -1424,9 +1584,37 @@ def ges_xfade_main(cfg_path, abbruch=None):
         log(f"[GES] 360: {len(blicke)} source(s) are projected, "
             f"output {breite}x{hoehe}")
 
+    # Verkehr daempfen (core/verkehr): je Quelldatei einmal die Tonspur
+    # abfahren - mit Zwischenspeicher - und die Fundstellen mitgeben. Ohne
+    # Tonspur im Export gibt es nichts zu daempfen.
+    verkehr_cfg = None
+    if cfg.get("traffic"):
+        if audio_kbps is None:
+            log("[TRAFFIC] audio is off - nothing to damp")
+        else:
+            daempfer = int(cfg.get("traffic_db", verkehr.DAEMPFER_VORGABE_DB)
+                           or verkehr.DAEMPFER_VORGABE_DB)
+            analysen = {}
+            for pfad in videos:
+                if pfad in analysen:
+                    continue
+                zuletzt = [-1]
+
+                def fortschritt(prozent, _z=zuletzt, _p=pfad):
+                    if prozent // 10 != _z[0]:
+                        _z[0] = prozent // 10
+                        log(f"[TRAFFIC] {os.path.basename(_p)}: scanning "
+                            f"{prozent:3d}%")
+                try:
+                    analysen[pfad] = verkehr.analyse(pfad, log, fortschritt,
+                                                     abbruch)
+                except verkehr.Abgebrochen:
+                    raise GesRenderAbgebrochen("Export stopped by user")
+            verkehr_cfg = {"daempfer_db": daempfer, "analysen": analysen}
+
     timeline, gesamt_ns = _timeline_bauen(quellen, skip_list, overlay_list,
                                           breite, hoehe, fps_n, fps_d, log,
-                                          blicke, merge_fades)
+                                          blicke, merge_fades, verkehr_cfg)
     profil = _profil(encoder, hw_encode, crf, preset, bitrate_mbps, log,
                      audio_kbps)
 

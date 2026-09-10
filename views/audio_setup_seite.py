@@ -23,11 +23,13 @@
 Die Seite "Audio" im Encoder Setup (ab 7.0).
 
 Bis 6.14 gab der Encode-Mode keinen Ton aus. Hier steht der Schalter, der
-die Tonspur in den Export bringt, und ihre Bitrate. Die Seite ist als
-eigenes Widget angelegt, damit spaetere Werkzeuge fuer den Ton - eine
-Lautstaerke, ein Filter gegen Verkehrslaerm, eine Trennung von Musik und
-Umgebung - hier dazukommen, ohne den Dialog umzubauen: jedes bekommt seine
-Gruppe auf dieser Seite und seine Schluessel in core/encoder_presets.FELDER.
+die Tonspur in den Export bringt, und ihre Bitrate. Dazu die Gruppe
+"Traffic": vorbeifahrende Fahrzeuge daempfen (core/verkehr), mit dem
+Daempfer in dB als Regler. Die Seite ist als eigenes Widget angelegt, damit
+spaetere Werkzeuge fuer den Ton - eine Lautstaerke, eine Trennung von
+Stimme und Umgebung - hier dazukommen, ohne den Dialog umzubauen: jedes
+bekommt seine Gruppe auf dieser Seite und seine Schluessel in
+core/encoder_presets.FELDER.
 
 Die Werte gehen denselben Weg wie die der Videoseite: werte() liefert sie in
 der Schreibweise von "encoder/", setzen() nimmt sie so entgegen. Gespeichert
@@ -37,6 +39,8 @@ und in Presets abgelegt werden sie vom Dialog.
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QGroupBox, QCheckBox, QSpinBox, QLabel
 )
+
+from core import verkehr
 
 #: Grenzen der AAC-Bitrate in kbit/s. voaacenc nimmt bis 320 an; darunter
 #: wird bei 48 kHz Stereo hoerbar gespart.
@@ -72,16 +76,46 @@ class AudioSeite(QWidget):
         form.addRow("Bitrate (kbit/s):", self.kbps_spin)
         aussen.addWidget(gruppe)
 
+        # (B) Verkehr daempfen - core/verkehr
+        verkehr_gruppe = QGroupBox("Traffic", self)
+        vform = QFormLayout(verkehr_gruppe)
+        self.traffic_check = QCheckBox("Damp passing vehicles", verkehr_gruppe)
+        self.traffic_check.setToolTip(
+            "Scans the sound track of every source file once (cached) for "
+            "passing cars and motorbikes: stretches that rise clearly above "
+            "the ride noise. Each one is pulled down by up to the damper "
+            "value and filled with nearby ride noise, so the vehicle recedes "
+            "while wind and tyres stay. Encode-Mode with audio only.")
+        vform.addRow(self.traffic_check)
+        self.traffic_spin = QSpinBox(verkehr_gruppe)
+        self.traffic_spin.setRange(verkehr.DAEMPFER_MIN_DB, verkehr.DAEMPFER_MAX_DB)
+        self.traffic_spin.setSingleStep(1)
+        self.traffic_spin.setValue(verkehr.DAEMPFER_VORGABE_DB)
+        self.traffic_spin.setToolTip(
+            "How far a vehicle is pulled down at most. 6 dB: half as loud, "
+            "12 dB: a quarter, 18 dB: an eighth. The deeper, the more the "
+            "filled-in ride noise carries.")
+        vform.addRow("Damper (dB):", self.traffic_spin)
+        aussen.addWidget(verkehr_gruppe)
+
         # Platz fuer die naechsten Werkzeuge - siehe Modulkopf.
         hinweis = QLabel(
-            "Further audio tools (volume, noise reduction) will appear on "
+            "Further audio tools (voice removal, volume) will appear on "
             "this page.", self)
         hinweis.setWordWrap(True)
         hinweis.setStyleSheet("color: gray;")
         aussen.addWidget(hinweis)
         aussen.addStretch(1)
 
-        self.audio_check.toggled.connect(self.kbps_spin.setEnabled)
+        self.audio_check.toggled.connect(self._audio_umgeschaltet)
+        self.traffic_check.toggled.connect(self.traffic_spin.setEnabled)
+
+    def _audio_umgeschaltet(self, an):
+        """Ohne Tonspur gibt es nichts zu daempfen - die Gruppe folgt dem
+        Schalter, ihre Werte bleiben erhalten."""
+        self.kbps_spin.setEnabled(an)
+        self.traffic_check.setEnabled(an)
+        self.traffic_spin.setEnabled(an and self.traffic_check.isChecked())
 
     # ---------------------------
     # Werte in der Schreibweise von "encoder/"
@@ -90,14 +124,25 @@ class AudioSeite(QWidget):
         return {
             "audio": 1 if self.audio_check.isChecked() else 0,
             "audio_kbps": self.kbps_spin.value(),
+            "traffic": 1 if self.traffic_check.isChecked() else 0,
+            "traffic_db": self.traffic_spin.value(),
         }
 
-    def setzen(self, werte: dict):
-        an = bool(int(werte.get("audio", 1)))
-        self.audio_check.setChecked(an)
-        self.kbps_spin.setEnabled(an)
+    @staticmethod
+    def _zahl(werte, schluessel, vorgabe):
         try:
-            kbps = int(werte.get("audio_kbps", KBPS_VORGABE))
+            return int(werte.get(schluessel, vorgabe))
         except (TypeError, ValueError):
-            kbps = KBPS_VORGABE
+            return vorgabe
+
+    def setzen(self, werte: dict):
+        an = bool(self._zahl(werte, "audio", 1))
+        self.audio_check.setChecked(an)
+        kbps = self._zahl(werte, "audio_kbps", KBPS_VORGABE)
         self.kbps_spin.setValue(max(KBPS_MIN, min(KBPS_MAX, kbps)))
+        verkehr_an = bool(self._zahl(werte, "traffic", 0))
+        self.traffic_check.setChecked(verkehr_an)
+        db = self._zahl(werte, "traffic_db", verkehr.DAEMPFER_VORGABE_DB)
+        self.traffic_spin.setValue(
+            max(verkehr.DAEMPFER_MIN_DB, min(verkehr.DAEMPFER_MAX_DB, db)))
+        self._audio_umgeschaltet(an)

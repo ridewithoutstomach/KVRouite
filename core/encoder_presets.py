@@ -59,6 +59,9 @@ FELDER = (
     # AAC-Bitrate in kbit/s.
     ("audio", 1),
     ("audio_kbps", 128),
+    # Verkehr daempfen (core/verkehr): an/aus und der Daempfer in dB.
+    ("traffic", 0),
+    ("traffic_db", 12),
 )
 
 

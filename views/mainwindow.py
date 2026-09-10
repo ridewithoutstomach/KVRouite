@@ -8125,6 +8125,8 @@ class MainWindow(QMainWindow):
             # ihre Bitrate. Als Zahl abgelegt, siehe core/encoder_presets.
             audio_an    = bool(s.value("encoder/audio", 1, type=int))
             audio_kbps  = s.value("encoder/audio_kbps", 128, type=int)
+            traffic_an  = bool(s.value("encoder/traffic", 0, type=int))
+            traffic_db  = s.value("encoder/traffic_db", 12, type=int)
 
             # 2) Cuts => skip_instructions
             #   Format [start_s, end_s, xfade]
@@ -8203,6 +8205,9 @@ class MainWindow(QMainWindow):
                 # 6.14 ohne Ton.
                 "audio": audio_an,
                 "audio_kbps": audio_kbps,
+                # Verkehr daempfen (core/verkehr): Schalter und Daempfer.
+                "traffic": traffic_an,
+                "traffic_db": traffic_db,
                 # 360: derselbe Abschnitt wie in der Projektdatei. Ist er an,
                 # rendert ges_encoder_manager das projizierte 16:9-Bild statt
                 # des verzerrten 2:1-Equirects.

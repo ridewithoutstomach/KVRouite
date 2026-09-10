@@ -410,6 +410,8 @@ class EncoderSetupDialog(QDialog):
         self.audio_seite.setzen({
             "audio": self.settings.value("encoder/audio", 1, type=int),
             "audio_kbps": self.settings.value("encoder/audio_kbps", 128, type=int),
+            "traffic": self.settings.value("encoder/traffic", 0, type=int),
+            "traffic_db": self.settings.value("encoder/traffic_db", 12, type=int),
         })
 
         # 8) Detected HW laden (wenn vorhanden)
