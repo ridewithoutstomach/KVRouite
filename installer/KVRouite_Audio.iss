@@ -39,7 +39,10 @@ AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 
 ; Where the base installer put KVRouite; fallback if it is not registered.
-DefaultDirName={reg:HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\{#MyBaseAppId}_is1,InstallLocation|{autopf}\{#MyBaseAppName}}
+; Read in [Code] (BasisOrdner): the base AppId carries braces, and inside a
+; {reg:...} constant Inno Setup would read them as a constant of their own
+; ("Unknown constant C4E3D0F1-...", seen on 10.09.2026).
+DefaultDirName={code:BasisOrdner}
 DefaultGroupName={#MyBaseAppName}
 DisableProgramGroupPage=yes
 
@@ -66,6 +69,21 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Source: "{#MyDistDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Code]
+{ The folder of the installed KVRouite, from the base installer's uninstall
+  key (InstallLocation); the program-files default if it is not registered. }
+function BasisOrdner(Param: string): string;
+var
+  Schluessel, Ordner: string;
+begin
+  Schluessel := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#MyBaseAppId}_is1';
+  if RegQueryStringValue(HKLM, Schluessel, 'InstallLocation', Ordner) and (Ordner <> '') then
+    Result := RemoveBackslashUnlessRoot(Ordner)
+  else if RegQueryStringValue(HKCU, Schluessel, 'InstallLocation', Ordner) and (Ordner <> '') then
+    Result := RemoveBackslashUnlessRoot(Ordner)
+  else
+    Result := ExpandConstant('{autopf}\{#MyBaseAppName}');
+end;
+
 { The add-on only makes sense on top of KVRouite of the SAME version: the
   Python code of the audio libraries sits inside KVRouite.exe, the add-on
   brings their binaries and models. A mismatch would not start. }

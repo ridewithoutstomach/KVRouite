@@ -378,6 +378,17 @@ def audio_zusatz_abtrennen(target_dir, zusatz_dir, zusatz):
             os.rmdir(ordner)
     print("[INFO] Audio-Zusatz: %d Dateien, %d MB → %s"
           % (bewegt, groesse // 1_000_000, zusatz_dir))
+    # torch hat tiefe Pfade (bis 200 Zeichen unter _internal). Liegt der
+    # Bauordner selbst tief, ueberschreitet das Inno Setup beim Einpacken
+    # die alte Windows-Grenze von 260 Zeichen: "Das System kann den
+    # angegebenen Pfad nicht finden", gesehen am 10.09.2026 bei 299 Zeichen.
+    # Aus dist/ im Projekt ist es weit darunter; hier nur die Warnung.
+    laengster = max((len(os.path.join(w, f)) for w, _d, ds in os.walk(zusatz_dir)
+                     for f in ds), default=0)
+    if laengster > 250:
+        print("[WARN] Laengster Pfad im Zusatz: %d Zeichen - Inno Setup bricht "
+              "ueber 260 ab. Aus einem kuerzeren Ordner bauen (--distpath)."
+              % laengster)
     # Nachweis: die Grund-App hat die Merkmale nicht mehr, der Zusatz hat sie.
     from core import stimme
     for teil in stimme.ZUSATZ_MERKMALE:
