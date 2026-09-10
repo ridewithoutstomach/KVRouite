@@ -101,7 +101,8 @@ DAEMPFER_MAX_DB = 24
 
 #: Aendert sich an Sucher oder Ablageformat etwas, zaehlt das hoch - alte
 #: Eintraege im Zwischenspeicher werden dann nicht mehr gelesen.
-VERSION = 1
+VERSION = 3     # 2: Pegelverlauf und Sprachwerte im Eintrag (10.09.2026)
+                # 3: Sprachwerte mit Hochpass vor dem Detektor (10.09.2026)
 
 
 class Abgebrochen(Exception):
@@ -112,12 +113,20 @@ class Abgebrochen(Exception):
 # Sucher
 # ---------------------------------------------------------------------------
 
-def pegel_messen(pfad, fortschritt=None, abbruch=None):
+def pegel_messen(pfad, fortschritt=None, abbruch=None, proben=None):
     """Pegel in dB je RAHMEN_S, ueber die ganze Datei.
 
     playbin mit ausgeschaltetem Bild (flags=AUDIO): nur die Tonspur wird
     dekodiert, "level" liefert je Rahmen den RMS-Wert in dB. fortschritt(p)
     wird mit 0..100 gerufen, abbruch() alle paar Rahmen gefragt.
+
+    proben: eine Liste, in die die Abtastwerte der Tonspur als bytes
+    (16 kHz, mono, S16LE) gesammelt werden - fuer den Sprachdetektor
+    (core/sprache), der dieselbe Form braucht. So faehrt EIN Durchlauf die
+    Datei ab, und das Lesen der Videodaten von der Platte, der teure Teil,
+    passiert einmal. Der Pegel wird deshalb ebenfalls auf 16 kHz mono
+    gemessen; fuer die Fundstellen des Daempfers zaehlt nur der Abstand zum
+    Grund, und der bleibt.
     """
     import gi
     gi.require_version("Gst", "1.0")
@@ -125,10 +134,31 @@ def pegel_messen(pfad, fortschritt=None, abbruch=None):
     if not Gst.is_initialized():
         Gst.init(None)
 
+    zweig = ""
+    if proben is not None:
+        zweig = ("t. ! queue ! appsink name=proben emit-signals=true "
+                 "sync=false max-buffers=64 drop=false")
     senke = Gst.parse_bin_from_description(
-        "audioconvert ! audio/x-raw,channels=1 ! level name=pegel "
+        "audioconvert ! audioresample ! "
+        "audio/x-raw,format=S16LE,channels=1,rate=16000,layout=interleaved "
+        "! tee name=t  t. ! queue ! level name=pegel "
         f"interval={int(RAHMEN_S * Gst.SECOND)} post-messages=true "
-        "! fakesink sync=false", True)
+        f"! fakesink sync=false  {zweig}", True)
+    if proben is not None:
+        appsink = senke.get_by_name("proben")
+
+        def _neue_probe(sink):
+            sample = sink.emit("pull-sample")
+            if sample is not None:
+                puffer = sample.get_buffer()
+                ok, info = puffer.map(Gst.MapFlags.READ)
+                if ok:
+                    try:
+                        proben.append(bytes(info.data))
+                    finally:
+                        puffer.unmap(info)
+            return Gst.FlowReturn.OK
+        appsink.connect("new-sample", _neue_probe)
     play = Gst.ElementFactory.make("playbin", None)
     if play is None:
         raise RuntimeError("playbin is not available")
@@ -291,6 +321,20 @@ def _cache_datei(pfad):
     return os.path.join(config.TEMP_SEGMENTS_CONTAINER, "verkehr", name + ".json")
 
 
+def aus_cache(pfad):
+    """Nur der Zwischenspeicher, ohne Suchlauf - fuer die Tonspur der
+    Zeitleiste, die zeigen soll, was da ist, ohne minutenlang zu rechnen.
+    Rueckgabe wie analyse() oder None."""
+    try:
+        with open(_cache_datei(pfad), "r", encoding="utf-8") as f:
+            daten = json.load(f)
+        if daten.get("version") == VERSION and "pegel" in daten:
+            return daten
+    except (OSError, ValueError):
+        pass
+    return None
+
+
 def analyse(pfad, log=None, fortschritt=None, abbruch=None, name=None):
     """Fundstellen einer Datei, aus dem Zwischenspeicher oder frisch.
 
@@ -305,18 +349,40 @@ def analyse(pfad, log=None, fortschritt=None, abbruch=None, name=None):
         with open(datei, "r", encoding="utf-8") as f:
             daten = json.load(f)
         if daten.get("version") == VERSION and "ereignisse" in daten:
-            log(f"[TRAFFIC] {name}: {len(daten['ereignisse'])} spot(s) from cache")
-            return daten
+            # Ein Eintrag aus einer Lite-Sitzung hat keine Sprachwerte;
+            # ist der Detektor jetzt da, wird neu abgefahren.
+            from core import sprache
+            if daten.get("sprache") is not None or not sprache.verfuegbar()[0]:
+                log(f"[TRAFFIC] {name}: {len(daten['ereignisse'])} spot(s) from cache")
+                return daten
     except (OSError, ValueError):
         pass
 
     log(f"[TRAFFIC] {name}: scanning the audio track...")
-    pegel = pegel_messen(pfad, fortschritt, abbruch)
+    # Sprachdetektor (core/sprache) im selben Durchlauf, wenn er da ist: die
+    # Pipeline zweigt die Abtastwerte ab, danach rechnet das Modell in
+    # Sekunden. Ohne Audio-Zusatz bleibt "sprache" leer.
+    from core import sprache
+    mit_sprache = sprache.verfuegbar()[0]
+    proben = [] if mit_sprache else None
+    pegel = pegel_messen(pfad, fortschritt, abbruch, proben)
     daten = {
         "version": VERSION,
         "dauer": round(len(pegel) * RAHMEN_S, 3),
         "ereignisse": ereignisse_finden(pegel),
+        # Der Pegelverlauf selbst, fuer die Audiospur der Zeitleiste und
+        # den Audio Zoom - 10 Werte je Sekunde, auf Zehntel dB.
+        "pegel": [round(p, 1) for p in pegel],
+        "sprache": None,
     }
+    if mit_sprache:
+        try:
+            werte = sprache.wahrscheinlichkeiten(proben)
+            daten["sprache"] = [round(w, 2) for w in werte]
+            log(f"[TRAFFIC] {name}: speech probabilities for "
+                f"{len(werte) * sprache.SCHRITT_S:.0f}s computed")
+        except Exception as exc:
+            log(f"[TRAFFIC] {name}: speech detector failed: {exc}")
     log(f"[TRAFFIC] {name}: {len(daten['ereignisse'])} spot(s) in "
         f"{daten['dauer']:.1f}s")
     try:

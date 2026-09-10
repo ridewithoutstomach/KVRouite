@@ -589,6 +589,13 @@ Voice remover (since 7.0)
   Woosung Choi (MDX-Net) and Roman Solovyev / ZFTurbo (MDX23C), all MIT; the
   library omits some of their notices, which
   "third-party-licenses/LICENSE.UVR-upstreams" restores.
+- Speech detector ("Detect" on page A of the video control): Silero VAD
+  (silero_vad.onnx, Silero Team, MIT, "third-party-licenses/LICENSE.silero-vad"),
+  run with ONNX Runtime. It marks the stretches where someone talks; they
+  appear as bands in the timeline and in the "Audio Zoom" module, where
+  they can be removed and added by hand ([-, -] and "Voice" mark one), and
+  the voice remover then works only there. Detection is never complete -
+  the bands are meant to be checked.
 - Not shipped: diffq-fixed, a dependency the library declares on Windows,
   licensed CC BY-NC 4.0. KVRouite installs its own GPL stand-in under that
   name instead ("tools/diffq_platzhalter"); it is only needed for quantised

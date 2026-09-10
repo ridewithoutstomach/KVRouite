@@ -120,6 +120,20 @@ class AudioSeite(QWidget):
             "measured to leave the ride noise more intact. Both are shipped "
             "with KVRouite.")
         sform.addRow("Model:", self.voice_combo)
+
+        # Wo getrennt wird, steht nicht hier: die Sprechstellen werden im
+        # Video-Control auf Seite A gesetzt (Find, oder [-, -] und Voice)
+        # und liegen als Baender in der Zeitleiste. Ohne Stellen wird das
+        # ganze behaltene Material getrennt.
+        hinweis_stellen = QLabel(
+            "Where: in the marked stretches with voices (video control, "
+            "page A: Detect finds and marks them, [-, -] and Voice mark one by hand; "
+            "they appear as bands in the timeline). Without marked stretches "
+            "the whole kept material is separated. Detection is never "
+            "complete - check the bands.", stimme_gruppe)
+        hinweis_stellen.setWordWrap(True)
+        hinweis_stellen.setStyleSheet("color: gray;")
+        sform.addRow(hinweis_stellen)
         aussen.addWidget(stimme_gruppe)
 
         # LITE IST OHNE AUDIO (Bernd, 10.09.2026): fehlt das Audio-Zusatzpaket

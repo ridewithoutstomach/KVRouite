@@ -165,10 +165,15 @@ def voice_voraussetzungen_pruefen():
             raise SystemExit("[ABBRUCH] %s ist nicht installiert - "
                              "pip install -r requirements.txt" % paket)
     sys.path.insert(0, BASE_DIR)
-    from core import stimme
+    from core import stimme, sprache
     ok, grund = stimme.verfuegbar()
     if not ok:
         raise SystemExit("[ABBRUCH] Voice Remover: %s - "
+                         "python tools/modelle_holen.py" % grund)
+    # Der Sprachdetektor (Silero VAD, "Find voices") gehoert zum Zusatz.
+    ok, grund = sprache.verfuegbar()
+    if not ok:
+        raise SystemExit("[ABBRUCH] Sprachdetektor: %s - "
                          "python tools/modelle_holen.py" % grund)
     # 4) Lizenztexte auf dem Stand DIESER venv: das Inventar in
     #    third-party-licenses/voice muss zu den Paketen passen, die gleich
@@ -198,10 +203,12 @@ def check_voice_payload(internal_dir):
     if not os.path.isdir(modelle):
         befunde.append("voice_models fehlt in _internal")
     else:
-        from core import stimme
+        from core import stimme, sprache
         for _kennung, (datei, name) in stimme.MODELLE.items():
             if not os.path.isfile(os.path.join(modelle, datei)):
                 befunde.append("Modell %s (%s) fehlt" % (datei, name))
+        if not os.path.isfile(os.path.join(modelle, sprache.MODELL)):
+            befunde.append("Modell %s (Silero VAD) fehlt" % sprache.MODELL)
     for name in os.listdir(internal_dir):
         pfad = os.path.join(internal_dir, name)
         if name.lower().startswith(("diffq_fixed", "diffq-")) and name.endswith(".dist-info"):

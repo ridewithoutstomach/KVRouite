@@ -945,6 +945,10 @@ class VideoEditorWidget(QWidget):
                 print(f"[WARN] stop_and_clear: {e}")
         self.playlist = []
         self.is_playing = False
+        # Ohne Playlist gehoert der Hinweis "Drop video file(s) here" ins
+        # Bild - wie nach dem Leeren der Videoliste. Bis 7.0 blieb hier das
+        # letzte Bild stehen (Bernd, 10.09.2026).
+        self.set_empty_hint_visible(True)
 
     # -----------------------------------------
     # Playlist-Funktionen

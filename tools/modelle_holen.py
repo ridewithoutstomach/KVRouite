@@ -55,6 +55,9 @@ def main():
               "(pip install -r requirements.txt):", exc)
         return 2
 
+    # Ohne ffmpeg im Suchpfad bricht die Bibliothek beim Anlegen ab - zum
+    # Holen der Dateien braucht sie es nicht (siehe core/stimme).
+    Separator.check_ffmpeg_installed = lambda self: None
     sep = Separator(model_file_dir=ordner)
     for _kennung, (datei, name) in stimme.MODELLE.items():
         print(f"== {name} ({datei})")
@@ -63,6 +66,17 @@ def main():
         # Demucs auch die .th-Datei hinter der .yaml.
         sep.download_model_and_data(datei)
 
+    # Der Sprachdetektor (core/sprache): eine Datei aus dem Silero-Repository.
+    from core import sprache
+    import urllib.request
+    ziel = os.path.join(ordner, sprache.MODELL)
+    print(f"== Silero VAD ({sprache.MODELL})")
+    if os.path.isfile(ziel) and os.path.getsize(ziel) > 100_000:
+        print("   schon da")
+    else:
+        urllib.request.urlretrieve(sprache.MODELL_URL, ziel)
+        print(f"   geholt: {os.path.getsize(ziel) / 1e6:.1f} MB")
+
     fehlt = []
     for datei in stimme.MODELL_METADATEN:
         if not os.path.isfile(os.path.join(ordner, datei)):
@@ -70,6 +84,9 @@ def main():
     ok, grund = stimme.verfuegbar()
     if fehlt or not ok:
         print("FEHLER:", grund or ("Metadaten fehlen: " + ", ".join(fehlt)))
+        return 1
+    if not os.path.isfile(ziel):
+        print("FEHLER: Silero-Modell fehlt")
         return 1
 
     gesamt = sum(os.path.getsize(os.path.join(ordner, f))

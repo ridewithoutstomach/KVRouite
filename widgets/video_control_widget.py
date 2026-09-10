@@ -56,12 +56,39 @@ class VideoControlWidget(QWidget):
     gotoNextEditRequested   = Signal()
     #: Rechtsklick auf Goto Start: zur vorigen Schnittkante oder Naht.
     gotoPrevEditRequested   = Signal()
+    #: Seite A (Audio, ab 7.0): B-E als Sprechstelle anlegen, Suchlauf,
+    #: Empfindlichkeit 1-5, und der Wechsel der Seite ("video"/"audio").
+    voiceClicked            = Signal()
+    findVoicesClicked       = Signal()
+    sensitivityChanged      = Signal(int)
+    seiteGewechselt         = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(5,5,5,5)
         layout.setSpacing(5)
+
+        # Zwei Seiten in derselben Leiste (ab 7.0): V wie bisher (Schnitt,
+        # Sync, Overlay), A fuer die Sprechstellen des Voice Removers. Der
+        # Platz ist knapp - die App soll sich klein ziehen lassen -, darum
+        # wechseln die Knoepfe statt sich anzureihen. Transport, [-, -] und
+        # x stehen auf beiden Seiten. Den Knopf gibt es nur im Encode-Mode
+        # mit Audio-Zusatz (voice_seite_anbieten).
+        self._seite = "video"
+        self._edit = False
+        self._cut = False
+        self._ovl = False
+        self._audio_da = False
+        self.seite_button = QPushButton()
+        self.seite_button.setToolTip(
+            "Switch the buttons: film = video (cut, sync, overlay), "
+            "speaker = audio (mark the stretches with voices)")
+        self.seite_button.setFixedWidth(30)
+        self.seite_button.setIconSize(QSize(20, 20))
+        self.seite_button.clicked.connect(self._seite_umschalten)
+        layout.addWidget(self.seite_button)
+        self.seite_button.hide()
 
         self.play_pause_button = QPushButton()
         self._laeuft = False
@@ -232,7 +259,39 @@ class VideoControlWidget(QWidget):
         self.ovl_button.clicked.connect(self._on_ovl_clicked)
         layout.addWidget(self.ovl_button)
         self.ovl_button.hide()   # Standard: ausgeblendet
-        
+
+        # Seite A: Voice (B-E als Sprechstelle, wie Ovl ein Overlay anlegt),
+        # Find (Suchlauf ueber alle Videos), Sens (Empfindlichkeit 1-5).
+        self.voice_button = QPushButton("Voice")
+        self.voice_button.setToolTip(
+            "Mark the area between [- and -] as a stretch with voices.\n"
+            "The voice remover then works only in the marked stretches\n"
+            "(right-click a stretch in the timeline to change or remove it).")
+        self.voice_button.setFixedWidth(46)
+        self.voice_button.clicked.connect(self.voiceClicked.emit)
+        layout.addWidget(self.voice_button)
+        self.voice_button.hide()
+
+        self.find_button = QPushButton("Detect")
+        self.find_button.setToolTip(
+            "Detect the voices in all loaded videos and mark them at once.\n"
+            "Replaces the marked stretches. Detection is never complete -\n"
+            "check the result in the timeline or the Audio Zoom.")
+        self.find_button.setFixedWidth(50)
+        self.find_button.clicked.connect(self.findVoicesClicked.emit)
+        layout.addWidget(self.find_button)
+        self.find_button.hide()
+
+        self._empfindlichkeit = 3
+        self.sens_button = QPushButton("Sens 3")
+        self.sens_button.setToolTip(
+            "Sensitivity of Detect: 1 = only clear speech, 7 = everything "
+            "that might be")
+        self.sens_button.setFixedWidth(56)
+        self.sens_button.clicked.connect(self._sens_menue)
+        layout.addWidget(self.sens_button)
+        self.sens_button.hide()
+
         separator = QFrame(self)
         separator.setFrameShape(QFrame.VLine)
         separator.setFrameShadow(QFrame.Sunken)
@@ -306,24 +365,132 @@ class VideoControlWidget(QWidget):
         """
         Schaltet Buttons wie MarkB, MarkE, Clear, Cut, etc. an oder aus.
         """
-        self.markB_button.setVisible(edit)
-        self.markE_button.setVisible(edit)
-        self.clear_button.setVisible(edit)
-        self.cut_button.setVisible(edit)
-        
-        self.cut_end_button.setVisible(cut)
-        self.cut_begin_button.setVisible(cut)
-        self.autocut_button.setVisible(edit and is_gpx_video_shift_set())
+        self._edit = bool(edit)
+        self._cut = bool(cut)
+        self._seite_anwenden()
         self._update_autocut_icon()
-        
+
     def show_ovl_button(self, show: bool):
         """
         Zeigt oder versteckt den Ovl-Button.
         """
-        if show:
-            self.ovl_button.show()
+        self._ovl = bool(show)
+        self._seite_anwenden()
+
+    # ---- Seite V / A -------------------------------------------------
+    def voice_seite_anbieten(self, an: bool):
+        """Den Seitenknopf zeigen (Encode-Mode mit Audio-Zusatz). Ohne ihn
+        steht die Leiste auf Seite V."""
+        self._audio_da = bool(an)
+        if not self._audio_da and self._seite != "video":
+            self._seite = "video"
+            self.seiteGewechselt.emit(self._seite)
+        self._seite_anwenden()
+
+    def seite(self) -> str:
+        return self._seite
+
+    def _seite_umschalten(self):
+        self._seite = "audio" if self._seite == "video" else "video"
+        self._seite_anwenden()
+        self.seiteGewechselt.emit(self._seite)
+
+    def _seite_anwenden(self):
+        """Sichtbarkeit aller Knoepfe aus Bearbeitungsmodus und Seite. Eine
+        Stelle dafuer, damit ein Seitenwechsel nichts vergisst, was
+        set_editing_mode oder show_ovl_button zuvor gesetzt haben."""
+        edit, cut, ovl = self._edit, self._cut, self._ovl
+        audio = self._seite == "audio" and self._audio_da and edit
+        self.seite_button.setVisible(edit and self._audio_da)
+        self.seite_button.setIcon(self._seiten_symbol("audio" if audio else "video"))
+        # Auf beiden Seiten
+        self.markB_button.setVisible(edit)
+        self.markE_button.setVisible(edit)
+        self.clear_button.setVisible(edit)
+        # Seite V
+        self.time_btn.setVisible(not audio)
+        self.cut_button.setVisible(edit and not audio)
+        self.cut_end_button.setVisible(cut and not audio)
+        self.cut_begin_button.setVisible(cut and not audio)
+        self.set_sync_button.setVisible(not audio)
+        self.sync_button.setVisible(not audio)
+        self.ovl_button.setVisible(ovl and not audio)
+        self.autocut_button.setVisible(edit and not audio and is_gpx_video_shift_set())
+        # Seite A
+        self.voice_button.setVisible(audio)
+        self.find_button.setVisible(audio)
+        self.sens_button.setVisible(audio)
+        if audio:
+            self.markB_button.setToolTip("Mark the Begin of the stretch with voices")
+            self.markE_button.setToolTip("Mark the End of the stretch with voices")
         else:
-            self.ovl_button.hide()    
+            self.markB_button.setToolTip("Mark the Begin of the Cut")
+            self.markE_button.setToolTip("Mark the End of the Cut")
+
+    def _seiten_symbol(self, art: str) -> QIcon:
+        """Das Symbol des Seitenknopfs, gezeichnet statt geladen: ein
+        Filmstreifen fuer V, ein Lautsprecher fuer A - in der Textfarbe der
+        Farbgebung, deshalb ohne eigene Dateien fuer hell und dunkel."""
+        from PySide6.QtGui import QPixmap, QPainter, QPen, QBrush, QPolygonF, QPainterPath
+        from PySide6.QtCore import QPointF, QRectF, Qt as _Qt
+        farbe = self.palette().buttonText().color()
+        bild = QPixmap(20, 20)
+        bild.fill(_Qt.transparent)
+        p = QPainter(bild)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        if art == "audio":
+            # Lautsprecher: Kasten, Trichter, zwei Schallboegen.
+            p.setPen(_Qt.NoPen)
+            p.setBrush(QBrush(farbe))
+            p.drawRect(QRectF(2, 7, 4, 6))
+            p.drawPolygon(QPolygonF([QPointF(6, 7), QPointF(11, 3), QPointF(11, 17), QPointF(6, 13)]))
+            p.setBrush(_Qt.NoBrush)
+            p.setPen(QPen(farbe, 1.6))
+            for r in (3.0, 6.0):
+                pfad = QPainterPath()
+                pfad.arcMoveTo(QRectF(11 - r, 10 - r, 2 * r, 2 * r), 45)
+                pfad.arcTo(QRectF(11 - r, 10 - r, 2 * r, 2 * r), 45, -90)
+                p.drawPath(pfad)
+        else:
+            # Filmstreifen: Rahmen, Perforation oben und unten, ein Bild.
+            p.setPen(QPen(farbe, 1.4))
+            p.setBrush(_Qt.NoBrush)
+            p.drawRoundedRect(QRectF(2, 3, 16, 14), 1.5, 1.5)
+            p.setPen(_Qt.NoPen)
+            p.setBrush(QBrush(farbe))
+            for x in (4, 8, 12, 15):
+                p.drawRect(QRectF(x, 4.5, 2, 1.8))
+                p.drawRect(QRectF(x, 13.7, 2, 1.8))
+            p.drawRect(QRectF(5, 8, 10, 4))
+        p.end()
+        return QIcon(bild)
+
+    def set_sensitivity(self, wert: int):
+        self._empfindlichkeit = max(1, min(7, int(wert)))
+        self.sens_button.setText("Sens %d" % self._empfindlichkeit)
+
+    def sensitivity(self) -> int:
+        return self._empfindlichkeit
+
+    def _sens_menue(self):
+        from PySide6.QtWidgets import QMenu
+        from PySide6.QtGui import QActionGroup
+        menue = QMenu(self)
+        gruppe = QActionGroup(menue)
+        namen = {1: "1 - only clear speech", 2: "2", 3: "3 - default",
+                 4: "4", 5: "5", 6: "6 - voices in the wind",
+                 7: "7 - everything that might be"}
+        for stufe in range(1, 8):
+            a = menue.addAction(namen[stufe])
+            a.setCheckable(True)
+            a.setChecked(stufe == self._empfindlichkeit)
+            a.setData(stufe)
+            gruppe.addAction(a)
+        gewaehlt = menue.exec(self.sens_button.mapToGlobal(
+            self.sens_button.rect().bottomLeft()))
+        if gewaehlt is not None and gewaehlt.data() != self._empfindlichkeit:
+            self.set_sensitivity(gewaehlt.data())
+            self.sensitivityChanged.emit(self._empfindlichkeit)
 
 
     def _on_markB_clicked(self):
@@ -503,6 +670,7 @@ class VideoControlWidget(QWidget):
         self.icon_autocut_on = theme.icon("icon/vg_icon_on2.png")
         self.icon_autocut_off = theme.icon("icon/vg_icon_off.png")
         self._update_autocut_icon()
+        self._seite_anwenden()      # Seitensymbol in der neuen Textfarbe
 
     def _find_mainwindow(self):
         p = self.parent()

@@ -50,12 +50,17 @@ from core import stimme
 class ExportBestaetigung(QDialog):
     """Rueckgabe wie QDialog.exec(): Accepted heisst Export starten."""
 
-    def __init__(self, parent=None, gesamt_sekunden=0.0, dateien=1):
+    def __init__(self, parent=None, gesamt_sekunden=0.0, dateien=1,
+                 sprechstellen=None):
+        """sprechstellen: (Anzahl, Sekunden) der markierten Stellen, oder
+        None wenn keine gesetzt sind - dann trennt der Voice Remover im
+        ganzen behaltenen Material."""
         super().__init__(parent)
         self.setWindowTitle("Export - Encode-Mode")
         self.settings = QSettings("KVRouite", "KVRouite")
         self._gesamt = float(gesamt_sekunden or 0.0)
         self._dateien = max(1, int(dateien or 1))
+        self._sprechstellen = sprechstellen
 
         aussen = QVBoxLayout(self)
         hinweis = QLabel("The final video is created now; changes are no "
@@ -190,10 +195,19 @@ class ExportBestaetigung(QDialog):
             self.voice_info.setText("not available: " + self._voice_grund)
         elif self.voice_check.isChecked():
             name = stimme.MODELLE.get(self._modell, (None, self._modell))[1]
-            self.voice_info.setText(
-                f"{name} - separates each source file once; on the CPU this "
-                f"takes roughly as long as the audio lasts, here about "
-                f"{minuten:.0f} min (cached afterwards)")
+            if self._sprechstellen and self._sprechstellen[0] > 0:
+                anzahl, sekunden = self._sprechstellen
+                self.voice_info.setText(
+                    f"{name} - only in the {anzahl} marked stretch(es), "
+                    f"{sekunden:.0f} s of audio; on the CPU this takes roughly "
+                    f"as long as that audio lasts (cached afterwards)")
+            else:
+                self.voice_info.setText(
+                    f"{name} - no stretches marked, so ALL kept material is "
+                    f"separated; on the CPU this takes roughly as long as the "
+                    f"audio lasts, here about {minuten:.0f} min (cached "
+                    f"afterwards). Mark the stretches with voices (video "
+                    f"control, page A) to limit it.")
         else:
             self.voice_info.setText("off")
 

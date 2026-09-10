@@ -81,6 +81,18 @@ class VideoTimelineWidget(QWidget):
     #: (nummer, rohzeit, globale Position). Das Fenster stellt das Menue
     #: zusammen - Merge-Fade an, aus, Laenge.
     nahtMenuRequested = Signal(int, float, object)
+    #: Rechtsklick auf eine Sprechstelle (Band des Voice Removers, ab 7.0):
+    #: (start, ende, globale Position). Das Fenster zeigt das Menue. Kommt
+    #: nur auf Seite A des Video-Controls (set_bearbeitung("audio")).
+    sprechstelleMenuRequested = Signal(float, float, object)
+    #: Der Ansichtsknopf links oben wurde geschaltet: "off", "video",
+    #: "audio", "beides". Das Fenster merkt sich das und holt Bilder.
+    ansichtGewechselt = Signal(str)
+
+    #: Reihenfolge des Ansichtsknopfs und seine Beschriftung.
+    ANSICHTEN = ("off", "video", "audio", "beides")
+    ANSICHT_TEXT = {"off": "-", "video": "Video", "audio": "Audio",
+                    "beides": "V+A"}
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -120,6 +132,35 @@ class VideoTimelineWidget(QWidget):
         # Je Eintrag: (zeit_s in Gesamtzeit, QImage)
         self._vorschaubilder = []
         self._bilder_zeigen = True
+        # Tonspur (ab 7.0): der Pegelverlauf je 100 ms in Gesamtzeit, als
+        # Hintergrund ANSTELLE der Bilder gezeichnet - die Zeitleiste wird
+        # dadurch nicht hoeher, sie wird umgeschaltet. Die Sprechstellen
+        # (Baender des Voice Removers) werden in jedem Zustand gezeichnet.
+        self._pegelkurve = []           # [(zeit_s, dB)]
+        self._pegel_zeigen = False
+        self._sprechstellen = []        # [(von_s, bis_s)] in Gesamtzeit
+        # Welche Seite das Video-Control zeigt: "video" - Rechtsklick
+        # bedient Schnitt, Overlay, Naht; "audio" - nur die Sprechstellen.
+        # So trifft man nie eine Aktion der anderen Seite.
+        self._bearbeitung = "video"
+        # Ansichtsknopf links oben: Nichts / Video / Audio / beides. Klein
+        # und halb durchsichtig, er liegt auf dem Streifen.
+        from PySide6.QtWidgets import QToolButton
+        self._ansicht = "off"
+        self._ansicht_knopf = QToolButton(self)
+        self._ansicht_knopf.setToolTip(
+            "Background of the timeline: nothing, video frames, sound "
+            "level, or both. Click to switch.")
+        self._ansicht_knopf.setAutoRaise(True)
+        self._ansicht_knopf.setStyleSheet(
+            "QToolButton { color: #dddddd; background: rgba(0,0,0,110); "
+            "border: 1px solid #666666; border-radius: 3px; font-size: 8pt; "
+            "padding: 0px 3px; }"
+            "QToolButton:hover { background: rgba(60,60,60,200); }")
+        self._ansicht_knopf.setFixedHeight(16)
+        self._ansicht_knopf.move(3, 3)
+        self._ansicht_knopf.clicked.connect(self._ansicht_weiter)
+        self._ansicht_anwenden()
         self._dragging_marker = False
         self._dragging_timeline = False
         self._timeline_drag_start_x = 0
@@ -1299,7 +1340,12 @@ class VideoTimelineWidget(QWidget):
             self._letzte_ansicht = zustand
             self.ansichtGeaendert.emit()
 
+        # Bilder und Tonspur sind unabhaengig; die Kurve liegt halb
+        # durchsichtig ueber den (abgedunkelten) Bildern.
         self._draw_vorschaubilder(painter, w, h, timeline_real_width)
+        if self._pegel_zeigen:
+            self._draw_pegelkurve(painter, w, h, timeline_real_width)
+        self._draw_sprechstellen(painter, w, h, timeline_real_width)
         self._draw_time_ticks(painter, w, h, timeline_real_width)
         self._draw_boundaries_and_markers(painter, w, h, timeline_real_width)
         self._draw_umzug(painter, w, h)
@@ -1368,6 +1414,144 @@ class VideoTimelineWidget(QWidget):
 
         # Gleichmaessig abdunkeln, damit alles Weitere darauf lesbar bleibt.
         painter.fillRect(0, 0, w, h, QColor(0, 0, 0, 120))
+
+    # ------------------------------------------------------------------
+    # Tonspur und Sprechstellen (ab 7.0)
+    # ------------------------------------------------------------------
+    #: Farbe der Sprechstellen - dieselbe wie im Audio Zoom.
+    SPRECHSTELLE_FARBE = QColor(255, 140, 0, 120)
+    SPRECHSTELLE_RAND = QColor(255, 170, 60)
+    #: Hoehe der Baender in Pixeln, ueber den Zeitmarken.
+    SPRECHSTELLE_HOEHE = 6
+
+    def set_pegelkurve(self, punkte):
+        """punkte: Liste aus (zeit_s in Gesamtzeit, dB), sortiert."""
+        self._pegelkurve = list(punkte or [])
+        self._pegel_zeiten = [p[0] for p in self._pegelkurve]
+        self.update()
+
+    def pegel_zeigen(self, an: bool):
+        """Tonspur als Hintergrund, auch zusammen mit den Bildern."""
+        self._pegel_zeigen = bool(an)
+        self.update()
+
+    # ---- Ansichtsknopf ---------------------------------------------------
+    def ansicht(self) -> str:
+        return self._ansicht
+
+    def bilder_an(self) -> bool:
+        return self._ansicht in ("video", "beides")
+
+    def audio_an(self) -> bool:
+        return self._ansicht in ("audio", "beides")
+
+    def audio_moeglich(self, an: bool):
+        """Ohne Audio-Zusatz (Lite) gibt es keine Tonspur: der Knopf
+        schaltet dann nur zwischen Nichts und Video."""
+        self._audio_moeglich = bool(an)
+        if not self._audio_moeglich and self.audio_an():
+            self.ansicht_setzen("video" if self.bilder_an() else "off")
+
+    def _ansichten(self):
+        if getattr(self, "_audio_moeglich", True):
+            return self.ANSICHTEN
+        return tuple(a for a in self.ANSICHTEN if a in ("off", "video"))
+
+    def ansicht_setzen(self, name: str, melden: bool = True):
+        """Von aussen (gemerkter Zustand). melden: ansichtGewechselt senden,
+        damit das Fenster Bilder holt oder verwirft."""
+        if name not in self.ANSICHTEN:
+            name = "off"
+        if name not in self._ansichten():
+            name = "video" if name == "beides" else "off"
+        geaendert = name != self._ansicht
+        self._ansicht = name
+        self._ansicht_anwenden()
+        if melden and geaendert:
+            self.ansichtGewechselt.emit(self._ansicht)
+
+    def _ansicht_weiter(self):
+        reihe = self._ansichten()
+        i = reihe.index(self._ansicht) if self._ansicht in reihe else -1
+        self.ansicht_setzen(reihe[(i + 1) % len(reihe)])
+
+    def _ansicht_anwenden(self):
+        self._bilder_zeigen = self.bilder_an()
+        self._pegel_zeigen = self.audio_an()
+        self._ansicht_knopf.setText(self.ANSICHT_TEXT[self._ansicht])
+        self._ansicht_knopf.adjustSize()
+        self.update()
+
+    def set_bearbeitung(self, seite: str):
+        """"video" oder "audio" - siehe _bearbeitung."""
+        self._bearbeitung = "audio" if seite == "audio" else "video"
+
+    def set_sprechstellen(self, stellen):
+        """stellen: Liste aus (von_s, bis_s) in Gesamtzeit."""
+        self._sprechstellen = [(float(a), float(b)) for a, b in (stellen or [])]
+        self.update()
+
+    def sprechstelle_bei(self, zeit_s):
+        for a, b in self._sprechstellen:
+            if a <= zeit_s <= b:
+                return (a, b)
+        return None
+
+    def _draw_pegelkurve(self, painter, w, h, timeline_real_width):
+        """Der Pegel als Flaeche von unten, je Pixelspalte der hoechste Wert
+        im Zeitfenster der Spalte - wie im Audio Zoom, nur in Rohzeit der
+        ganzen Leiste. Ohne Kurve bleibt der Hintergrund leer."""
+        if (not self._pegelkurve or self.total_duration <= 0
+                or timeline_real_width <= 0):
+            return
+        import bisect
+        from PySide6.QtGui import QPolygonF, QBrush
+        from PySide6.QtCore import QPointF
+        zeiten = getattr(self, "_pegel_zeiten", None)
+        if zeiten is None or len(zeiten) != len(self._pegelkurve):
+            zeiten = [p[0] for p in self._pegelkurve]
+            self._pegel_zeiten = zeiten
+        db_unten, db_oben = -60.0, 0.0
+        oben = 2
+        unten = h - 14      # ueber den Zeitmarken
+        sek_je_px = self.total_duration / timeline_real_width
+        poly = QPolygonF()
+        poly.append(QPointF(0, unten))
+        t0 = self._horizontal_offset * sek_je_px
+        i0 = bisect.bisect_left(zeiten, t0)
+        for x in range(w):
+            t1 = t0 + sek_je_px
+            i1 = bisect.bisect_left(zeiten, t1, i0)
+            if i1 > i0:
+                db = max(self._pegelkurve[i][1] for i in range(i0, i1))
+            elif i0 < len(self._pegelkurve):
+                db = self._pegelkurve[i0][1]
+            else:
+                db = db_unten
+            i0 = max(i0, i1 - 1)
+            anteil = (max(db_unten, min(db_oben, db)) - db_unten) / (db_oben - db_unten)
+            poly.append(QPointF(x, unten - anteil * (unten - oben)))
+            t0 = t1
+        poly.append(QPointF(w, unten))
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(QColor(0, 200, 220, 150)))
+        painter.drawPolygon(poly)
+
+    def _draw_sprechstellen(self, painter, w, h, timeline_real_width):
+        """Die Sprechstellen als schmale Baender ueber den Zeitmarken - in
+        jedem Zustand der Leiste, damit man sie auch mit Bildern sieht."""
+        if not self._sprechstellen or self.total_duration <= 0 or timeline_real_width <= 0:
+            return
+        from PySide6.QtGui import QPen, QBrush
+        y = h - 14 - self.SPRECHSTELLE_HOEHE
+        painter.setPen(QPen(self.SPRECHSTELLE_RAND, 1))
+        painter.setBrush(QBrush(self.SPRECHSTELLE_FARBE))
+        for a, b in self._sprechstellen:
+            xa = (a / self.total_duration) * timeline_real_width - self._horizontal_offset
+            xb = (b / self.total_duration) * timeline_real_width - self._horizontal_offset
+            if xb < 0 or xa > w:
+                continue
+            painter.drawRect(QRectF(xa, y, max(2.0, xb - xa), self.SPRECHSTELLE_HOEHE))
 
     def _draw_time_ticks(self, painter, w, h, timeline_real_width):
         if self.total_duration <= 0 or timeline_real_width <= 0:
@@ -1852,6 +2036,21 @@ class VideoTimelineWidget(QWidget):
         ratio = x_timeline / timeline_real_width
         time_clicked = ratio * self.total_duration
         found_any = False
+        # Seite A des Video-Controls: nur die Sprechstellen. Schnitt,
+        # Overlay und Naht gehoeren zu Seite V und bleiben dort.
+        if self._bearbeitung == "audio":
+            band = self.sprechstelle_bei(time_clicked)
+            if band is None:
+                event.ignore()
+                return
+            self._markieren(band[0], band[1])
+            try:
+                self.sprechstelleMenuRequested.emit(band[0], band[1],
+                                                    event.globalPos())
+            finally:
+                self._markieren(None)
+            event.accept()
+            return
         # 1b) Zuerst die Naehte der Videoliste, in Pixeln geprueft (siehe
         # _naht_unter). Sie kommen VOR Overlays und Schnitten: wer nahe an
         # die blaue Linie klickt, meint die Naht. Ein Schnitt oder ein

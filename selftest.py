@@ -429,6 +429,10 @@ def audio_pruefen(b: Bericht):
         pfad = os.path.join(stimme.modellordner(), datei)
         b.pruefen(os.path.isfile(pfad), "model %s (%s)" % (datei, name),
                   "missing in " + stimme.modellordner())
+    # Der Sprachdetektor ("Find voices") - dasselbe Paket, eigenes Modell.
+    from core import sprache
+    ok, grund = sprache.verfuegbar()
+    b.pruefen(ok, "speech detector %s (Silero VAD)" % sprache.MODELL, grund)
 
 
 def alles_pruefen(ordner=None):

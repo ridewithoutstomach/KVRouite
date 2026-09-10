@@ -85,6 +85,9 @@ from .export_bestaetigung import ExportBestaetigung
 from config import TMP_KEYFRAME_DIR, MY_GLOBAL_TMP_DIR, is_soft_opengl_enabled
 from core.mp4_keyframes import keyframe_times_from_index
 from core import view360
+from core import sprache
+from core import stimme
+from core import verkehr
 from core.fade_cache import FadeJob, FadeRenderer
 from core.thumb_cache import ThumbCache
 from .dialogs import PreviewPrepareDialog, OutputFrameRateDialog
@@ -109,6 +112,7 @@ from managers.overlay_manager import OverlayManager
 from .dialogs import _IndexingDialog, _SafeExportDialog
 from widgets.mini_chart_widget import MiniChartWidget
 from widgets.slot_widget import SlotWidget
+from widgets.audio_zoom_widget import AudioZoomWidget
 from config import is_edit_video_enabled
 from core.gpx_parser import parse_gpx
 from core.gpx_parser import recalc_gpx_data, get_gpx_video_shift, set_gpx_video_shift
@@ -561,6 +565,11 @@ class MainWindow(QMainWindow):
         # Playlist / Keyframe-Daten
         self.playlist = []
         self.video_durations = []
+        # Sprechstellen des Voice Removers (ab 7.0): je Videopfad eine Liste
+        # [[von, bis], ...] in Sekunden DER DATEI. Gefunden vom Detektor
+        # (stimmen_suchen) oder von Hand gesetzt; Projektdatei "voice_regions".
+        # Der Export trennt nur dort - siehe ges_encoder_manager.
+        self._sprechstellen = {}
         # 360-Blickwinkel, ein Eintrag je Video - siehe _blick360_liste().
         self.view360_views = []
         # True, sobald ein Projekt den 360-Zustand mitgebracht hat. Dann
@@ -979,19 +988,10 @@ class MainWindow(QMainWindow):
         self.action_lock_width.toggled.connect(self._on_lock_width_toggled)
         # Eingehaengt wird ganz unten im Config-Menue, vor den Resets.
 
-        # Vorschaubilder in der Zeitleiste. Standardmaessig aus: sie werden
-        # aus den Videodateien geholt, und das kostet bei grossem Material
-        # spuerbar Zeit und Plattenzugriffe. Wer sie will, schaltet sie ein.
-        self.action_timeline_thumbs = QAction(
-            "Thumbnails in Timeline", self, checkable=True)
-        self.action_timeline_thumbs.setStatusTip(
-            "Shows single frames of the video as a strip in the timeline. "
-            "The images are fetched from the video files in the background.")
-        self.action_timeline_thumbs.setChecked(
-            QSettings("KVRouite", "KVRouite").value(
-                self._THUMBS_KEY, False, type=bool))
-        self.action_timeline_thumbs.toggled.connect(self._thumbs_umschalten)
-        setup_menu.addAction(self.action_timeline_thumbs)
+        # Vorschaubilder und Tonspur in der Zeitleiste: bis 7.0 ein
+        # Menuepunkt hier ("Thumbnails in Timeline"), seit 7.0 der kleine
+        # Ansichtsknopf links oben in der Zeitleiste selbst - siehe
+        # _timeline_ansicht_gewechselt.
 
         # Stand bis zum 04.09.2026 im View-Menue. Ist aber keine Ansicht,
         # die man staendig wechselt, sondern eine Einstellung, die man
@@ -1249,6 +1249,8 @@ class MainWindow(QMainWindow):
         self.timeline.cutHardToggleRequested.connect(self._on_cut_hard_toggle)
         self.timeline.cutMenuRequested.connect(self._on_cut_menu)
         self.timeline.nahtMenuRequested.connect(self._on_naht_menu)
+        self.timeline.sprechstelleMenuRequested.connect(self._on_sprechstelle_menu)
+        self.timeline.ansichtGewechselt.connect(self._timeline_ansicht_gewechselt)
         self.timeline.cutMoveRequested.connect(self._on_cut_move)
         # Entf auf einem ausgewaehlten Schnitt geht denselben Weg wie der
         # Menuepunkt "Undo Cut" - mit denselben Pruefungen und derselben
@@ -1273,8 +1275,16 @@ class MainWindow(QMainWindow):
         self._thumb_timer.setInterval(400)
         self._thumb_timer.timeout.connect(self._thumbs_nachladen)
         self.timeline.ansichtGeaendert.connect(self.thumbs_anstossen)
-        # Gemerkten Zustand herstellen (der Menuepunkt steht schon).
-        self.timeline.vorschaubilder_zeigen(self.thumbs_an())
+        # Gemerkte Ansicht der Zeitleiste herstellen (Knopf links oben).
+        # Aeltere Einstellungen kennen nur "Thumbnails an/aus".
+        s = QSettings("KVRouite", "KVRouite")
+        ansicht = s.value(self._TIMELINE_ANSICHT_KEY, "", type=str)
+        if not ansicht:
+            ansicht = "video" if s.value(self._THUMBS_KEY, False, type=bool) else "off"
+        # Lite: keine Ton-Ansichten im Knopf.
+        self.timeline.audio_moeglich(stimme.verfuegbar()[0])
+        self.timeline.ansicht_setzen(ansicht, melden=False)
+        self._timeline_ansicht_gewechselt(self.timeline.ansicht())
 
         # 4) Der ehemalige Mini-Chart ist ab 6.02 der "Chart-Flow" und als
         #    vollwertiges Modul waehlbar. Er bleibt bewusst ein eigenes
@@ -1392,12 +1402,24 @@ class MainWindow(QMainWindow):
         self.map_area_layout.setSpacing(0)
         self.map_area_layout.addWidget(self.map_widget, stretch=1)
 
+        # Audio Zoom (ab 7.0): Pegelverlauf um die Abspielposition mit den
+        # Sprechstellen, zum Nachbessern. Ein Modul wie der Chart-Flow -
+        # zum Start verdeckt, waehlbar in jedem umschaltbaren Fenster.
+        self.audio_zoom = AudioZoomWidget(self._modul_reserve)
+        self.audio_zoom.bandEntfernen.connect(self._sprechstelle_entfernen)
+        self.audio_zoom.bandAnlegen.connect(self._sprechstelle_anlegen)
+        self.audio_zoom.zeitGewaehlt.connect(self._on_timeline_marker_moved)
+
         self._module = {
             "map":   ("Map",         self.map_area_widget),
             "chart": ("Chart",       self.chart),
             "flow":  ("Chart-Flow",  self.chart_flow),
             "gpx":   ("GPX Table", self.bottom_right_widget),
         }
+        # LITE IST OHNE AUDIO: ohne Zusatzpaket gibt es das Modul nicht
+        # (und in der Zeitleiste keine Ton-Ansicht, siehe audio_moeglich).
+        if stimme.verfuegbar()[0]:
+            self._module["audio"] = ("Audio Zoom", self.audio_zoom)
         self._slots["or"].inhalt_setzen("video", self.video_area_widget, "Video")
         self._slots["ol"].inhalt_setzen("map", self.map_area_widget, "Map")
         self._slots["ul"].inhalt_setzen("chart", self.chart, "Chart")
@@ -1578,6 +1600,13 @@ class MainWindow(QMainWindow):
         self.video_control.markBClicked.connect(self.cut_manager.on_markB_clicked)
         self.video_control.markEClicked.connect(self.cut_manager.on_markE_clicked)
         self.video_control.cutClicked.connect(self.on_cut_clicked_video)
+        # Seite A des Video-Controls (Sprechstellen, ab 7.0).
+        self.video_control.voiceClicked.connect(self._on_voice_button_clicked)
+        self.video_control.findVoicesClicked.connect(self._on_find_voices_clicked)
+        self.video_control.sensitivityChanged.connect(self._on_sensitivity_changed)
+        self.video_control.seiteGewechselt.connect(self.timeline.set_bearbeitung)
+        self.video_control.set_sensitivity(QSettings("KVRouite", "KVRouite").value(
+            sprache.EINSTELLUNG_KEY, sprache.EMPFINDLICHKEIT_VORGABE, type=int))
         self.video_control.gotoNextEditRequested.connect(self._on_goto_next_edit_requested)
         self.video_control.gotoPrevEditRequested.connect(self._on_goto_prev_edit_requested)
         
@@ -2213,6 +2242,7 @@ class MainWindow(QMainWindow):
             print("[DEBUG] => OFF")
             self.encoder_setup_action.setEnabled(False)
             self.video_control.show_ovl_button(False)
+            self.video_control.voice_seite_anbieten(False)
             self.overlay_setup_action.setEnabled(False)
         elif new_mode == "copy":
             # Nur der Sonderfall meldet sich. Groesse und Kasten kommen aus
@@ -2224,6 +2254,7 @@ class MainWindow(QMainWindow):
             print("[DEBUG] => COPY")
             self.encoder_setup_action.setEnabled(False)
             self.video_control.show_ovl_button(False)
+            self.video_control.voice_seite_anbieten(False)
             self.overlay_setup_action.setEnabled(False)
         elif new_mode == "encode":
             # Encode ist der Normalfall - dafuer braucht es keine Beschriftung
@@ -2236,6 +2267,9 @@ class MainWindow(QMainWindow):
             print("[DEBUG] => ENCODE")
             self.encoder_setup_action.setEnabled(True)
             self.video_control.show_ovl_button(True)
+            # Seite A (Sprechstellen) nur mit Audio-Zusatz und eingeschaltetem
+            # Voice Remover - siehe _sprechstellen_bedienung_nachziehen.
+            self._sprechstellen_bedienung_nachziehen()
             self.overlay_setup_action.setEnabled(True)
 
         # Abfrage: nur wenn alter Modus 'off' war + neuer Modus copy/encode.
@@ -2405,6 +2439,10 @@ class MainWindow(QMainWindow):
 
         dlg = EncoderSetupDialog(self)
         result = dlg.exec()
+
+        # "Remove voices" koennte umgeschaltet worden sein: Seite A und die
+        # Baender folgen dem Schalter.
+        self._sprechstellen_bedienung_nachziehen()
 
         # xfade nach dem Schließen erneut lesen
         new_xfade = s.value("encoder/xfade", 2, type=int)
@@ -3141,6 +3179,12 @@ class MainWindow(QMainWindow):
 
         ziel.inhalt_setzen(modul_id, widget_neu, name_neu)
         self._auswahllisten_auffrischen()
+        # Der Audio Zoom bekommt den Pegelverlauf erst, wenn er zu sehen ist
+        # - fuer ein verdecktes Fenster lohnt das Umrechnen nicht. Fehlt der
+        # Verlauf noch, wird jetzt abgefahren.
+        if modul_id == "audio":
+            self._tonspur_holen()
+            self._sprechstellen_anzeigen()
 
         # Die Karte ist eine QWebEngineView. Wechselt sie die Zeile, bekommt
         # sie einen neuen Vater und damit ein neu erzeugtes natives Fenster -
@@ -3657,7 +3701,7 @@ class MainWindow(QMainWindow):
         optional = [getattr(vc, n, None) for n in (
             "hour_edit", "min_edit", "sec_edit", "markB_button", "markE_button",
             "clear_button", "cut_button", "cut_begin_button", "cut_end_button",
-            "ovl_button", "autocut_button")]
+            "ovl_button", "autocut_button", "seite_button")]
         optional += [getattr(gc, n, None) for n in (
             "markB_button", "markE_button", "deselect_button", "cut_button",
             "slot_sync_button")]
@@ -4231,22 +4275,50 @@ class MainWindow(QMainWindow):
     #: keine zusaetzliche Information - die Bilder ueberlappten sich nur.
     _THUMB_ABSTAND_PX = 150
 
+    #: Bis 7.0: "Thumbnails in Timeline" an/aus. Wird nur noch gelesen, um
+    #: die alte Einstellung in die Ansicht zu uebernehmen.
     _THUMBS_KEY = "ui/timeline_thumbs"
+    #: Seit 7.0: Ansicht der Zeitleiste ("off", "video", "audio", "beides").
+    _TIMELINE_ANSICHT_KEY = "ui/timeline_view"
 
     def thumbs_an(self) -> bool:
-        a = getattr(self, "action_timeline_thumbs", None)
-        return bool(a is not None and a.isChecked())
+        return self.timeline.bilder_an()
+
+    def _timeline_ansicht_gewechselt(self, name: str):
+        """Der Ansichtsknopf der Zeitleiste wurde geschaltet (oder der
+        gemerkte Zustand hergestellt): Bilder holen oder verwerfen, die
+        Tonspur nachziehen, merken."""
+        QSettings("KVRouite", "KVRouite").setValue(self._TIMELINE_ANSICHT_KEY, name)
+        bilder = self.timeline.bilder_an()
+        if bilder != getattr(self, "_bilder_vorher", None):
+            self._bilder_vorher = bilder
+            self._thumbs_umschalten(bilder)
+        if self.timeline.audio_an() and getattr(self, "audio_zoom", None) is not None:
+            self._tonspur_holen()
+            self._sprechstellen_anzeigen()
+
+    def _tonspur_holen(self):
+        """Die Ton-Ansicht braucht den Pegelverlauf: fehlt er fuer eine Datei
+        im Zwischenspeicher, wird sie jetzt abgefahren (Fortschrittsdialog,
+        abbrechbar). Die Sprechstellen werden dabei NICHT gesetzt, das tut
+        nur "Detect". Nur mit Audio-Zusatz - Lite hat die Ansicht nicht."""
+        if not self.playlist or not stimme.verfuegbar()[0]:
+            return
+        if all(verkehr.aus_cache(p) is not None for p in self.playlist):
+            return
+        if self._audio_abfahren("Sound track") is None:
+            self.statusBar().showMessage(
+                "Audio scan cancelled - the sound track stays empty.", 6000)
 
     def _thumbs_umschalten(self, an: bool):
-        """Vorschaubilder ein- oder ausschalten.
+        """Vorschaubilder holen oder verwerfen.
 
-        Aus heisst wirklich aus: der Streifen verschwindet und es wird auch
-        nichts mehr geholt. Der Zwischenspeicher wird geleert, damit er nicht
-        ungenutzt Speicher haelt. Die Schraffur der Schnitte bleibt in beiden
-        Faellen - sie hilft auch ohne Bilder, Schnitte zu erkennen.
+        Aus heisst wirklich aus: es wird nichts mehr geholt und der
+        Zwischenspeicher wird geleert, damit er nicht ungenutzt Speicher
+        haelt. Ob gezeichnet wird, entscheidet die Zeitleiste selbst
+        (Ansichtsknopf). Die Schraffur der Schnitte bleibt in beiden Faellen
+        - sie hilft auch ohne Bilder, Schnitte zu erkennen.
         """
-        QSettings("KVRouite", "KVRouite").setValue(self._THUMBS_KEY, bool(an))
-        self.timeline.vorschaubilder_zeigen(an)
         if an:
             self.thumbs_anstossen(sofort=True)
             QTimer.singleShot(0, self.thumbs_grundstock)
@@ -4570,6 +4642,419 @@ class MainWindow(QMainWindow):
             if a >= zeit:
                 rechts = min(rechts, a - zeit)
         return max(0.0, min(30.0, 2.0 * min(links, rechts)))
+
+    # ------------------------------------------------------------------
+    # Sprechstellen des Voice Removers (ab 7.0)
+    # ------------------------------------------------------------------
+    # Gehalten werden sie je Datei in Sekunden der Datei (_sprechstellen);
+    # Zeitleiste und Audio Zoom zeigen sie in Gesamtzeit der Videoliste.
+    # Die Umrechnung geht ueber die Laengen in video_durations - dieselbe
+    # Achse wie beim Marker und den Schnitten.
+
+    def _datei_versatz(self, pfad):
+        """Beginn der Datei in Gesamtzeit, oder None wenn nicht geladen."""
+        try:
+            idx = self.playlist.index(pfad)
+        except ValueError:
+            return None
+        return sum(self.video_durations[:idx])
+
+    def _global_zu_datei(self, zeit_s):
+        """Gesamtzeit -> (pfad, Sekunde der Datei). Am Ende: letzte Datei."""
+        if not self.playlist:
+            return None, 0.0
+        versatz = 0.0
+        for pfad, dauer in zip(self.playlist, self.video_durations):
+            if zeit_s < versatz + dauer:
+                return pfad, max(0.0, zeit_s - versatz)
+            versatz += dauer
+        return self.playlist[-1], max(0.0, zeit_s - (versatz - self.video_durations[-1]))
+
+    def _sprechstellen_global(self):
+        """Alle Stellen als [(von, bis)] in Gesamtzeit, sortiert."""
+        liste = []
+        for pfad, stellen in self._sprechstellen.items():
+            versatz = self._datei_versatz(pfad)
+            if versatz is None:
+                continue
+            for von, bis in stellen:
+                liste.append((versatz + float(von), versatz + float(bis)))
+        liste.sort()
+        return liste
+
+    def _sprechstellen_export(self):
+        """Der Abschnitt fuer Export und Projektdatei: nur geladene Dateien,
+        nur nichtleere Listen."""
+        return {pfad: [[round(float(a), 3), round(float(b), 3)] for a, b in stellen]
+                for pfad, stellen in self._sprechstellen.items()
+                if stellen and pfad in self.playlist}
+
+    def _schnitte_global(self):
+        """Die Schnitte als [(von, bis)] in Gesamtzeit, oder []."""
+        try:
+            return [(float(a), float(b)) for a, b in self.cut_manager.get_cut_intervals()]
+        except Exception:
+            return []
+
+    def _sprechstellen_summe(self):
+        """(Anzahl, Sekunden) ueber alle geladenen Dateien - nur der Teil,
+        der NICHT weggeschnitten ist: nur der wird beim Export getrennt."""
+        gesamt = float(sum(self.video_durations))
+        behalten = self._compute_keep_intervals(self._schnitte_global(), gesamt) \
+            if gesamt > 0 else []
+        anzahl, sekunden = 0, 0.0
+        for a, b in self._sprechstellen_global():
+            teil = sum(max(0.0, min(b, kb) - max(a, ka)) for ka, kb in behalten)
+            if teil > 0:
+                anzahl += 1
+                sekunden += teil
+        return anzahl, sekunden
+
+    def _pegelkurve_global(self):
+        """Der Pegelverlauf aller Dateien aus dem Zwischenspeicher, in
+        Gesamtzeit. Dateien ohne Eintrag fehlen - dort bleibt es leer."""
+        punkte = []
+        for pfad in self.playlist:
+            versatz = self._datei_versatz(pfad)
+            daten = verkehr.aus_cache(pfad)
+            if versatz is None or daten is None:
+                continue
+            for i, db in enumerate(daten.get("pegel") or []):
+                punkte.append((versatz + i * verkehr.RAHMEN_S, float(db)))
+        return punkte
+
+    def sprechstellen_bedienbar(self) -> bool:
+        """Ob Seite A und die Baender ueberhaupt zu sehen sind: nur im
+        Encode-Mode, mit Audio-Zusatz (Lite: nie), und wenn im Encoder Setup
+        "Remove voices" an ist. Sonst ergibt Markieren keinen Sinn (Bernd,
+        10.09.2026: "dann darf ich das ganze Audio-Gedoens eigentlich nicht
+        sehen"). Die Stellen selbst bleiben gespeichert."""
+        if getattr(self, "_edit_mode", "") != "encode":
+            return False
+        if not stimme.verfuegbar()[0]:
+            return False
+        return bool(QSettings("KVRouite", "KVRouite").value("encoder/voice", 0, type=int))
+
+    def _sprechstellen_bedienung_nachziehen(self):
+        """Seite A des Video-Controls und die Baender an den Schalter
+        "Remove voices" haengen."""
+        self.video_control.voice_seite_anbieten(self.sprechstellen_bedienbar())
+        self._sprechstellen_anzeigen()
+
+    def _sprechstellen_anzeigen(self):
+        """Zeitleiste und Audio Zoom nachziehen. Ohne eingeschalteten Voice
+        Remover bleiben die Baender unsichtbar (sprechstellen_bedienbar)."""
+        stellen = self._sprechstellen_global() if self.sprechstellen_bedienbar() else []
+        self.timeline.set_sprechstellen(stellen)
+        self.audio_zoom.set_sprechstellen(stellen)
+        self.audio_zoom.set_schnitte(self._schnitte_global())
+        self.audio_zoom.set_gesamt(sum(self.video_durations))
+        if not self.playlist:
+            # Keine Videos, keine Tonspur - auch nicht die alte.
+            self.timeline.set_pegelkurve([])
+            self.audio_zoom.set_pegelkurve([])
+            self.audio_zoom.set_zeit(0.0)
+            return
+        if self.timeline.audio_an() or self.audio_zoom.isVisible():
+            kurve = self._pegelkurve_global()
+            self.timeline.set_pegelkurve(kurve)
+            self.audio_zoom.set_pegelkurve(kurve)
+
+    def _sprechstellen_laden(self, project_data):
+        """"voice_regions" aus einer Projektdatei. Aeltere Projekte haben
+        den Schluessel nicht - dann gibt es keine Stellen."""
+        daten = project_data.get("voice_regions")
+        self._sprechstellen = {}
+        if isinstance(daten, dict):
+            for pfad, stellen in daten.items():
+                if pfad not in self.playlist:
+                    continue
+                sauber = []
+                for eintrag in stellen or []:
+                    try:
+                        a, b = float(eintrag[0]), float(eintrag[1])
+                    except (TypeError, ValueError, IndexError):
+                        continue
+                    if b > a >= 0:
+                        sauber.append([a, b])
+                if sauber:
+                    self._sprechstellen[pfad] = sorted(sauber)
+        self._sprechstellen_anzeigen()
+
+    def stimmen_suchen(self, empfindlichkeit):
+        """Der Suchlauf hinter "Detect voices" (views/audio_setup_seite).
+
+        Faehrt jede Datei der Videoliste ab (core/verkehr, aus dem
+        Zwischenspeicher wenn schon geschehen) und setzt die Sprechstellen
+        aus dem Detektor (core/sprache) - vorhandene Stellen werden ERSETZT,
+        auch die von Hand gesetzten. Rueckgabe (Anzahl, Sekunden), oder None
+        wenn abgebrochen.
+        """
+        if not self.playlist:
+            QMessageBox.information(self, "Detect voices", "No videos loaded.")
+            return (0, 0.0)
+        ok, grund = sprache.verfuegbar()
+        if not ok:
+            QMessageBox.warning(self, "Detect voices", "Detector not available: " + grund)
+            return (0, 0.0)
+        empfindlichkeit = max(1, min(sprache.EMPFINDLICHKEIT_MAX, int(empfindlichkeit)))
+        alle = self._audio_abfahren("Detect voices")
+        if alle is None:
+            return None
+        gefunden = {}
+        for pfad, daten in alle.items():
+            name = os.path.basename(pfad)
+            werte = daten.get("sprache")
+            if werte is None:
+                print(f"[VOICE] {name}: no speech probabilities - detector "
+                      f"not available while scanning")
+                continue
+            stellen = sprache.stellen(werte, empfindlichkeit, daten.get("dauer"))
+            if stellen:
+                gefunden[pfad] = [[float(a), float(b)] for a, b in stellen]
+            print(f"[VOICE] {name}: sensitivity {empfindlichkeit}, "
+                  f"{len(stellen)} stretch(es), {sprache.gesamt_s(stellen):.0f}s")
+        self._sprechstellen_undo_merken("Voices detected")
+        self._sprechstellen = gefunden
+        self._sprechstellen_anzeigen()
+        return self._sprechstellen_summe()
+
+    def _audio_abfahren(self, titel):
+        """Die Tonspur jeder Datei der Videoliste abfahren (core/verkehr:
+        Pegel und Sprachwerte, aus dem Zwischenspeicher wenn schon
+        geschehen), mit Fortschrittsdialog. Rueckgabe {pfad: daten} oder
+        None bei Abbruch. Gemeinsamer Unterbau von "Detect" und der
+        Ton-Ansicht der Zeitleiste."""
+        from PySide6.QtWidgets import QProgressDialog, QApplication
+        offen = [p for p in self.playlist if verkehr.aus_cache(p) is None]
+        ergebnis = {}
+        if not offen:
+            for pfad in self.playlist:
+                ergebnis[pfad] = verkehr.aus_cache(pfad)
+            return ergebnis
+        dialog = QProgressDialog("Scanning the audio...", "Cancel", 0,
+                                 100 * len(offen), self)
+        dialog.setWindowTitle(titel)
+        dialog.setWindowModality(Qt.WindowModal)
+        dialog.setMinimumDuration(0)
+        dialog.setValue(0)
+        QApplication.processEvents()
+
+        def abbruch():
+            QApplication.processEvents()
+            return dialog.wasCanceled()
+
+        try:
+            nr = 0
+            for pfad in self.playlist:
+                name = os.path.basename(pfad)
+                daten = verkehr.aus_cache(pfad)
+                if daten is None:
+                    dialog.setLabelText(f"{name}: scanning the audio track...")
+
+                    def fortschritt(prozent, _nr=nr):
+                        dialog.setValue(_nr * 100 + int(prozent))
+                        QApplication.processEvents()
+
+                    daten = verkehr.analyse(pfad, print, fortschritt, abbruch)
+                    nr += 1
+                    if dialog.wasCanceled():
+                        return None
+                ergebnis[pfad] = daten
+        except verkehr.Abgebrochen:
+            return None
+        except Exception as exc:
+            dialog.close()
+            QMessageBox.critical(self, titel, f"Scan failed:\n{exc}")
+            return None
+        finally:
+            dialog.close()
+        return ergebnis
+
+    def _sprechstellen_undo_merken(self, name):
+        """Den Stand der Sprechstellen vor einer Aenderung auf den
+        Strg+Z-Stapel legen - in derselben Reihe wie Schnitte, Overlays und
+        GPX-Aenderungen (Bernd, 10.09.2026: Voice fehlte im Undo-Verlauf)."""
+        stand = {pfad: [list(s) for s in stellen]
+                 for pfad, stellen in self._sprechstellen.items()}
+
+        def zuruecknehmen():
+            self._sprechstellen = stand
+            self._sprechstellen_anzeigen()
+
+        self._undo_ablegen(zuruecknehmen, name)
+
+    def _sprechstelle_entfernen(self, von_s, bis_s, merken=True):
+        """Die Stelle, die (in Gesamtzeit) bei von_s..bis_s liegt, weg."""
+        pfad, lokal = self._global_zu_datei((von_s + bis_s) / 2.0)
+        stellen = self._sprechstellen.get(pfad) or []
+        rest = [s for s in stellen if not (s[0] <= lokal <= s[1])]
+        if len(rest) == len(stellen):
+            return
+        if merken:
+            self._sprechstellen_undo_merken("Voices removed")
+        if rest:
+            self._sprechstellen[pfad] = rest
+        else:
+            self._sprechstellen.pop(pfad, None)
+        self._sprechstellen_anzeigen()
+
+    def _sprechstelle_anlegen(self, von_s, bis_s, merken=True):
+        """Neue Stelle in Gesamtzeit; ueber eine Naht hinweg wird sie je
+        Datei geteilt. Ueberlappende Stellen werden verschmolzen."""
+        if bis_s - von_s < 0.2 or not self.playlist:
+            return
+        if merken:
+            self._sprechstellen_undo_merken("Voices marked")
+        versatz = 0.0
+        for pfad, dauer in zip(self.playlist, self.video_durations):
+            a = max(von_s, versatz) - versatz
+            b = min(bis_s, versatz + dauer) - versatz
+            versatz += dauer
+            if b - a < 0.05:
+                continue
+            liste = sorted((self._sprechstellen.get(pfad) or []) + [[a, b]])
+            neu = []
+            for s in liste:
+                if neu and s[0] <= neu[-1][1]:
+                    neu[-1][1] = max(neu[-1][1], s[1])
+                else:
+                    neu.append([float(s[0]), float(s[1])])
+            self._sprechstellen[pfad] = neu
+        self._sprechstellen_anzeigen()
+
+    def _on_sprechstelle_menu(self, von_s, bis_s, global_pos):
+        """Rechtsklick auf ein Band in der Zeitleiste (Seite A) - gebaut
+        wie das Menue eines Overlays."""
+        from PySide6.QtWidgets import QMenu
+        menue = QMenu(self)
+        titel = menue.addAction(
+            "Voices %s - %s  (%.1fs)"
+            % (self._sek_kurz(von_s), self._sek_kurz(bis_s), bis_s - von_s))
+        titel.setEnabled(False)
+        menue.addSeparator()
+        a_zeit = menue.addAction("Start and end …")
+        menue.addSeparator()
+        a_weg = menue.addAction("Remove stretch")
+        a_alle = menue.addAction("Remove all stretches")
+        gewaehlt = menue.exec(global_pos)
+        if gewaehlt is a_weg:
+            self._sprechstelle_entfernen(von_s, bis_s)
+        elif gewaehlt is a_zeit:
+            self._sprechstelle_zeit_dialog(von_s, bis_s)
+        elif gewaehlt is a_alle:
+            anzahl, _sek = self._sprechstellen_summe()
+            antwort = QMessageBox.question(
+                self, "Remove all stretches?",
+                "Remove all %d marked stretches with voices?" % anzahl,
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if antwort == QMessageBox.Yes:
+                self._sprechstellen_undo_merken("All voices removed")
+                self._sprechstellen = {}
+                self._sprechstellen_anzeigen()
+
+    def _sprechstelle_zeit_dialog(self, von_s, bis_s):
+        """Anfang und Ende einer Sprechstelle als Zahlen (Gesamtzeit)."""
+        from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QDoubleSpinBox,
+                                       QFormLayout, QLabel, QVBoxLayout)
+        gesamt = float(sum(self.video_durations))
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Voices start and end")
+        aussen = QVBoxLayout(dlg)
+        form = QFormLayout()
+
+        def _feld(wert):
+            sb = QDoubleSpinBox(dlg)
+            sb.setDecimals(1)
+            sb.setSingleStep(0.5)
+            sb.setRange(0.0, gesamt)
+            sb.setValue(float(wert))
+            sb.setSuffix(" s")
+            return sb
+
+        sb_a = _feld(von_s)
+        sb_b = _feld(bis_s)
+        form.addRow("Start", sb_a)
+        form.addRow("End", sb_b)
+        aussen.addLayout(form)
+        hinweis = QLabel(dlg)
+        hinweis.setWordWrap(True)
+        aussen.addWidget(hinweis)
+        knoepfe = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dlg)
+        aussen.addWidget(knoepfe)
+        knoepfe.accepted.connect(dlg.accept)
+        knoepfe.rejected.connect(dlg.reject)
+
+        def _pruefen():
+            laenge = sb_b.value() - sb_a.value()
+            ok = laenge >= 0.2
+            hinweis.setText("Length %.1f s" % laenge
+                            + ("" if ok else "\nThe end must lie behind the start."))
+            knoepfe.button(QDialogButtonBox.Ok).setEnabled(ok)
+
+        sb_a.valueChanged.connect(_pruefen)
+        sb_b.valueChanged.connect(_pruefen)
+        _pruefen()
+        if dlg.exec() != QDialog.Accepted:
+            return
+        self._sprechstellen_undo_merken("Voices moved")
+        self._sprechstelle_entfernen(von_s, bis_s, merken=False)
+        self._sprechstelle_anlegen(round(sb_a.value(), 3), round(sb_b.value(), 3), merken=False)
+
+    def _on_voice_button_clicked(self):
+        """Knopf "Voice" auf Seite A: der Bereich [- bis -] wird eine
+        Sprechstelle - wie "Ovl" aus demselben Bereich ein Overlay macht."""
+        von, bis = self.timeline.markB_time_s, self.timeline.markE_time_s
+        if von is None or bis is None or von < 0 or bis < 0:
+            QMessageBox.information(
+                self, "Voices",
+                "Mark the stretch first: [- at its begin, -] at its end.")
+            return
+        if bis - von < 0.2:
+            QMessageBox.information(
+                self, "Voices", "The end must lie behind the start.")
+            return
+        self._sprechstelle_anlegen(float(von), float(bis))
+        # Die Markierung ist verbraucht - weg damit, wie nach "x". Sonst
+        # sieht es aus, als waere nichts geschehen.
+        self.cut_manager.on_markClear_clicked()
+        self.timeline.set_markB_time(-1)
+        self.timeline.set_markE_time(-1)
+        self.on_deselect_clicked()
+        self.statusBar().showMessage(
+            "Voices %s - %s marked" % (self._sek_kurz(von), self._sek_kurz(bis)), 4000)
+
+    def _on_find_voices_clicked(self):
+        """Knopf "Detect" auf Seite A: Stimmen finden und sofort markieren."""
+        if not self.playlist:
+            QMessageBox.information(self, "Detect voices", "No videos loaded.")
+            return
+        anzahl, _sek = self._sprechstellen_summe()
+        if anzahl:
+            antwort = QMessageBox.question(
+                self, "Detect voices",
+                "The search replaces the %d marked stretches. Continue?" % anzahl,
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+            if antwort != QMessageBox.Yes:
+                return
+        ergebnis = self.stimmen_suchen(self.video_control.sensitivity())
+        if ergebnis is None:
+            self.statusBar().showMessage("Detect voices cancelled.", 4000)
+            return
+        anzahl, sekunden = ergebnis
+        if anzahl == 0:
+            QMessageBox.information(
+                self, "Detect voices",
+                "No speech found. Raise the sensitivity (Sens) or mark the "
+                "stretches by hand ([-, -], Voice).")
+        else:
+            self.statusBar().showMessage(
+                "%d stretch(es) with voices marked, %.0f s - check them in the "
+                "timeline; detection is never complete." % (anzahl, sekunden), 10000)
+
+    def _on_sensitivity_changed(self, wert: int):
+        QSettings("KVRouite", "KVRouite").setValue(sprache.EINSTELLUNG_KEY, int(wert))
 
     def _on_naht_menu(self, naht: int, zeit: float, global_pos):
         """Rechtsklick auf eine Naht der Videoliste in der Zeitleiste."""
@@ -6563,6 +7048,7 @@ class MainWindow(QMainWindow):
         
         # 3) Timeline-Marker (immer in "global" Koordinaten):
         self.timeline.set_marker_position(global_s)
+        self.audio_zoom.set_zeit(global_s)
         
         # 4) Zeit im VideoEditor-Label & VideoControl anzeigen
         #
@@ -6707,6 +7193,7 @@ class MainWindow(QMainWindow):
         if filepath in self.playlist:
             idx = self.playlist.index(filepath)
             self.playlist.remove(filepath)
+            self._sprechstellen.pop(filepath, None)
             if idx < len(self.video_durations):
                 self.video_durations.pop(idx)
 
@@ -6751,6 +7238,9 @@ class MainWindow(QMainWindow):
             ofs += d
             boundaries.append(ofs)
         self.timeline.set_boundaries(boundaries)
+        # Sprechstellen und Tonspur liegen in Gesamtzeit - mit neuen
+        # Laengen oder Reihenfolge neu umrechnen.
+        self._sprechstellen_anzeigen()
         # Naehte, die es bei dieser Videoliste nicht mehr gibt, fallen weg.
         self.cut_manager.prune_merge_fades(len(self.playlist))
         self._blenden_an_timeline()
@@ -7307,6 +7797,9 @@ class MainWindow(QMainWindow):
         self.video_editor.set_cut_time(new_duration)
         self._update_gpx_overview()
         self._refresh_preview_timeline()
+        # Der Audio Zoom zeigt die Schnitte mit - Sprechstellen darin
+        # zaehlen nicht, der Export laesst sie ohnehin weg.
+        self._sprechstellen_anzeigen()
 
     def _refresh_preview_timeline(self):
         """
@@ -8128,10 +8621,15 @@ class MainWindow(QMainWindow):
                               for (s, e) in self.cut_manager.get_cut_intervals())
             except Exception:
                 pass
+            anzahl, sekunden = self._sprechstellen_summe()
             frage = ExportBestaetigung(
                 self, gesamt_sekunden=max(0.0, gesamt),
-                dateien=len(self.playlist))
-            if frage.exec() != QDialog.Accepted:
+                dateien=len(self.playlist),
+                sprechstellen=(anzahl, sekunden) if anzahl else None)
+            ergebnis = frage.exec()
+            # Die drei Schalter koennen dort umgestellt worden sein.
+            self._sprechstellen_bedienung_nachziehen()
+            if ergebnis != QDialog.Accepted:
                 return
         else:
             msg = QMessageBox(self)
@@ -8263,6 +8761,9 @@ class MainWindow(QMainWindow):
                 # Stimmen entfernen (core/stimme): Schalter und Modell.
                 "voice": voice_an,
                 "voice_model": voice_model,
+                # Sprechstellen je Datei (Sekunden der Datei): gibt es
+                # welche, trennt der Voice Remover nur dort.
+                "voice_regions": self._sprechstellen_export(),
                 # 360: derselbe Abschnitt wie in der Projektdatei. Ist er an,
                 # rendert ges_encoder_manager das projizierte 16:9-Bild statt
                 # des verzerrten 2:1-Equirects.
@@ -9290,6 +9791,12 @@ class MainWindow(QMainWindow):
             self.video_durations.clear()
         except Exception:
             pass
+        # Sprechstellen und Tonspur (Zeitleiste, Audio Zoom) leeren.
+        try:
+            self._sprechstellen = {}
+            self._sprechstellen_anzeigen()
+        except Exception as e:
+            print(f"[WARN] NewProject: voices cleanup: {e}")
 
         self.global_keyframes = []
         self.video_editor.playlist = []
@@ -10156,9 +10663,13 @@ class MainWindow(QMainWindow):
             # in der Datei stand. Das traf zwei Faelle nicht: eingeschaltet
             # ohne gesetzten Versatz, und ausgeschaltet mit gesetztem Versatz.
             "auto_sync": bool(self._autoSyncVideoEnabled),
-            "view360": self._blick360_export_cfg()
+            "view360": self._blick360_export_cfg(),
+            # Sprechstellen des Voice Removers, je Datei in Sekunden der
+            # Datei - siehe _sprechstellen. Aeltere Projekte haben den
+            # Schluessel nicht; dann gibt es keine.
+            "voice_regions": self._sprechstellen_export(),
         }
-        
+
         if is_gpx_video_shift_set():
             project_data["gpx_video_shift"]= get_gpx_video_shift() 
     
@@ -10394,6 +10905,7 @@ class MainWindow(QMainWindow):
             # gleich richtig gerechnet wird - das Einschalten aendert das
             # Zielformat und baut die Timeline ohnehin neu auf.
             self._blick360_laden(project_data)
+            self._sprechstellen_laden(project_data)
 
             self._refresh_preview_timeline()
 
@@ -11741,6 +12253,8 @@ class MainWindow(QMainWindow):
         self.playlist = []
         self.playlist_counter = 0
         self.video_durations = []
+        self._sprechstellen = {}
+        self._sprechstellen_anzeigen()
         self.view360_views = []
         self._360_aus_projekt = False
         # Keyframes sind Positionen auf der globalen Zeitachse. Ohne Playlist

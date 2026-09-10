@@ -92,6 +92,12 @@ The models themselves - the trained weights in "voice_models/":
   htdemucs (955717e8-8726e21a.th)  Demucs v4 by Meta Platforms, MIT.
   The metadata files next to them (*.json, htdemucs.yaml) come from the
   same sources.
+  silero_vad.onnx              Silero VAD, the speech detector behind
+                               "Find voices" (it marks the stretches where
+                               someone talks; the voice remover then works
+                               only there). By the Silero Team, MIT -
+                               LICENSE.silero-vad. Run with ONNX Runtime,
+                               no further package.
 
 NOT shipped: diffq-fixed, a Windows dependency of audio-separator. It is
 licensed CC BY-NC 4.0 (non-commercial), which does not fit a GPL program.

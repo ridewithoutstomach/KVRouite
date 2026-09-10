@@ -307,14 +307,29 @@ class _Quellen:
         return len(self.grenzen) - 1 if self.grenzen else -1
 
     def stuecke(self, von_ns, bis_ns):
-        """Zerlegt einen Rohbereich in (asset, inpoint, dauer, rohstart)."""
+        """Zerlegt einen Rohbereich in (asset, inpoint, dauer, rohstart).
+
+        Zerlegt wird an den Dateigrenzen - und an den Grenzen der
+        Ersatz-Tonspuren (Voice Remover mit Sprechstellen): ein Stueck liegt
+        danach entweder ganz in einer WAV oder ganz ausserhalb, und
+        ton_fuer() kann je Stueck entscheiden. Ohne Ersatz aendert sich
+        nichts; die Teilstuecke derselben Datei schliessen luecklos an.
+        """
         ergebnis = []
         for asset, (a, b) in zip(self.assets, self.grenzen):
             start = max(von_ns, a)
             ende = min(bis_ns, b)
             if ende - start <= 0:
                 continue
-            ergebnis.append((asset, start - a, ende - start, start))
+            grenzen = {start, ende}
+            for von_w, bis_w, _wav, _ton in self.tonersatz_liste(asset):
+                for g in (a + von_w, a + bis_w):
+                    if start < g < ende:
+                        grenzen.add(g)
+            punkte = sorted(grenzen)
+            for s, e in zip(punkte, punkte[1:]):
+                if e - s > 0:
+                    ergebnis.append((asset, s - a, e - s, s))
         return ergebnis
 
 
@@ -687,6 +702,36 @@ def _ton_bereiche(quellen, stuecke, rand_s):
             for von, bis in verschmolzen:
                 if (von, bis) not in ergebnis[pfad]:
                     ergebnis[pfad].append((round(von, 3), round(bis, 3)))
+    return ergebnis
+
+
+def _bereiche_beschraenken(bereiche, stellen, rand_s):
+    """Die gebrauchten Bereiche je Datei auf die Sprechstellen eindampfen.
+
+    bereiche: {pfad: [(von, bis)]} aus _ton_bereiche; stellen: {pfad:
+    [[von, bis], ...]}. Rueckgabe in derselben Form: je Sprechstelle (mit
+    rand_s Rand) der Teil, der in einem gebrauchten Bereich liegt;
+    Ueberlappungen verschmolzen. Eine Datei ohne Sprechstellen faellt weg.
+    """
+    ergebnis = {}
+    for pfad, liste in bereiche.items():
+        marken = stellen.get(pfad) or []
+        teile = []
+        for von, bis in liste:
+            for m_von, m_bis in marken:
+                a = max(von, float(m_von) - rand_s)
+                b = min(bis, float(m_bis) + rand_s)
+                if b - a > 0:
+                    teile.append([a, b])
+        teile.sort()
+        verschmolzen = []
+        for a, b in teile:
+            if verschmolzen and a <= verschmolzen[-1][1]:
+                verschmolzen[-1][1] = max(verschmolzen[-1][1], b)
+            else:
+                verschmolzen.append([a, b])
+        if verschmolzen:
+            ergebnis[pfad] = [(round(a, 3), round(b, 3)) for a, b in verschmolzen]
     return ergebnis
 
 
@@ -1764,13 +1809,24 @@ def ges_xfade_main(cfg_path, abbruch=None):
             bereiche = _ton_bereiche(
                 quellen, _stuecke_berechnen(skip_list, quellen.gesamt_ns / NS),
                 stimme.RAND_S)
+            # Sprechstellen ("voice_regions", je Datei [[von, bis], ...] in
+            # Sekunden der Datei, aus dem Detektor oder von Hand): gibt es
+            # welche, wird NUR dort getrennt - Schnittmenge mit den
+            # gebrauchten Bereichen, mit Rand. Gibt es keine, bleibt es beim
+            # ganzen behaltenen Material.
+            stellen = cfg.get("voice_regions") or {}
+            if any(stellen.values()):
+                bereiche = _bereiche_beschraenken(bereiche, stellen, stimme.RAND_S)
+                log(f"[VOICE] limited to the marked stretches: "
+                    + ", ".join(f"{os.path.basename(p)} {len(b)}"
+                                for p, b in bereiche.items()))
             for pfad in videos:
                 if pfad in ersatz:
                     continue
                 teile = bereiche.get(pfad)
                 if not teile:
-                    log(f"[VOICE] {os.path.basename(pfad)}: nothing of it is "
-                        f"in the output - skipped")
+                    log(f"[VOICE] {os.path.basename(pfad)}: nothing to "
+                        f"separate in it - skipped")
                     continue
                 try:
                     # Kein eigener Fortschrittsruf: core/stimme schreibt
