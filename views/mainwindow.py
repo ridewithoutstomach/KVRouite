@@ -11545,6 +11545,11 @@ class MainWindow(QMainWindow):
             self.cut_manager.video_editor.set_cut_intervals(snapshot)
             self._refresh_preview_timeline()
             self.timeline.update()
+            # Den Audio Zoom mitziehen - er dunkelt die geschnittenen
+            # Bereiche ab. Der normale Schnitt laeuft ueber _on_cuts_changed,
+            # der Undo stellt die Schnitte direkt her und muss es selbst tun
+            # (Bernd, 11.09.2026: nach Undo blieb der Audio Zoom stehen).
+            self._sprechstellen_anzeigen()
 
             # 🆕: Letzten Cut-Endpunkt ermitteln
             if snapshot:
