@@ -1286,7 +1286,8 @@ class MainWindow(QMainWindow):
         self.timeline.cutMenuRequested.connect(self._on_cut_menu)
         self.timeline.nahtMenuRequested.connect(self._on_naht_menu)
         self.timeline.bandMenuRequested.connect(self._on_band_menu)
-        self.timeline.ansichtGewechselt.connect(self._timeline_ansicht_gewechselt)
+        self.timeline.ansichtGewechselt.connect(
+            lambda n: self._timeline_ansicht_gewechselt(n, nutzer=True))
         self.timeline.markenGeaendert.connect(self._audio_zoom_marken_nachziehen)
         self.timeline.cutMoveRequested.connect(self._on_cut_move)
         # Entf auf einem ausgewaehlten Schnitt geht denselben Weg wie der
@@ -4328,10 +4329,12 @@ class MainWindow(QMainWindow):
     def thumbs_an(self) -> bool:
         return self.timeline.bilder_an()
 
-    def _timeline_ansicht_gewechselt(self, name: str):
+    def _timeline_ansicht_gewechselt(self, name: str, nutzer: bool = False):
         """Der Ansichtsknopf der Zeitleiste wurde geschaltet (oder der
         gemerkte Zustand hergestellt): Bilder holen oder verwerfen, die
-        Tonspur nachziehen, merken."""
+        Tonspur nachziehen, merken. nutzer=True nur bei einem echten
+        Schalten durch den Anwender - dann wird bei Bedarf der Audio Zoom
+        angeboten (nicht beim Herstellen des Zustands zum Programmstart)."""
         QSettings("KVRouite", "KVRouite").setValue(self._TIMELINE_ANSICHT_KEY, name)
         # Erst der Ton, dann die Bilder: beide lesen dieselbe Datei, und
         # nebeneinander bremsen sie sich auf einem externen Laufwerk aus.
@@ -4342,6 +4345,44 @@ class MainWindow(QMainWindow):
         if bilder != getattr(self, "_bilder_vorher", None):
             self._bilder_vorher = bilder
             self._thumbs_umschalten(bilder)
+        # Ohne sichtbaren Audio Zoom lassen sich die Baender nicht bearbeiten
+        # (Bernd, 11.09.2026). Beim bewussten Umschalten auf einen Ton-Modus
+        # darauf hinweisen und ein Fenster anbieten.
+        if nutzer and self.timeline.audio_an() and self._audio_zoom_slot() is None:
+            self._audio_zoom_anbieten()
+
+    def _audio_zoom_slot(self):
+        """slot_id des Fensters, das gerade den Audio Zoom zeigt, oder None."""
+        for sid, slot in self._slots.items():
+            if slot is not None and slot.modul_id() == "audio":
+                return sid
+        return None
+
+    def _audio_zoom_anbieten(self):
+        """Hinweis, dass die Baender nur im Audio Zoom bearbeitet werden, und
+        Angebot, ein Fenster (bevorzugt unten) darauf umzuschalten."""
+        from PySide6.QtWidgets import QMessageBox
+        box = QMessageBox(self)
+        box.setWindowTitle("Audio Zoom")
+        box.setIcon(QMessageBox.Information)
+        box.setText(
+            "The timeline now shows the sound. You mark and edit the voice "
+            "and vehicle stretches in the Audio Zoom module - there the bands "
+            "are tall enough to grab a band's edge and drag it.\n\n"
+            "The Audio Zoom is not open in any window. Show it in one?")
+        knoepfe = {}
+        for sid, wo in (("ul", "Bottom left"), ("ur", "Bottom right")):
+            slot = self._slots.get(sid)
+            if slot is None:
+                continue
+            jetzt = self._module.get(slot.modul_id(), (slot.modul_id() or "?",))[0]
+            btn = box.addButton("%s  (now: %s)" % (wo, jetzt), QMessageBox.AcceptRole)
+            knoepfe[btn] = sid
+        box.addButton("Not now", QMessageBox.RejectRole)
+        box.exec()
+        gewaehlt = box.clickedButton()
+        if gewaehlt in knoepfe:
+            self._modul_wechseln(knoepfe[gewaehlt], "audio")
 
     def _tonspur_holen(self):
         """Die Ton-Ansicht braucht den Pegelverlauf: fehlt er fuer eine Datei
