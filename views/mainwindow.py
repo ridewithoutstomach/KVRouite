@@ -2488,7 +2488,7 @@ class MainWindow(QMainWindow):
         # xfade nach dem Schließen erneut lesen
         new_xfade = s.value("encoder/xfade", 2, type=int)
 
-        if result == dlg.accepted:
+        if result == QDialog.Accepted:
             print("[DEBUG] => Encoder-Setup saved.")
         else:
             print("[DEBUG] => Encoder-Setup canceled.")

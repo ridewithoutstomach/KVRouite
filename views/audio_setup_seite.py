@@ -201,13 +201,15 @@ class AudioSeite(QWidget):
 
     def _audio_umgeschaltet(self, an):
         """Ohne Tonspur gibt es nichts zu daempfen und nichts zu entfernen -
-        die Gruppen folgen dem Schalter, ihre Werte bleiben erhalten."""
-        if not self._voice_ok:
-            return              # Seite gesperrt, siehe __init__
+        die Gruppen folgen dem Schalter, ihre Werte bleiben erhalten. Ohne
+        Voice-Zusatz bleibt nur die Stimmen-Gruppe grau (siehe __init__)."""
         self.kbps_spin.setEnabled(an)
         self.traffic_check.setEnabled(an)
         self.traffic_spin.setEnabled(an and self.traffic_check.isChecked())
         self._fuellfilter_nachziehen()
+        voice = an and self._voice_ok
+        self.voice_check.setEnabled(voice)
+        self.voice_combo.setEnabled(voice and self.voice_check.isChecked())
 
     def _fuellfilter_nachziehen(self, *_a):
         an = self.audio_check.isChecked() and self.traffic_check.isChecked()
@@ -217,22 +219,13 @@ class AudioSeite(QWidget):
 
     def fuell_hz(self) -> int:
         return self.fill_spin.value() if self.fill_check.isChecked() else 0
-        voice = an and self._voice_ok
-        self.voice_check.setEnabled(voice)
-        self.voice_combo.setEnabled(voice and self.voice_check.isChecked())
 
     # ---------------------------
     # Werte in der Schreibweise von "encoder/"
     # ---------------------------
     def werte(self) -> dict:
-        # Ohne Zusatz ist die Seite gesperrt - dann ist Audio aus, was immer
-        # ein gespeicherter Satz sagt.
-        if not self._voice_ok:
-            return {"audio": 0, "audio_kbps": self.kbps_spin.value(),
-                    "traffic": 0, "traffic_db": self.traffic_spin.value(),
-                    "traffic_fill_pct": self.fill_pct_spin.value(),
-                    "traffic_fill_hz": self.fuell_hz(),
-                    "voice": 0, "voice_model": self.voice_combo.currentData() or stimme.VORGABE}
+        # Ohne Voice-Zusatz ist nur "voice" aus - Tonspur und Daempfer sind
+        # GStreamer und gehen auch in Lite.
         return {
             "audio": 1 if self.audio_check.isChecked() else 0,
             "audio_kbps": self.kbps_spin.value(),
@@ -240,7 +233,7 @@ class AudioSeite(QWidget):
             "traffic_db": self.traffic_spin.value(),
             "traffic_fill_pct": self.fill_pct_spin.value(),
             "traffic_fill_hz": self.fuell_hz(),
-            "voice": 1 if self.voice_check.isChecked() else 0,
+            "voice": 1 if (self._voice_ok and self.voice_check.isChecked()) else 0,
             "voice_model": self.voice_combo.currentData() or stimme.VORGABE,
         }
 
@@ -273,9 +266,7 @@ class AudioSeite(QWidget):
         index = self.voice_combo.findData(str(werte.get("voice_model", stimme.VORGABE)))
         self.voice_combo.setCurrentIndex(max(0, index))
         if not self._voice_ok:
-            # Gesperrte Seite: nichts anhaken, auch nicht aus einem Preset.
-            self.audio_check.setChecked(False)
-            self.traffic_check.setChecked(False)
+            # Ohne Voice-Zusatz: "Remove voices" nicht anhaken, auch nicht
+            # aus einem Preset. Tonspur und Daempfer bleiben wie gespeichert.
             self.voice_check.setChecked(False)
-            return
         self._audio_umgeschaltet(an)
