@@ -81,6 +81,10 @@ class AudioZoomWidget(QWidget):
         self._punkte = []           # [(t_s, dB)] sortiert
         self._stellen = []          # [(von_s, bis_s)] Sprechstellen
         self._fahrzeuge = []        # [(von_s, bis_s)] Fahrzeugstellen
+        self._vorschlaege = []      # [(von_s, bis_s)] Fahrzeug-Vorschlaege (Detect)
+        self._sprechvorschlaege = []  # [(von_s, bis_s)] Voice-Vorschlaege (Detect)
+        self._markB = -1.0          # gelbe Marke [- der Zeitleiste (Gesamtzeit)
+        self._markE = -1.0          # gelbe Marke -] der Zeitleiste (Gesamtzeit)
         self._schnitte = []         # [(von_s, bis_s)] weggeschnitten
         self._zeit = 0.0
         self._gesamt = 0.0
@@ -102,6 +106,25 @@ class AudioZoomWidget(QWidget):
 
     def set_fahrzeugstellen(self, stellen):
         self._fahrzeuge = [(float(a), float(b)) for a, b in (stellen or [])]
+        self.update()
+
+    def set_fahrzeugvorschlaege(self, stellen):
+        """Vorschlaege von "Detect vehicles": gestrichelter Rahmen, kein
+        Band - sie gelten erst, wenn der Nutzer sie uebernimmt."""
+        self._vorschlaege = [(float(a), float(b)) for a, b in (stellen or [])]
+        self.update()
+
+    def set_sprechvorschlaege(self, stellen):
+        """Vorschlaege von "Detect voices": gestrichelter orange Rahmen."""
+        self._sprechvorschlaege = [(float(a), float(b)) for a, b in (stellen or [])]
+        self.update()
+
+    def set_marken(self, von_s, bis_s):
+        """Die gelben Marken [- und -] der Zeitleiste (Gesamtzeit), damit
+        man auch im Audio Zoom sieht, was markiert ist (Bernd, 11.09.2026).
+        Negativ heisst: nicht gesetzt."""
+        self._markB = float(von_s) if von_s is not None else -1.0
+        self._markE = float(bis_s) if bis_s is not None else -1.0
         self.update()
 
     def set_schnitte(self, schnitte):
@@ -147,6 +170,8 @@ class AudioZoomWidget(QWidget):
             return None
         treffer = [("vehicle", a, b) for a, b in self._fahrzeuge if a <= t_s <= b]
         treffer += [("voice", a, b) for a, b in self._stellen if a <= t_s <= b]
+        treffer += [("vehicle_hint", a, b) for a, b in self._vorschlaege if a <= t_s <= b]
+        treffer += [("voice_hint", a, b) for a, b in self._sprechvorschlaege if a <= t_s <= b]
         if not treffer:
             return None
         return min(treffer, key=lambda t: t[2] - t[1])
@@ -282,6 +307,23 @@ class AudioZoomWidget(QWidget):
                 painter.setPen(QPen(rand, 1))
                 painter.setBrush(QBrush(hell if (art, a, b) == self._band_unter_zeiger else farbe))
                 painter.drawRect(QRectF(xa, oben, xb - xa, unten - oben))
+        # Vorschlaege von Detect: gestrichelter Rahmen ohne Fuellung, unter
+        # dem Zeiger leicht gefuellt - je in ihrer Farbe (Fahrzeug blau,
+        # Voice orange), klar getrennt von den gefuellten, markierten
+        # Baendern (Bernd, 11.09.2026).
+        for art, stellen, rand, fuell in (
+                ("vehicle_hint", self._vorschlaege, FAHRZEUG_RAND, QColor(120, 190, 255, 60)),
+                ("voice_hint", self._sprechvorschlaege, BAND_RAND, QColor(255, 170, 60, 60))):
+            for a, b in stellen:
+                if b < von or a > bis:
+                    continue
+                xa, xb = self._x(a, w, von), self._x(b, w, von)
+                stift = QPen(rand, 1)
+                stift.setStyle(Qt.DashLine)
+                painter.setPen(stift)
+                painter.setBrush(QBrush(fuell) if (art, a, b) == self._band_unter_zeiger
+                                 else Qt.NoBrush)
+                painter.drawRect(QRectF(xa, oben, xb - xa, unten - oben))
 
         # Schnitte: abgedunkelt und schraffiert wie in der Zeitleiste, ueber
         # Kurve und Baendern - was darunter liegt, ist weg.
@@ -319,6 +361,27 @@ class AudioZoomWidget(QWidget):
             painter.drawLine(QPointF(x, oben - 4), QPointF(x, oben))
             painter.drawText(QPointF(x + 2, 12), _kurz(t))
             t += schritt
+
+        # Gelbe Marken [- und -] wie in der Zeitleiste, dazwischen leicht
+        # gelb hinterlegt.
+        xB = xE = None
+        if self._markB >= 0 and von <= self._markB <= bis:
+            xB = self._x(self._markB, w, von)
+        if self._markE >= 0 and von <= self._markE <= bis:
+            xE = self._x(self._markE, w, von)
+        if (self._markB >= 0 and self._markE >= 0
+                and min(self._markB, self._markE) <= bis
+                and max(self._markB, self._markE) >= von):
+            lx = self._x(max(von, min(self._markB, self._markE)), w, von)
+            rx = self._x(min(bis, max(self._markB, self._markE)), w, von)
+            if rx > lx:
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(QBrush(QColor(255, 255, 0, 60)))
+                painter.drawRect(QRectF(lx, oben, rx - lx, unten - oben))
+        painter.setPen(QPen(QColor(255, 255, 0), 1))
+        for x in (xB, xE):
+            if x is not None:
+                painter.drawLine(QPointF(x, 0), QPointF(x, h))
 
         # Abspielposition
         if von <= self._zeit <= bis:

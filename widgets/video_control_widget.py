@@ -60,7 +60,8 @@ class VideoControlWidget(QWidget):
     #: Empfindlichkeit 1-5, und der Wechsel der Seite ("video"/"audio").
     voiceClicked            = Signal()
     vehicleClicked          = Signal()
-    findVoicesClicked       = Signal()
+    #: "Detect" gedrueckt - das Fenster zeigt den Auswahldialog (11.09.2026)
+    detectClicked           = Signal()
     sensitivityChanged      = Signal(int)
     seiteGewechselt         = Signal(str)
 
@@ -288,11 +289,13 @@ class VideoControlWidget(QWidget):
 
         self.find_button = QPushButton("Detect")
         self.find_button.setToolTip(
-            "Detect the voices in all loaded videos and mark them at once.\n"
-            "Replaces the marked stretches. Detection is never complete -\n"
-            "check the result in the timeline or the Audio Zoom.")
+            "Detect voices and/or passing vehicles in all loaded videos.\n"
+            "Voices are marked at once (replaces the marked stretches).\n"
+            "Vehicles are only suggested as dashed frames - right-click a\n"
+            "frame to take it over; unaccepted suggestions are not treated.\n"
+            "Detection is never complete - check the timeline or Audio Zoom.")
         self.find_button.setFixedWidth(50)
-        self.find_button.clicked.connect(self.findVoicesClicked.emit)
+        self.find_button.clicked.connect(self.detectClicked.emit)
         layout.addWidget(self.find_button)
         self.find_button.hide()
 
@@ -438,7 +441,9 @@ class VideoControlWidget(QWidget):
         stimmen = audio and getattr(self, "_stimmen_da", True)
         fahrzeuge = audio and getattr(self, "_fahrzeuge_da", True)
         self.voice_button.setVisible(stimmen)
-        self.find_button.setVisible(stimmen)
+        # Detect gibt es fuer Stimmen und fuer Fahrzeuge (11.09.2026); was
+        # davon zur Wahl steht, entscheidet _detect_menue nach den Schaltern.
+        self.find_button.setVisible(stimmen or fahrzeuge)
         self.sens_button.setVisible(stimmen)
         self.vehicle_button.setVisible(fahrzeuge)
         if audio:

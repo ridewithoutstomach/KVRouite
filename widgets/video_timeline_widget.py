@@ -89,6 +89,9 @@ class VideoTimelineWidget(QWidget):
     #: Der Ansichtsknopf links oben wurde geschaltet: "off", "video",
     #: "audio", "beides". Das Fenster merkt sich das und holt Bilder.
     ansichtGewechselt = Signal(str)
+    #: markB oder markE hat sich geaendert - das Fenster zieht den Audio
+    #: Zoom nach, damit die Marken auch dort stehen (Bernd, 11.09.2026).
+    markenGeaendert = Signal()
 
     #: Reihenfolge des Ansichtsknopfs und seine Beschriftung.
     ANSICHTEN = ("off", "video", "audio", "beides")
@@ -142,6 +145,8 @@ class VideoTimelineWidget(QWidget):
         self._pegel_hinweis = ""        # Text, solange die Kurve noch gelesen wird
         self._sprechstellen = []        # [(von_s, bis_s)] in Gesamtzeit
         self._fahrzeugstellen = []      # [(von_s, bis_s)] in Gesamtzeit
+        self._fahrzeugvorschlaege = []  # von Detect vorgeschlagen, nicht markiert
+        self._sprechvorschlaege = []    # von Detect vorgeschlagen, nicht markiert
         # Welche Seite das Video-Control zeigt: "video" - Rechtsklick
         # bedient Schnitt, Overlay, Naht; "audio" - nur die Sprechstellen.
         # So trifft man nie eine Aktion der anderen Seite.
@@ -475,10 +480,12 @@ class VideoTimelineWidget(QWidget):
 
     def set_markB_time(self, time_s: float):
         self.markB_time_s = time_s
+        self.markenGeaendert.emit()
         self.update()
 
     def set_markE_time(self, time_s: float):
         self.markE_time_s = time_s
+        self.markenGeaendert.emit()
         self.update()
 
     def add_cut_interval(self, start_s: float, end_s: float):
@@ -1425,9 +1432,14 @@ class VideoTimelineWidget(QWidget):
     #: Farbe der Sprechstellen - dieselbe wie im Audio Zoom.
     SPRECHSTELLE_FARBE = QColor(255, 140, 0, 120)
     SPRECHSTELLE_RAND = QColor(255, 170, 60)
+    #: Vorschlaege von "Detect voices": nur Rahmen, gestrichelt, orange.
+    SPRECHSTELLE_VORSCHLAG_RAND = QColor(255, 170, 60, 200)
     #: Fahrzeugstellen - dieselbe Farbe wie im Audio Zoom.
     FAHRZEUG_FARBE = QColor(80, 160, 255, 120)
     FAHRZEUG_RAND = QColor(120, 190, 255)
+    #: Vorschlaege von "Detect vehicles": nur Rahmen, gestrichelt - sie
+    #: gelten beim Export nicht, bis der Nutzer sie uebernimmt.
+    FAHRZEUG_VORSCHLAG_RAND = QColor(120, 190, 255, 200)
     #: Hoehe der Baender in Pixeln, ueber den Zeitmarken.
     SPRECHSTELLE_HOEHE = 6
 
@@ -1538,6 +1550,18 @@ class VideoTimelineWidget(QWidget):
         self._fahrzeugstellen = [(float(a), float(b)) for a, b in (stellen or [])]
         self.update()
 
+    def set_fahrzeugvorschlaege(self, stellen):
+        """Vorschlaege von "Detect vehicles" (Gesamtzeit): gestrichelte
+        Rahmen in der Fahrzeugreihe, Rechtsklick bietet Uebernehmen an."""
+        self._fahrzeugvorschlaege = [(float(a), float(b)) for a, b in (stellen or [])]
+        self.update()
+
+    def set_sprechvorschlaege(self, stellen):
+        """Vorschlaege von "Detect voices" (Gesamtzeit): gestrichelte
+        Rahmen in der Sprechreihe (orange), Rechtsklick bietet Uebernehmen an."""
+        self._sprechvorschlaege = [(float(a), float(b)) for a, b in (stellen or [])]
+        self.update()
+
     def band_bei(self, zeit_s):
         """(art, von, bis) des Bandes unter der Zeit, oder None. Faehrt
         eine Fahrzeugstelle ueber einer Sprechstelle, gewinnt das schmalere
@@ -1549,6 +1573,12 @@ class VideoTimelineWidget(QWidget):
         for a, b in self._sprechstellen:
             if a <= zeit_s <= b:
                 treffer.append(("voice", a, b))
+        for a, b in self._fahrzeugvorschlaege:
+            if a <= zeit_s <= b:
+                treffer.append(("vehicle_hint", a, b))
+        for a, b in self._sprechvorschlaege:
+            if a <= zeit_s <= b:
+                treffer.append(("voice_hint", a, b))
         if not treffer:
             return None
         return min(treffer, key=lambda t: t[2] - t[1])
@@ -1569,7 +1599,12 @@ class VideoTimelineWidget(QWidget):
             self._pegel_zeiten = zeiten
         db_unten, db_oben = -60.0, 0.0
         oben = 2
-        unten = h - 14      # ueber den Zeitmarken
+        # Bis zur Unterkante fuellen, buendig wie der Bildstreifen (Bernd,
+        # 11.09.2026: "der sollte wie ueblich unten sitzen"). Die Zeitmarken
+        # liegen danach darueber und werden dunkel gezeichnet, damit sie auf
+        # dem hellen Blau lesbar bleiben (_draw_time_ticks) - KEIN dunkler
+        # Streifen mehr, der sah aus, als saesse die Kurve zu hoch.
+        unten = h
         sek_je_px = self.total_duration / timeline_real_width
         poly = QPolygonF()
         poly.append(QPointF(0, unten))
@@ -1598,18 +1633,39 @@ class VideoTimelineWidget(QWidget):
         jedem Zustand der Leiste, damit man sie auch mit Bildern sieht."""
         if self.total_duration <= 0 or timeline_real_width <= 0:
             return
-        if not self._sprechstellen and not self._fahrzeugstellen:
+        if (not self._sprechstellen and not self._fahrzeugstellen
+                and not self._fahrzeugvorschlaege and not self._sprechvorschlaege):
             return
         from PySide6.QtGui import QPen, QBrush
         y = h - 14 - self.SPRECHSTELLE_HOEHE
+        y_fahrzeug = y - self.SPRECHSTELLE_HOEHE - 2
         reihen = (
             (self._sprechstellen, y, self.SPRECHSTELLE_FARBE, self.SPRECHSTELLE_RAND),
-            (self._fahrzeugstellen, y - self.SPRECHSTELLE_HOEHE - 2,
-             self.FAHRZEUG_FARBE, self.FAHRZEUG_RAND),
+            (self._fahrzeugstellen, y_fahrzeug, self.FAHRZEUG_FARBE, self.FAHRZEUG_RAND),
         )
         for stellen, yy, farbe, rand in reihen:
             painter.setPen(QPen(rand, 1))
             painter.setBrush(QBrush(farbe))
+            for a, b in stellen:
+                xa = (a / self.total_duration) * timeline_real_width - self._horizontal_offset
+                xb = (b / self.total_duration) * timeline_real_width - self._horizontal_offset
+                if xb < 0 or xa > w:
+                    continue
+                painter.drawRect(QRectF(xa, yy, max(2.0, xb - xa), self.SPRECHSTELLE_HOEHE))
+        # Vorschlaege: nur ein gestrichelter Rahmen ohne Fuellung, je in
+        # der Reihe und Farbe ihrer Art - klar unterscheidbar von den
+        # gefuellten, markierten Baendern (Bernd, 11.09.2026).
+        vorschlaege = (
+            (self._fahrzeugvorschlaege, y_fahrzeug, self.FAHRZEUG_VORSCHLAG_RAND),
+            (self._sprechvorschlaege, y, self.SPRECHSTELLE_VORSCHLAG_RAND),
+        )
+        for stellen, yy, rand in vorschlaege:
+            if not stellen:
+                continue
+            stift = QPen(rand, 1)
+            stift.setStyle(Qt.DashLine)
+            painter.setPen(stift)
+            painter.setBrush(Qt.NoBrush)
             for a, b in stellen:
                 xa = (a / self.total_duration) * timeline_real_width - self._horizontal_offset
                 xb = (b / self.total_duration) * timeline_real_width - self._horizontal_offset
@@ -1628,8 +1684,15 @@ class VideoTimelineWidget(QWidget):
         sub_tick_sec = step_sec / (num_subticks + 1)
 
         from PySide6.QtGui import QPen
-        pen_major = QPen(QColor("#CCCCCC"), 2)
-        pen_minor = QPen(QColor("#AAAAAA"), 1)
+        # Auf der hellblauen Tonkurve ohne Bilder darunter sind helle Marken
+        # nicht zu lesen - dann dunkel zeichnen. Sonst wie bisher hell.
+        auf_kurve = self._pegel_zeigen and not self._bilder_zeigen
+        if auf_kurve:
+            pen_major = QPen(QColor("#0a2a2e"), 2)
+            pen_minor = QPen(QColor("#0a2a2e"), 1)
+        else:
+            pen_major = QPen(QColor("#CCCCCC"), 2)
+            pen_minor = QPen(QColor("#AAAAAA"), 1)
 
         main_tick_height = 10
         sub_tick_height  = 6

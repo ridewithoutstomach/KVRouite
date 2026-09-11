@@ -521,9 +521,12 @@ def _bereich_entfernen(pfad, modell, von_s, bis_s, log, fortschritt, abbruch):
             zuletzt_gemeldet = jetzt
             if fortschritt is not None:
                 fortschritt(prozent)
-        elif jetzt - zuletzt_gemeldet >= 20.0:
-            # Lebenszeichen, wenn die Bibliothek gerade nichts zaehlt: das
-            # Laden des Modells, der Nachlauf, das Schreiben der Datei.
+        elif jetzt - zuletzt_gemeldet >= 5.0:
+            # Lebenszeichen alle 5 s, wenn die Bibliothek gerade nichts
+            # zaehlt: das Laden des Modells (vor pass 1), der Nachlauf, das
+            # Schreiben der Datei. Ohne das wirkt gerade die Ladephase wie
+            # Stillstand (Bernd, 11.09.2026). Mit verstrichener Zeit, damit
+            # man sieht, dass es laeuft.
             was = "loading the model" if durchgang == 0 else "finishing"
             log(f"[VOICE] {name}: {was}, still working ({jetzt - t0:.0f}s)...")
             zuletzt_gemeldet = jetzt

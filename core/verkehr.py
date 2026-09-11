@@ -77,18 +77,6 @@ import time
 import config
 
 
-def _protokoll(text):
-    """Eine Zeile ins Scan-Protokoll (Zwischenspeicher/verkehr/scan.log):
-    welcher Lesepfad, wie lange. Zum Nachsehen, wenn es in der App laenger
-    dauert als am Skript (10.09.2026 nacht)."""
-    try:
-        ordner = os.path.join(config.TEMP_SEGMENTS_CONTAINER, "verkehr")
-        os.makedirs(ordner, exist_ok=True)
-        with open(os.path.join(ordner, "scan.log"), "a", encoding="utf-8") as f:
-            f.write(time.strftime("%H:%M:%S ") + text + "\n")
-    except OSError:
-        pass
-
 #: Laenge eines Messrahmens in Sekunden. Alle Zeiten der Fundstellen sind
 #: Vielfache davon.
 RAHMEN_S = 0.1
@@ -250,7 +238,6 @@ def pegel_messen(pfad, fortschritt=None, abbruch=None, proben=None,
     from gi.repository import Gst, GLib
     if not Gst.is_initialized():
         Gst.init(None)
-    _t_start = time.time()
 
     # Die Tonspur geht als WAV (16 kHz, mono, S16LE) in den Zwischenspeicher
     # und wird danach in EINEM Rutsch gelesen: Pegel je Rahmen und, wenn
@@ -303,7 +290,6 @@ def pegel_messen(pfad, fortschritt=None, abbruch=None, proben=None,
     anfang_ns = 0
     spanne_ns = 0
     gemeldet = -1
-    t_lesen = 0.0
     try:
         zustand = play.get_state(20 * Gst.SECOND)
         if zustand[0] == Gst.StateChangeReturn.FAILURE:
@@ -352,7 +338,6 @@ def pegel_messen(pfad, fortschritt=None, abbruch=None, proben=None,
                 raise RuntimeError(f"audio scan failed: {err.message}")
             break   # EOS
         play.set_state(Gst.State.NULL)
-        t_lesen = time.time()
         pegel, daten = _pegel_aus_wav(wav)
         if proben is not None:
             proben.append(daten)
@@ -364,11 +349,6 @@ def pegel_messen(pfad, fortschritt=None, abbruch=None, proben=None,
             os.remove(wav)
         except OSError:
             pass
-        _protokoll(f"{os.path.basename(pfad)}: {weg}, {len(pegel)} frames, "
-                   f"{time.time() - _t_start:.1f} s total"
-                   + (f" (pipeline {t_lesen - _t_start:.1f} s, wav -> level {time.time() - t_lesen:.1f} s)"
-                      if t_lesen else "")
-                   + f", thread {threading.current_thread().name}")
     return pegel, dauer_ns / float(Gst.SECOND), anfang_ns / float(Gst.SECOND)
 
 
@@ -823,10 +803,7 @@ def analyse(pfad, log=None, fortschritt=None, abbruch=None, name=None,
                     daten["pegel"][k0 + k] = round(p, 1)
             if mit_sprache and daten.get("sprache") is not None:
                 try:
-                    _t_vad = time.time()
                     werte = sprache.wahrscheinlichkeiten(proben)
-                    _protokoll(f"{name}: speech detector {time.time() - _t_vad:.1f} s "
-                               f"for {len(werte) * sprache.SCHRITT_S:.0f} s of audio")
                     j0 = int(round(anfang_s / sprache.SCHRITT_S))
                     for j, w in enumerate(werte):
                         if j0 + j < len(daten["sprache"]):

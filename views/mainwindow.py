@@ -67,7 +67,7 @@ from PySide6.QtWidgets import (
     QFormLayout, QComboBox, QSpinBox, QMenu, QTextEdit
 )
 from PySide6.QtWidgets import QDoubleSpinBox
-from PySide6.QtWidgets import QLineEdit, QDialogButtonBox
+from PySide6.QtWidgets import QLineEdit, QDialogButtonBox, QCheckBox
 from PySide6.QtWidgets import QListWidget, QListWidgetItem
 from PySide6.QtWidgets import QToolButton, QLabel, QStyle
 
@@ -596,6 +596,16 @@ class MainWindow(QMainWindow):
         # fuellung "before"/"after"/"none" (core/verkehr.FUELLUNGEN).
         # Projektdatei "vehicle_regions". Kein Sucher setzt sie.
         self._fahrzeugstellen = {}
+        # Vorschlaege von "Detect vehicles" (11.09.2026): je Videopfad
+        # [[von, bis]] in Sekunden der Datei. Nur Anzeige (gestrichelt) -
+        # der Export kennt sie nicht, bis der Nutzer sie per Rechtsklick
+        # uebernimmt. Nicht in der Projektdatei.
+        self._fahrzeugvorschlaege = {}
+        # Ebenso Voice-Vorschlaege von "Detect voices" ohne Auto-Markieren:
+        # je Videopfad [[von, bis]] in Sekunden der Datei. Nur Anzeige
+        # (orange gestrichelt); erst das Uebernehmen macht daraus eine
+        # markierte Sprechstelle, die der Export filtert.
+        self._sprechvorschlaege = {}
         # 360-Blickwinkel, ein Eintrag je Video - siehe _blick360_liste().
         self.view360_views = []
         # True, sobald ein Projekt den 360-Zustand mitgebracht hat. Dann
@@ -1277,6 +1287,7 @@ class MainWindow(QMainWindow):
         self.timeline.nahtMenuRequested.connect(self._on_naht_menu)
         self.timeline.bandMenuRequested.connect(self._on_band_menu)
         self.timeline.ansichtGewechselt.connect(self._timeline_ansicht_gewechselt)
+        self.timeline.markenGeaendert.connect(self._audio_zoom_marken_nachziehen)
         self.timeline.cutMoveRequested.connect(self._on_cut_move)
         # Entf auf einem ausgewaehlten Schnitt geht denselben Weg wie der
         # Menuepunkt "Undo Cut" - mit denselben Pruefungen und derselben
@@ -1629,7 +1640,7 @@ class MainWindow(QMainWindow):
         # Seite A des Video-Controls (Sprechstellen, ab 7.0).
         self.video_control.voiceClicked.connect(self._on_voice_button_clicked)
         self.video_control.vehicleClicked.connect(self._on_vehicle_button_clicked)
-        self.video_control.findVoicesClicked.connect(self._on_find_voices_clicked)
+        self.video_control.detectClicked.connect(self._on_detect_clicked)
         self.video_control.sensitivityChanged.connect(self._on_sensitivity_changed)
         self.video_control.seiteGewechselt.connect(self.timeline.set_bearbeitung)
         self.video_control.set_sensitivity(QSettings("KVRouite", "KVRouite").value(
@@ -4457,7 +4468,14 @@ class MainWindow(QMainWindow):
             self._tonspur_fertig.clear()
             aktuell = self._tonspur_aktuell
             prozent = self._tonspur_prozent
-            offen = len(self._tonspur_offen)
+            # Nur wirklich noch wartende Dateien zaehlen: nicht die, die
+            # gerade gelesen wird oder schon fertig ist. So kann "more"
+            # nie zu hoch stehen, auch wenn ein Eintrag doppelt in die
+            # Schlange geraten sollte (Bernd, 11.09.2026: "1 more" bei
+            # einer Datei).
+            wartend = [p for p in self._tonspur_offen
+                       if p != aktuell and p not in fertig]
+            offen = len(set(wartend))
             laeuft = self._tonspur_hintergrund_laeuft()
         if fertig:
             self._tonspur_kurve_nachziehen()
@@ -4955,6 +4973,8 @@ class MainWindow(QMainWindow):
                     neu.append([float(e[0]), float(e[1]),
                                 e[2] if len(e) > 2 else verkehr.FUELLUNG_VORGABE])
             self._fahrzeugstellen[pfad] = neu
+        # Ein Vorschlag, den die neue Stelle beruehrt, ist damit erledigt.
+        self._fahrzeugvorschlaege_bereinigen()
         self._sprechstellen_anzeigen()
 
     def _fahrzeugstelle_fuellung_setzen(self, von_s, bis_s, fuellung):
@@ -5070,6 +5090,13 @@ class MainWindow(QMainWindow):
                      if fahrzeuge_an else [])
         self.timeline.set_fahrzeugstellen(fahrzeuge)
         self.audio_zoom.set_fahrzeugstellen(fahrzeuge)
+        vorschlaege = self._fahrzeugvorschlaege_global() if fahrzeuge_an else []
+        self.timeline.set_fahrzeugvorschlaege(vorschlaege)
+        self.audio_zoom.set_fahrzeugvorschlaege(vorschlaege)
+        v_stimmen = self._sprechvorschlaege_global() if stimmen_an else []
+        self.timeline.set_sprechvorschlaege(v_stimmen)
+        self.audio_zoom.set_sprechvorschlaege(v_stimmen)
+        self._audio_zoom_marken_nachziehen()
         self.audio_zoom.set_schnitte(self._schnitte_global())
         self.audio_zoom.set_gesamt(sum(self.video_durations))
         if not self.playlist:
@@ -5105,6 +5132,8 @@ class MainWindow(QMainWindow):
         # "vehicle_regions": [[von, bis, fuellung], ...] je Datei.
         daten = project_data.get("vehicle_regions")
         self._fahrzeugstellen = {}
+        self._fahrzeugvorschlaege = {}
+        self._sprechvorschlaege = {}
         if isinstance(daten, dict):
             for pfad, stellen in daten.items():
                 if pfad not in self.playlist:
@@ -5123,7 +5152,7 @@ class MainWindow(QMainWindow):
                     self._fahrzeugstellen[pfad] = sorted(sauber, key=lambda e: e[0])
         self._sprechstellen_anzeigen()
 
-    def stimmen_suchen(self, empfindlichkeit):
+    def stimmen_suchen(self, empfindlichkeit, alle=None):
         """Der Suchlauf hinter "Detect voices" (views/audio_setup_seite).
 
         Faehrt jede Datei der Videoliste ab (core/verkehr, aus dem
@@ -5131,6 +5160,8 @@ class MainWindow(QMainWindow):
         aus dem Detektor (core/sprache) - vorhandene Stellen werden ERSETZT,
         auch die von Hand gesetzten. Rueckgabe (Anzahl, Sekunden), oder None
         wenn abgebrochen.
+        alle: {pfad: daten} eines schon gemachten Durchlaufs (Detect both) -
+        dann wird nicht noch einmal abgefahren.
         """
         if not self.playlist:
             QMessageBox.information(self, "Detect voices", "No videos loaded.")
@@ -5140,7 +5171,8 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Detect voices", "Detector not available: " + grund)
             return (0, 0.0)
         empfindlichkeit = max(1, min(sprache.EMPFINDLICHKEIT_MAX, int(empfindlichkeit)))
-        alle = self._audio_abfahren("Detect voices", mit_sprache=True)
+        if alle is None:
+            alle = self._audio_abfahren("Detect voices", mit_sprache=True)
         if alle is None:
             return None
         gefunden = {}
@@ -5160,6 +5192,8 @@ class MainWindow(QMainWindow):
                   f"{len(stellen)} stretch(es), {sprache.gesamt_s(stellen):.0f}s")
         self._sprechstellen_undo_merken("Voices detected")
         self._sprechstellen = gefunden
+        # Markieren ersetzt die Vorschlaege - sie sind jetzt Stellen.
+        self._sprechvorschlaege = {}
         self._sprechstellen_anzeigen()
         return self._sprechstellen_summe()
 
@@ -5338,6 +5372,8 @@ class MainWindow(QMainWindow):
                 else:
                     neu.append([float(s[0]), float(s[1])])
             self._sprechstellen[pfad] = neu
+        # Ein Voice-Vorschlag, den die neue Stelle beruehrt, ist erledigt.
+        self._sprechvorschlaege_bereinigen()
         self._sprechstellen_anzeigen()
 
     def _on_band_menu(self, art, von_s, bis_s, global_pos):
@@ -5345,6 +5381,9 @@ class MainWindow(QMainWindow):
         gebaut wie das Menue eines Overlays. art "voice" oder "vehicle"."""
         from PySide6.QtWidgets import QMenu
         from PySide6.QtGui import QActionGroup
+        if art in ("vehicle_hint", "voice_hint"):
+            self._on_vorschlag_menu(art, von_s, bis_s, global_pos)
+            return
         fahrzeug = art == "vehicle"
         menue = QMenu(self)
         titel = menue.addAction(
@@ -5353,7 +5392,7 @@ class MainWindow(QMainWindow):
                self._sek_kurz(von_s), self._sek_kurz(bis_s), bis_s - von_s))
         titel.setEnabled(False)
         menue.addSeparator()
-        a_hoeren = menue.addAction("Listen …  (30 s before and after, as exported)")
+        a_hoeren = menue.addAction("Listen …  (10 s before and after, as exported)")
         fuell_aktionen = {}
         if fahrzeug:
             _pfad, eintrag = self._fahrzeugstelle_finden(von_s, bis_s)
@@ -5408,19 +5447,88 @@ class MainWindow(QMainWindow):
                     self._sprechstellen = {}
                 self._sprechstellen_anzeigen()
 
-    def _stelle_anhoeren(self, art, von_s, bis_s):
+    def _on_vorschlag_menu(self, art, von_s, bis_s, global_pos):
+        """Rechtsklick auf einen Vorschlag (gestrichelter Rahmen).
+        art "vehicle_hint" oder "voice_hint": uebernehmen (wird eine
+        markierte Stelle, bei Fahrzeugen mit Fuellung "before"), anhoeren
+        (so, wie es NACH dem Uebernehmen exportiert wuerde - also behandelt)
+        oder verwerfen."""
+        from PySide6.QtWidgets import QMenu
+        fahrzeug = art == "vehicle_hint"
+        wort = "vehicle" if fahrzeug else "voice"
+        menue = QMenu(self)
+        titel = menue.addAction(
+            "Suggested %s %s - %s  (%.1fs) - not treated yet"
+            % (wort, self._sek_kurz(von_s), self._sek_kurz(bis_s), bis_s - von_s))
+        titel.setEnabled(False)
+        menue.addSeparator()
+        a_nehmen = menue.addAction("Take over as %s stretch" % wort)
+        a_hoeren = menue.addAction("Listen …  (10 s before and after, as treated)")
+        menue.addSeparator()
+        a_weg = menue.addAction("Dismiss suggestion")
+        a_alle = menue.addAction("Dismiss all %s suggestions" % wort)
+        gewaehlt = menue.exec(global_pos)
+        if gewaehlt is None:
+            return
+        if gewaehlt is a_nehmen:
+            if fahrzeug:
+                self._fahrzeugstelle_anlegen(von_s, bis_s)
+                self.statusBar().showMessage(
+                    "Vehicle %s - %s marked - right-click the band to listen or "
+                    "choose the fill" % (self._sek_kurz(von_s), self._sek_kurz(bis_s)), 6000)
+            else:
+                self._sprechstelle_anlegen(von_s, bis_s)
+                self.statusBar().showMessage(
+                    "Voice %s - %s marked - it is now filtered on export"
+                    % (self._sek_kurz(von_s), self._sek_kurz(bis_s)), 6000)
+        elif gewaehlt is a_hoeren:
+            # Behandelt vorspielen, obwohl noch nicht markiert - so hoert
+            # man, was das Uebernehmen braechte (Bernd, 11.09.2026).
+            self._stelle_anhoeren("vehicle" if fahrzeug else "voice",
+                                  von_s, bis_s, als_vorschlag=True)
+        elif gewaehlt is a_weg:
+            if fahrzeug:
+                self._fahrzeugvorschlag_entfernen(von_s, bis_s)
+            else:
+                self._sprechvorschlag_entfernen(von_s, bis_s)
+        elif gewaehlt is a_alle:
+            if fahrzeug:
+                self._fahrzeugvorschlaege = {}
+            else:
+                self._sprechvorschlaege = {}
+            self._sprechstellen_anzeigen()
+
+    def _range_je_datei(self, von_s, bis_s):
+        """[(pfad, a_lokal, b_lokal)] fuer den globalen Bereich, ueber
+        Naehte geteilt - fuer die Hoerprobe eines noch nicht markierten
+        Vorschlags."""
+        out = []
+        versatz = 0.0
+        for pfad, dauer in zip(self.playlist, self.video_durations):
+            a = max(von_s, versatz) - versatz
+            b = min(bis_s, versatz + dauer) - versatz
+            versatz += dauer
+            if b - a > 0.05:
+                out.append((pfad, round(a, 3), round(b, 3)))
+        return out
+
+    def _stelle_anhoeren(self, art, von_s, bis_s, als_vorschlag=False):
         """"Listen …": den Ausschnitt 10 s vor bis 10 s nach der Stelle so
         rendern, wie der Export es taete (Schnitte, Daempfer, Voice Remover
         in den Stellen), klein und schnell, und im Abhoerfenster abspielen.
         Nur so laesst sich entscheiden, ob die Stelle sitzt und die Fuellung
-        taugt (Bernd, 10.09.2026 nacht)."""
+        taugt (Bernd, 10.09.2026 nacht).
+
+        als_vorschlag: die Stelle ist ein Vorschlag, noch nicht markiert -
+        sie wird fuer die Hoerprobe einmalig als behandelte Stelle
+        eingesetzt, damit man das Ergebnis des Uebernehmens hoert."""
         from views.anhoeren_dialog import AnhoerenDialog
         gesamt = float(sum(self.video_durations))
         if gesamt <= 0:
             return
-        # 30 s Luft auf beiden Seiten (Bernd, 10.09.2026 nacht: 10 waren zu
-        # wenig); "Jump to stretch" im Abhoerfenster springt 3 s davor.
-        RAND = 30.0
+        # 10 s Luft auf beiden Seiten (Bernd, 11.09.2026: 30 waren zu viel);
+        # "Jump to stretch" im Abhoerfenster springt 3 s davor.
+        RAND = 10.0
         a = max(0.0, von_s - RAND)
         b = min(gesamt, bis_s + RAND)
         s = QSettings("KVRouite", "KVRouite")
@@ -5456,6 +5564,25 @@ class MainWindow(QMainWindow):
             "vehicle_regions": self._fahrzeugstellen_export(),
             "view360": {"enabled": False, "views": []},
         }
+        # Vorschlag: die Stelle einmalig zu den behandelten Bereichen legen,
+        # damit die Hoerprobe zeigt, was das Uebernehmen braechte.
+        if als_vorschlag:
+            teile = self._range_je_datei(von_s, bis_s)
+            if art == "voice":
+                regionen = {k: [list(v) for v in vv]
+                            for k, vv in cfg["voice_regions"].items()}
+                for pfad, a, b in teile:
+                    regionen.setdefault(pfad, []).append([a, b])
+                cfg["voice_regions"] = regionen
+                cfg["voice"] = True
+            else:
+                regionen = {k: [list(v) for v in vv]
+                            for k, vv in cfg["vehicle_regions"].items()}
+                for pfad, a, b in teile:
+                    regionen.setdefault(pfad, []).append(
+                        [a, b, verkehr.FUELLUNG_VORGABE])
+                cfg["vehicle_regions"] = regionen
+                cfg["traffic"] = True
         # Zwischenspeicher: der Schluessel ist alles, was den Ausschnitt
         # bestimmt (Dateien, Fenster, Schnitte, Stellen, Daempfer, Voice).
         # Aendert sich nichts, spielt der alte Ausschnitt sofort (Bernd,
@@ -5562,33 +5689,321 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             "Voices %s - %s marked" % (self._sek_kurz(von), self._sek_kurz(bis)), 4000)
 
-    def _on_find_voices_clicked(self):
-        """Knopf "Detect" auf Seite A: Stimmen finden und sofort markieren."""
+    #: Schalter im Detect-Dialog, je Art: Funde gleich markieren (1) oder
+    #: nur vorschlagen (0). Vorgabe 0 = nur vorschlagen, der sichere Weg.
+    _DETECT_AUTO_VOICE = "encoder/detect_auto_voice"
+    _DETECT_AUTO_VEHICLE = "encoder/detect_auto_vehicle"
+
+    def _on_detect_clicked(self):
+        """Knopf "Detect" auf Seite A: ein Dialog, in dem der Nutzer waehlt,
+        was gesucht wird (Stimmen und/oder Fahrzeuge, je nach Encoder-Setup)
+        und ob die Funde gleich zum Filtern MARKIERT oder nur VORGESCHLAGEN
+        werden (Bernd, 11.09.2026). Vorschlaege sind gestrichelt und wirken
+        beim Export nicht, bis der Nutzer sie uebernimmt; markierte Funde
+        wirken sofort."""
         if not self.playlist:
-            QMessageBox.information(self, "Detect voices", "No videos loaded.")
+            QMessageBox.information(self, "Detect", "No videos loaded.")
             return
-        anzahl, _sek = self._sprechstellen_summe()
-        if anzahl:
-            antwort = QMessageBox.question(
-                self, "Detect voices",
-                "The search replaces the %d marked stretches. Continue?" % anzahl,
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
-            if antwort != QMessageBox.Yes:
-                return
-        ergebnis = self.stimmen_suchen(self.video_control.sensitivity())
-        if ergebnis is None:
-            self.statusBar().showMessage("Detect voices cancelled.", 4000)
-            return
-        anzahl, sekunden = ergebnis
-        if anzahl == 0:
+        stimmen_da, fahrzeuge_da = self._seite_a_flags()
+        if not stimmen_da and not fahrzeuge_da:
             QMessageBox.information(
-                self, "Detect voices",
-                "No speech found. Raise the sensitivity (Sens) or mark the "
-                "stretches by hand ([-, -], Voice).")
+                self, "Detect",
+                "Turn on 'Remove voices' or 'Damp passing vehicles' in the "
+                "encoder setup first.")
+            return
+        s = QSettings("KVRouite", "KVRouite")
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Detect")
+        box = QVBoxLayout(dlg)
+        box.addWidget(QLabel("Search all loaded videos for:"))
+
+        def unter_checkbox(text, an):
+            """Eine eingerueckte Checkbox unter ihrer Rubrik."""
+            zeile = QHBoxLayout()
+            zeile.addSpacing(24)
+            cb = QCheckBox(text)
+            cb.setChecked(an)
+            zeile.addWidget(cb)
+            zeile.addStretch(1)
+            box.addLayout(zeile)
+            return cb
+
+        # Stimmen: Rubrik + eigener Markieren-Schalter darunter (Bernd,
+        # 11.09.2026: jede Art einzeln markierbar).
+        cb_stimmen = QCheckBox("Find voices")
+        cb_stimmen.setChecked(stimmen_da)
+        cb_stimmen.setEnabled(stimmen_da)
+        box.addWidget(cb_stimmen)
+        cb_stimmen_auto = unter_checkbox(
+            "also mark them for filtering (otherwise only suggest)",
+            stimmen_da and bool(s.value(self._DETECT_AUTO_VOICE, 0, type=int)))
+
+        cb_fahrzeuge = QCheckBox("Find passing vehicles")
+        cb_fahrzeuge.setChecked(fahrzeuge_da)
+        cb_fahrzeuge.setEnabled(fahrzeuge_da)
+        box.addWidget(cb_fahrzeuge)
+        cb_fahrzeuge_auto = unter_checkbox(
+            "also mark them for filtering (otherwise only suggest)",
+            fahrzeuge_da and bool(s.value(self._DETECT_AUTO_VEHICLE, 0, type=int)))
+
+        # Der Markieren-Schalter ist nur bedienbar, wenn seine Rubrik an ist.
+        def kopple(oben, unten):
+            def anwenden(an):
+                unten.setEnabled(an)
+                if not an:
+                    unten.setChecked(False)
+            anwenden(oben.isChecked())
+            oben.toggled.connect(anwenden)
+        kopple(cb_stimmen, cb_stimmen_auto)
+        kopple(cb_fahrzeuge, cb_fahrzeuge_auto)
+
+        warnung = QLabel(
+            "⚠ Detection is never exact. Marked finds are filtered on export "
+            "without another look - check every one in the timeline and listen "
+            "to it (right-click a band). What is only suggested stays untouched "
+            "until you take it over.")
+        warnung.setWordWrap(True)
+        warnung.setStyleSheet("color:#cc7000;")
+        box.addWidget(warnung)
+
+        def warnung_nachziehen(*_):
+            warnung.setVisible(cb_stimmen_auto.isChecked()
+                               or cb_fahrzeuge_auto.isChecked())
+        warnung_nachziehen()
+        cb_stimmen_auto.toggled.connect(warnung_nachziehen)
+        cb_fahrzeuge_auto.toggled.connect(warnung_nachziehen)
+
+        knoepfe = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        knoepfe.accepted.connect(dlg.accept)
+        knoepfe.rejected.connect(dlg.reject)
+        box.addWidget(knoepfe)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        stimmen = cb_stimmen.isChecked()
+        fahrzeuge = cb_fahrzeuge.isChecked()
+        stimmen_auto = cb_stimmen_auto.isChecked()
+        fahrzeuge_auto = cb_fahrzeuge_auto.isChecked()
+        s.setValue(self._DETECT_AUTO_VOICE, 1 if stimmen_auto else 0)
+        s.setValue(self._DETECT_AUTO_VEHICLE, 1 if fahrzeuge_auto else 0)
+        if not stimmen and not fahrzeuge:
+            return
+        if stimmen:
+            ok, grund = sprache.verfuegbar()
+            if not ok:
+                QMessageBox.warning(self, "Detect", "Detector not available: " + grund)
+                return
+            if stimmen_auto:
+                anzahl, _sek = self._sprechstellen_summe()
+                if anzahl:
+                    antwort = QMessageBox.question(
+                        self, "Detect voices",
+                        "Marking replaces the %d stretches with voices already "
+                        "marked. Continue?" % anzahl,
+                        QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+                    if antwort != QMessageBox.Yes:
+                        return
+        # EIN Durchlauf ueber die Dateien; die Sprachwerte nur, wenn Stimmen
+        # gesucht werden - der Detektor kostet Sekunden je Datei.
+        alle = self._audio_abfahren("Detect", mit_sprache=stimmen)
+        if alle is None:
+            self.statusBar().showMessage("Detect cancelled.", 4000)
+            return
+        meldung = []
+        if stimmen:
+            if stimmen_auto:
+                anzahl, sekunden = self.stimmen_suchen(
+                    self.video_control.sensitivity(), alle)
+                if anzahl:
+                    meldung.append("%d voice stretch(es) marked, %.0f s"
+                                   % (anzahl, sekunden))
+            else:
+                anzahl = self.stimmen_vorschlagen(self.video_control.sensitivity(), alle)
+                if anzahl:
+                    meldung.append("%d voice stretch(es) suggested (orange dashed)"
+                                   % anzahl)
+            if anzahl == 0:
+                QMessageBox.information(
+                    self, "Detect voices",
+                    "No speech found. Raise the sensitivity (Sens) or mark the "
+                    "stretches by hand ([-, -], Voice).")
+        if fahrzeuge:
+            if fahrzeuge_auto:
+                anzahl = self.fahrzeuge_markieren(alle)
+                if anzahl:
+                    meldung.append("%d vehicle(s) marked (fill: before)" % anzahl)
+            else:
+                anzahl = self.fahrzeuge_vorschlagen(alle)
+                if anzahl:
+                    meldung.append("%d vehicle(s) suggested (blue dashed)" % anzahl)
+            if anzahl == 0:
+                QMessageBox.information(
+                    self, "Detect vehicles",
+                    "No passing vehicles found. Mark them by hand ([-, -], Vehicle).")
+        if meldung:
+            hinweis = (" - check them in the timeline and listen (right-click a "
+                       "band); detection is never complete.")
+            self.statusBar().showMessage("; ".join(meldung) + hinweis, 12000)
+
+    def _detekt_ereignisse(self, alle):
+        """{pfad: [(von, bis)]} - die Berge im Pegel je Datei aus einem
+        Detect-Durchlauf (verkehr.ereignisse_finden, Vorgabe-Empfindlichkeit,
+        am Kinotomo-Vorbild abgeglichen). Gemeinsamer Unterbau von
+        Fahrzeug-Vorschlag und -Markierung."""
+        out = {}
+        for pfad, daten in alle.items():
+            pegel = daten.get("pegel") or []
+            if not pegel:
+                continue
+            try:
+                ereignisse = verkehr.ereignisse_finden(pegel)
+            except Exception as exc:
+                print(f"[VEHICLE] {os.path.basename(pfad)}: finder failed: {exc}")
+                continue
+            liste = [(float(e["von"]), float(e["bis"])) for e in ereignisse]
+            if liste:
+                out[pfad] = liste
+        return out
+
+    def fahrzeuge_markieren(self, alle):
+        """Die Berge im Pegel gleich als markierte Fahrzeugstellen setzen
+        (Fuellung "before"). Ersetzt vorhandene Fahrzeugstellen; Vorschlaege
+        fallen weg. Rueckgabe: Anzahl."""
+        gefunden = self._detekt_ereignisse(alle)
+        if any(self._fahrzeugstellen.values()) or gefunden:
+            self._sprechstellen_undo_merken("Vehicles detected")
+        neu = {}
+        anzahl = 0
+        for pfad, liste in gefunden.items():
+            neu[pfad] = [[von, bis, verkehr.FUELLUNG_VORGABE] for von, bis in liste]
+            anzahl += len(liste)
+        self._fahrzeugstellen = neu
+        self._fahrzeugvorschlaege = {}
+        self._sprechstellen_anzeigen()
+        return anzahl
+
+    def fahrzeuge_vorschlagen(self, alle):
+        """Aus dem Pegelverlauf (alle: {pfad: daten} von _audio_abfahren)
+        die Berge als Fahrzeug-VORSCHLAEGE setzen. Vorschlaege, die eine
+        schon markierte Fahrzeugstelle beruehren, fallen weg. Alte
+        Vorschlaege werden ersetzt. Rueckgabe: Anzahl."""
+        gefunden = {}
+        anzahl = 0
+        for pfad, liste in self._detekt_ereignisse(alle).items():
+            markiert = [(float(e[0]), float(e[1]))
+                        for e in self._fahrzeugstellen.get(pfad) or []]
+            rest = [[von, bis] for von, bis in liste
+                    if not any(a <= bis and von <= b for a, b in markiert)]
+            if rest:
+                gefunden[pfad] = rest
+                anzahl += len(rest)
+        self._fahrzeugvorschlaege = gefunden
+        self._sprechstellen_anzeigen()
+        return anzahl
+
+    def stimmen_vorschlagen(self, empfindlichkeit, alle):
+        """Wie stimmen_suchen, aber die Funde werden nur VORGESCHLAGEN
+        (orange gestrichelt), nicht markiert - der Export filtert sie nicht,
+        bis der Nutzer sie uebernimmt (Bernd, 11.09.2026). Ersetzt alte
+        Vorschlaege; Vorschlaege ueber schon markierten Stellen fallen weg.
+        Rueckgabe: Anzahl."""
+        empfindlichkeit = max(1, min(sprache.EMPFINDLICHKEIT_MAX, int(empfindlichkeit)))
+        gefunden = {}
+        anzahl = 0
+        for pfad, daten in alle.items():
+            werte = daten.get("sprache")
+            if werte is None:
+                continue
+            werte = [0.0 if w is None else w for w in werte]
+            stellen = sprache.stellen(werte, empfindlichkeit, daten.get("dauer"))
+            markiert = [(float(e[0]), float(e[1]))
+                        for e in self._sprechstellen.get(pfad) or []]
+            rest = [[float(a), float(b)] for a, b in stellen
+                    if not any(m0 <= b and a <= m1 for m0, m1 in markiert)]
+            if rest:
+                gefunden[pfad] = rest
+                anzahl += len(rest)
+        self._sprechvorschlaege = gefunden
+        self._sprechstellen_anzeigen()
+        return anzahl
+
+    def _sprechvorschlaege_global(self):
+        """[(von, bis)] in Gesamtzeit, sortiert."""
+        liste = []
+        for pfad, stellen in self._sprechvorschlaege.items():
+            versatz = self._datei_versatz(pfad)
+            if versatz is None:
+                continue
+            for von, bis in stellen:
+                liste.append((versatz + float(von), versatz + float(bis)))
+        liste.sort()
+        return liste
+
+    def _sprechvorschlag_entfernen(self, von_s, bis_s):
+        pfad, lokal = self._global_zu_datei((von_s + bis_s) / 2.0)
+        rest = [e for e in self._sprechvorschlaege.get(pfad) or []
+                if not (e[0] <= lokal <= e[1])]
+        if rest:
+            self._sprechvorschlaege[pfad] = rest
         else:
-            self.statusBar().showMessage(
-                "%d stretch(es) with voices marked, %.0f s - check them in the "
-                "timeline; detection is never complete." % (anzahl, sekunden), 10000)
+            self._sprechvorschlaege.pop(pfad, None)
+        self._sprechstellen_anzeigen()
+
+    def _sprechvorschlaege_bereinigen(self):
+        """Voice-Vorschlaege verwerfen, die eine markierte Sprechstelle
+        beruehren - nach dem Uebernehmen oder einer Handmarkierung."""
+        for pfad in list(self._sprechvorschlaege):
+            markiert = [(float(e[0]), float(e[1]))
+                        for e in self._sprechstellen.get(pfad) or []]
+            rest = [e for e in self._sprechvorschlaege[pfad]
+                    if not any(a <= e[1] and e[0] <= b for a, b in markiert)]
+            if rest:
+                self._sprechvorschlaege[pfad] = rest
+            else:
+                self._sprechvorschlaege.pop(pfad, None)
+
+    def _fahrzeugvorschlaege_global(self):
+        """[(von, bis)] in Gesamtzeit, sortiert."""
+        liste = []
+        for pfad, stellen in self._fahrzeugvorschlaege.items():
+            versatz = self._datei_versatz(pfad)
+            if versatz is None:
+                continue
+            for von, bis in stellen:
+                liste.append((versatz + float(von), versatz + float(bis)))
+        liste.sort()
+        return liste
+
+    def _fahrzeugvorschlag_entfernen(self, von_s, bis_s):
+        """Den Vorschlag, der in Gesamtzeit bei von..bis liegt, verwerfen."""
+        pfad, lokal = self._global_zu_datei((von_s + bis_s) / 2.0)
+        rest = [e for e in self._fahrzeugvorschlaege.get(pfad) or []
+                if not (e[0] <= lokal <= e[1])]
+        if rest:
+            self._fahrzeugvorschlaege[pfad] = rest
+        else:
+            self._fahrzeugvorschlaege.pop(pfad, None)
+        self._sprechstellen_anzeigen()
+
+    def _fahrzeugvorschlaege_bereinigen(self):
+        """Vorschlaege verwerfen, die eine markierte Fahrzeugstelle
+        beruehren - etwa nach dem Uebernehmen oder einer Handmarkierung."""
+        for pfad in list(self._fahrzeugvorschlaege):
+            markiert = [(float(e[0]), float(e[1]))
+                        for e in self._fahrzeugstellen.get(pfad) or []]
+            rest = [e for e in self._fahrzeugvorschlaege[pfad]
+                    if not any(a <= e[1] and e[0] <= b for a, b in markiert)]
+            if rest:
+                self._fahrzeugvorschlaege[pfad] = rest
+            else:
+                self._fahrzeugvorschlaege.pop(pfad, None)
+
+    def _audio_zoom_marken_nachziehen(self):
+        """Die gelben Marken [- und -] der Zeitleiste in den Audio Zoom
+        spiegeln (Bernd, 11.09.2026)."""
+        az = getattr(self, "audio_zoom", None)
+        if az is None:
+            return
+        az.set_marken(self.timeline.markB_time_s, self.timeline.markE_time_s)
 
     def _on_sensitivity_changed(self, wert: int):
         QSettings("KVRouite", "KVRouite").setValue(sprache.EINSTELLUNG_KEY, int(wert))
@@ -10346,6 +10761,8 @@ class MainWindow(QMainWindow):
         try:
             self._sprechstellen = {}
             self._fahrzeugstellen = {}
+            self._fahrzeugvorschlaege = {}
+            self._sprechvorschlaege = {}
             self._sprechstellen_anzeigen()
         except Exception as e:
             print(f"[WARN] NewProject: voices cleanup: {e}")
@@ -12812,6 +13229,8 @@ class MainWindow(QMainWindow):
         self.video_durations = []
         self._sprechstellen = {}
         self._fahrzeugstellen = {}
+        self._fahrzeugvorschlaege = {}
+        self._sprechvorschlaege = {}
         self._sprechstellen_anzeigen()
         self.view360_views = []
         self._360_aus_projekt = False
