@@ -8,6 +8,29 @@ Versions up to and including 5.0 are documented in the GitHub releases only.
 
 ---
 
+## 7.01 - 2026-09-11
+
+A small follow-up to 7.0 for the application without the Voice add-on.
+
+### Fixed
+
+**Audio track and damper could not be saved without the Voice add-on**
+
+In the Encoder Setup the whole page Audio was locked when the Voice add-on
+was missing: OK wrote "Audio track in the exported video" and "Damp passing
+vehicles" as off whatever was ticked, and a preset could not switch them on
+either. Both are pure GStreamer and belong to the application - only
+"Remove voices" needs the add-on. Now only the voice group stays grey;
+audio track and damper are saved and applied as set.
+
+**Console reported "Encoder-Setup canceled" after OK**
+
+The main window compared the dialog result with the `accepted` signal
+instead of `QDialog.Accepted`, so the debug line in the console was always
+the cancel line, even after a save.
+
+---
+
 ## 7.0 - 2026-09-11
 
 Sound. Up to 6.14 the Encode-Mode wrote videos without a sound track; now
