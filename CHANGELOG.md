@@ -8,7 +8,7 @@ Versions up to and including 5.0 are documented in the GitHub releases only.
 
 ---
 
-## 7.0 - 2026-09-10
+## 7.0 - 2026-09-11
 
 Sound. Up to 6.14 the Encode-Mode wrote videos without a sound track; now
 the track goes into the export, with the same crossfades as the picture,
@@ -28,10 +28,12 @@ Encoder Setup has a page "Audio": "Audio track in the exported video" and
 its bitrate (AAC, 32-320 kbit/s, default 128). The crossfade of a cut
 applies to the sound as well - the outgoing side goes to silence while the
 incoming side comes up, so the mixer never adds two full tracks - and so
-does the Merge-Fade at a file join. The AAC encoder is whichever GStreamer
-offers (voaacenc in the bundles, fdkaacenc, avenc_aac or mfaacenc
-elsewhere). Pure GStreamer, nothing to install; the preview still plays
-the original sound (see Known).
+does the Merge-Fade at a file join. The AAC encoder is the first GStreamer
+offers, avenc_aac ahead of voaacenc: voaacenc mangled the 6-7 kHz band of
+wind noise into an audible squeal, avenc_aac at the same bitrate stays
+clean (fdkaacenc, where a distribution builds it, comes before both,
+mfaacenc last). Pure GStreamer, nothing to install; the preview still
+plays the original sound (see Known).
 
 **Damp passing vehicles**
 
@@ -49,18 +51,20 @@ squeaks.
 Which stretches are treated is decided by ear, not by a scanner. Mark
 them on page A of the video control - `[-` and `-]` around the vehicle,
 then **Vehicle** - and they appear as blue bands in the timeline and the
-Audio Zoom. Right-click a band: **Listen …** renders 30 s before the
-stretch, the stretch as it will be exported and 30 s after, small and
+Audio Zoom. Right-click a band: **Listen …** renders 10 s before the
+stretch, the stretch as it will be exported and 10 s after, small and
 fast, and plays it in a window with Play, Stop and "Jump to stretch"
 (3 s before it);
 **Fill** chooses where the ride noise comes from - from before the
 stretch (default), from after it, or none; "Start and end …" moves it,
 "Remove" takes it away. Every change is on the Undo stack, the stretches
 are stored per file under `vehicle_regions` in the project file. Without
-marked stretches nothing is damped. An automatic scanner was built and
-measured during development: it finds loud passes, but on a windy or busy
-road it marks most of the ride and fills it with copies that do not belong
-there - a level meter cannot hear. It is not in the release.
+marked stretches nothing is damped. **Detect** with "Passing vehicles" can
+propose stretches from the sound level - dashed suggestions to check and
+take over, or bands right away with the "mark" switch. It finds loud
+passes, but on a windy or busy road it proposes most of the ride, so
+nothing it finds is treated until taken over: what is treated stays a
+decision by ear.
 
 **Remove voices**
 
@@ -79,17 +83,27 @@ Encode-Mode with the Voice add-on and "Remove voices" on: the video
 control gets a button at its left end, a film strip that turns into a
 speaker. Page V is the control as it was. Page A shows [-, -], x and three
 new buttons: **Voice** marks the area between [- and -] as a stretch with
-voices (like "Ovl" makes an overlay of it), **Detect** finds the voices in
-all loaded videos and marks them at once (Silero VAD, run with ONNX
-Runtime; a 250 Hz high-pass in front of it for wind on the microphone -
-for the search only, the exported sound is untouched), **Sens** sets its
-sensitivity 1-7 (1 clear speech only, 7 everything that might be, default
-3). The stretches are orange bands in the timeline; right-click one on
+voices (like "Ovl" makes an overlay of it), **Detect** opens a dialog, and
+**Sens** sets the voice sensitivity 1-7 (1 clear speech only, 7 everything
+that might be, default 3). In the Detect dialog you choose what to search
+for - voices, passing vehicles or both, whichever the encoder setup allows
+- and per kind a switch "also mark them for filtering (otherwise only
+suggest them)". Only suggested finds are dashed frames - orange for
+voices, blue for vehicles - and do nothing on export until taken over;
+marked finds are solid bands, filtered right away, and a warning says that
+marked finds are treated without another look. Voices come from Silero VAD
+(run with ONNX Runtime; a 250 Hz high-pass in front of it for wind on the
+microphone - for the search only, the exported sound is untouched);
+vehicles from the sound level. Detection is never exact, so the finds are
+meant to be checked. Marked stretches are orange (voices) or blue
+(vehicles) bands in the timeline and the Audio Zoom; right-click one on
 page A for "Listen …" (the stretch rendered as it will be exported, 10 s
 before and after, played in a small window), "Start and end…", "Remove
-stretch" and "Remove all". **Vehicle** marks a stretch for the traffic
-damper the same way, in blue - see "Damp passing vehicles". Right-click on
-page V still means cut, overlay and join, nothing else.
+stretch" and "Remove all". Right-click a dashed suggestion instead for
+"Take over", "Listen …" (rendered as it would sound after taking it over)
+or "Dismiss". **Vehicle** marks a stretch for the traffic damper by hand,
+in blue - see "Damp passing vehicles". Right-click on page V still means
+cut, overlay and join, nothing else.
 Every change is on the Undo stack ("Voices marked", "Voices removed",
 "Voices detected"…). Stored per file in seconds of that file under
 `voice_regions` in the project file; exported as `voice_regions`, and the
@@ -107,16 +121,22 @@ sound track around the playing position, a 60 s window (mouse wheel 8-900
 s) that follows the video while the mouse is outside. Drag with the left
 button to mark a stretch with voices, right-click a band to remove it,
 click to jump. Cuts are drawn dark and hatched over it, and what lies
-under a cut is neither shown nor counted. Add-on only.
+under a cut is neither shown nor counted. The `[-` and `-]` marks of the
+timeline show here too, and Detect suggestions as dashed frames. Add-on
+only.
 
 **Timeline: a view button instead of a menu item**
 
 A small button at the top left of the timeline cycles through "-" (nothing),
 "Video" (the thumbnail strip), "Audio" (the sound level) and "V+A" (the
 level, half transparent, over the thumbnails). The height of the timeline
-does not change. The level comes from the same scan as the traffic damper;
-if a file has not been scanned yet, choosing "Audio" scans it now, with a
-progress dialog. Lite has this too - the scan is GStreamer. The setting
+does not change; the level fills to the bottom edge. The level comes from
+the same scan as the traffic damper. With "Audio track" on in the encoder
+setup the scan runs in the background as soon as videos are loaded - no
+dialog, the curve grows file by file, with a line in the status bar and a
+note in the timeline while it reads (it can take a while from a slow
+drive). With "Audio track" off, choosing "Audio" scans on the spot
+instead. Lite has this too - the scan is GStreamer. The setting
 "Thumbnails in Timeline" in the Config menu is gone; its value is taken
 over once.
 
@@ -184,6 +204,18 @@ start, which now has to be scrolled to its end before it can be accepted.
 The player stopped, but the last picture stayed and the drop hint did not
 come back. Now the video area shows "Drag & Drop video file(s) here" again,
 and the audio view and the Audio Zoom are emptied too.
+
+**A squeal in the exported sound track**
+
+On wind noise the AAC encoder voaacenc, first choice in the bundles,
+mangled the 6-7 kHz band into an audible high squeal - measured 30 dB
+below the source there but swinging wildly, and clearly heard. avenc_aac
+is now preferred; at the same bitrate it reproduces the source cleanly.
+
+**Undo of a cut did not refresh the Audio Zoom**
+
+The darkened cut region stayed in the Audio Zoom after Ctrl+Z. Now it
+clears with the cut, as in the timeline.
 
 ### Known
 
