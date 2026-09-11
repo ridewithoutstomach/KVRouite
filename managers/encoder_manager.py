@@ -479,38 +479,46 @@ class EncoderDialog(QDialog):
             return
         super().closeEvent(event)
 
-    def run_encoding(self, json_path: str):
+    def run_encoding(self, json_path: str, ziel: str = None):
         """
-        1) Wir lesen json_path => c 
+        1) Wir lesen json_path => c
         2) Zeigen ein QFileDialog, damit User final_out wählt (optional).
         3) Überschreiben c["final_output"].
         4) Leiten print(...) in self._on_new_text
         5) Rufen xfade_main(cfg_path) oder xfade_main_direct(c) auf
+
+        ziel: steht er, gibt es keine Dateiauswahl und keine Meldung "Done"
+        - der Hoerausschnitt einer Stelle (mainwindow._stelle_anhoeren)
+        rendert so still in eine Datei, und dieser Dialog schliesst sich
+        danach selbst. Rueckgabe True, wenn die Datei geschrieben wurde.
         """
         # 1) JSON lesen
         with open(json_path, "r", encoding="utf-8") as f:
             c = json.load(f)
 
         # 2) Dateiauswahl => final_out
-        default_out = c.get("final_output", "final.mp4")
-        chosen_out, _ = QFileDialog.getSaveFileName(
-            self,
-            "Select final output",
-            default_out,
-            "Video Files (*.mp4)"
-        )
-        if not chosen_out:
-            self._on_new_text("[CANCELED] No output file selected.\n")
-            return
-        
-        if not chosen_out.lower().endswith('.mp4'):
-            chosen_out += '.mp4'
-            QMessageBox.information(
+        if ziel:
+            chosen_out = ziel
+        else:
+            default_out = c.get("final_output", "final.mp4")
+            chosen_out, _ = QFileDialog.getSaveFileName(
                 self,
-                "File Extension Added!",
-                f"Added '.mp4' extension to:\n{os.path.basename(chosen_out)}"
+                "Select final output",
+                default_out,
+                "Video Files (*.mp4)"
             )
-        
+            if not chosen_out:
+                self._on_new_text("[CANCELED] No output file selected.\n")
+                return False
+
+            if not chosen_out.lower().endswith('.mp4'):
+                chosen_out += '.mp4'
+                QMessageBox.information(
+                    self,
+                    "File Extension Added!",
+                    f"Added '.mp4' extension to:\n{os.path.basename(chosen_out)}"
+                )
+
         # => final_out überschreiben
         c["final_output"] = chosen_out
 
@@ -538,15 +546,20 @@ class EncoderDialog(QDialog):
                     ges_xfade_main(temp_cfg, abbruch=self._abbruch_pruefen)
                 except GesRenderAbgebrochen:
                     self._laeuft = False
-                    QMessageBox.information(
-                        self, "Export stopped",
-                        "The export was stopped. The incomplete output file was deleted.")
+                    if not ziel:
+                        QMessageBox.information(
+                            self, "Export stopped",
+                            "The export was stopped. The incomplete output file was deleted.")
                     self.close()
-                    return
+                    return False
                 finally:
                     self._laeuft = False
                     self.btn_close.setEnabled(True)
 
+                if ziel:
+                    # Hoerausschnitt: still fertig, der Aufrufer spielt ab.
+                    self.close()
+                    return os.path.isfile(chosen_out)
 
                 QMessageBox.information(
                      self,

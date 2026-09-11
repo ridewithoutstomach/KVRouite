@@ -51,7 +51,7 @@ class ExportBestaetigung(QDialog):
     """Rueckgabe wie QDialog.exec(): Accepted heisst Export starten."""
 
     def __init__(self, parent=None, gesamt_sekunden=0.0, dateien=1,
-                 sprechstellen=None):
+                 sprechstellen=None, fahrzeugstellen=0):
         """sprechstellen: (Anzahl, Sekunden) der markierten Stellen, oder
         None wenn keine gesetzt sind - dann trennt der Voice Remover im
         ganzen behaltenen Material."""
@@ -61,6 +61,7 @@ class ExportBestaetigung(QDialog):
         self._gesamt = float(gesamt_sekunden or 0.0)
         self._dateien = max(1, int(dateien or 1))
         self._sprechstellen = sprechstellen
+        self._fahrzeugstellen = int(fahrzeugstellen or 0)
 
         aussen = QVBoxLayout(self)
         hinweis = QLabel("The final video is created now; changes are no "
@@ -160,7 +161,8 @@ class ExportBestaetigung(QDialog):
         self._modell = str(w.get("voice_model", stimme.VORGABE))
         self._kbps = w.get("audio_kbps", 128)
         self._daempfer = w.get("traffic_db", 12)
-        self._fuell_hz = int(w.get("traffic_fill_hz", 1000) or 0)
+        self._fuell_hz = int(w.get("traffic_fill_hz", 0) or 0)
+        self._fuell_pct = int(w.get("traffic_fill_pct", 100))
         self._schalter_nachziehen()
 
     def _schalter_nachziehen(self, *_a):
@@ -175,11 +177,16 @@ class ExportBestaetigung(QDialog):
             self.voice_info.setText("")
             return
         if self.traffic_check.isChecked():
-            fuellung = (f"fill below {self._fuell_hz} Hz" if self._fuell_hz
-                        else "fill unfiltered")
-            self.traffic_info.setText(
-                f"damper {self._daempfer} dB, {fuellung} - scans each source "
-                f"file once (reads the whole file, cached afterwards)")
+            fuellung = f"fill {self._fuell_pct} %" + (
+                f" below {self._fuell_hz} Hz" if self._fuell_hz else "")
+            if self._fahrzeugstellen:
+                self.traffic_info.setText(
+                    f"{self._fahrzeugstellen} marked vehicle stretch(es), "
+                    f"damper {self._daempfer} dB, {fuellung}")
+            else:
+                self.traffic_info.setText(
+                    "no vehicle stretches marked - nothing to damp (mark "
+                    "them on page A of the video control: [-, -], Vehicle)")
         else:
             self.traffic_info.setText("off")
         if not self._voice_ok:

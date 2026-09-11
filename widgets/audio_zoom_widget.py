@@ -60,10 +60,18 @@ BAND_RAND = QColor(255, 170, 60)
 ZIEHEN_MIN_PX = 6
 
 
+#: Fahrzeugstellen - dieselbe Farbe wie in der Zeitleiste.
+FAHRZEUG_FARBE = QColor(80, 160, 255, 110)
+FAHRZEUG_RAND = QColor(120, 190, 255)
+
+
 class AudioZoomWidget(QWidget):
     bandEntfernen = Signal(float, float)        # Anfang, Ende (Gesamtzeit)
     bandAnlegen = Signal(float, float)
     zeitGewaehlt = Signal(float)
+    #: Rechtsklick auf ein Band: (art, von, bis, globale Position) - das
+    #: Fenster zeigt dasselbe Menue wie bei der Zeitleiste.
+    bandMenuRequested = Signal(str, float, float, object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -71,7 +79,8 @@ class AudioZoomWidget(QWidget):
         self.setFocusPolicy(Qt.StrongFocus)
         self.setAttribute(Qt.WA_OpaquePaintEvent, True)
         self._punkte = []           # [(t_s, dB)] sortiert
-        self._stellen = []          # [(von_s, bis_s)]
+        self._stellen = []          # [(von_s, bis_s)] Sprechstellen
+        self._fahrzeuge = []        # [(von_s, bis_s)] Fahrzeugstellen
         self._schnitte = []         # [(von_s, bis_s)] weggeschnitten
         self._zeit = 0.0
         self._gesamt = 0.0
@@ -89,6 +98,10 @@ class AudioZoomWidget(QWidget):
 
     def set_sprechstellen(self, stellen):
         self._stellen = [(float(a), float(b)) for a, b in (stellen or [])]
+        self.update()
+
+    def set_fahrzeugstellen(self, stellen):
+        self._fahrzeuge = [(float(a), float(b)) for a, b in (stellen or [])]
         self.update()
 
     def set_schnitte(self, schnitte):
@@ -128,12 +141,15 @@ class AudioZoomWidget(QWidget):
         return von + x / float(max(1, w)) * self._fenster
 
     def _band_bei(self, t_s):
+        """(art, von, bis) unter der Zeit, oder None. Bei Ueberlappung das
+        schmalere Band."""
         if self._geschnitten(t_s):
             return None
-        for a, b in self._stellen:
-            if a <= t_s <= b:
-                return (a, b)
-        return None
+        treffer = [("vehicle", a, b) for a, b in self._fahrzeuge if a <= t_s <= b]
+        treffer += [("voice", a, b) for a, b in self._stellen if a <= t_s <= b]
+        if not treffer:
+            return None
+        return min(treffer, key=lambda t: t[2] - t[1])
 
     # ------------------------------------------------------------ Maus
     def enterEvent(self, event):
@@ -207,15 +223,10 @@ class AudioZoomWidget(QWidget):
         if band is None:
             event.ignore()
             return
-        from PySide6.QtWidgets import QMenu
-        menue = QMenu(self)
-        titel = menue.addAction("Voices %s – %s" % (_kurz(band[0]), _kurz(band[1])))
-        titel.setEnabled(False)
-        menue.addSeparator()
-        a_weg = menue.addAction("Remove this stretch")
-        gewaehlt = menue.exec(event.globalPos())
-        if gewaehlt is a_weg:
-            self.bandEntfernen.emit(band[0], band[1])
+        # Das Menue stellt das Fenster zusammen - dasselbe wie in der
+        # Zeitleiste (Listen, Fill, Start and end, Remove).
+        art, a, b = band
+        self.bandMenuRequested.emit(art, a, b, event.globalPos())
         event.accept()
 
     # ------------------------------------------------------------ Zeichnen
@@ -259,15 +270,18 @@ class AudioZoomWidget(QWidget):
             painter.setBrush(QBrush(QColor(0, 200, 220, 170)))
             painter.drawPolygon(poly)
 
-        # Sprechstellen
-        for a, b in self._stellen:
-            if b < von or a > bis:
-                continue
-            xa, xb = self._x(a, w, von), self._x(b, w, von)
-            painter.setPen(QPen(BAND_RAND, 1))
-            painter.setBrush(QBrush(BAND_FARBE if (a, b) != self._band_unter_zeiger
-                                    else QColor(255, 170, 60, 160)))
-            painter.drawRect(QRectF(xa, oben, xb - xa, unten - oben))
+        # Sprechstellen (orange) und Fahrzeugstellen (blau) ueber die volle
+        # Hoehe; das Band unter dem Zeiger etwas kraeftiger.
+        for art, stellen, farbe, rand, hell in (
+                ("voice", self._stellen, BAND_FARBE, BAND_RAND, QColor(255, 170, 60, 160)),
+                ("vehicle", self._fahrzeuge, FAHRZEUG_FARBE, FAHRZEUG_RAND, QColor(120, 190, 255, 160))):
+            for a, b in stellen:
+                if b < von or a > bis:
+                    continue
+                xa, xb = self._x(a, w, von), self._x(b, w, von)
+                painter.setPen(QPen(rand, 1))
+                painter.setBrush(QBrush(hell if (art, a, b) == self._band_unter_zeiger else farbe))
+                painter.drawRect(QRectF(xa, oben, xb - xa, unten - oben))
 
         # Schnitte: abgedunkelt und schraffiert wie in der Zeitleiste, ueber
         # Kurve und Baendern - was darunter liegt, ist weg.
@@ -315,11 +329,12 @@ class AudioZoomWidget(QWidget):
         # Beschriftung
         painter.setPen(QPen(QColor(200, 200, 200), 1))
         # Gezaehlt wird, was nicht im Schnitt liegt.
-        anzahl = sum(1 for a, b in self._stellen
-                     if not any(sa <= a and b <= sb for sa, sb in self._schnitte))
+        def zaehlen(stellen):
+            return sum(1 for a, b in stellen
+                       if not any(sa <= a and b <= sb for sa, sb in self._schnitte))
         painter.drawText(QPointF(4, h - 8),
-                         "Audio  %s – %s   %d stretch(es) marked for voice removal"
-                         % (_kurz(von), _kurz(bis), anzahl))
+                         "Audio  %s – %s   %d voice, %d vehicle stretch(es)"
+                         % (_kurz(von), _kurz(bis), zaehlen(self._stellen), zaehlen(self._fahrzeuge)))
 
 
 def _kurz(sekunden):

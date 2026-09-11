@@ -83,27 +83,40 @@ class AudioSeite(QWidget):
         vform = QFormLayout(verkehr_gruppe)
         self.traffic_check = QCheckBox("Damp passing vehicles", verkehr_gruppe)
         self.traffic_check.setToolTip(
-            "Scans the sound track of every source file once (cached) for "
-            "passing cars and motorbikes: stretches that rise clearly above "
-            "the ride noise. Each one is pulled down by up to the damper "
-            "value and filled with nearby ride noise, so the vehicle recedes "
-            "while wind and tyres stay. Encode-Mode with audio only.")
+            "Turns down the vehicle stretches you mark on page A of the "
+            "video control ([-, -], Vehicle) by the damper value and lays "
+            "the ride noise from next to each stretch over it at the fill "
+            "level, so the vehicle recedes while wind and tyres stay. "
+            "Right-click a band to listen before exporting. Without marked "
+            "stretches nothing is damped.")
         vform.addRow(self.traffic_check)
         self.traffic_spin = QSpinBox(verkehr_gruppe)
         self.traffic_spin.setRange(verkehr.DAEMPFER_MIN_DB, verkehr.DAEMPFER_MAX_DB)
         self.traffic_spin.setSingleStep(1)
         self.traffic_spin.setValue(verkehr.DAEMPFER_VORGABE_DB)
         self.traffic_spin.setToolTip(
-            "How far a vehicle is pulled down at most. 6 dB: half as loud, "
-            "12 dB: a quarter, 18 dB: an eighth. The deeper, the more the "
-            "filled-in ride noise carries.")
+            "How far the vehicle is turned down. 6 dB: half as loud, 12 dB: "
+            "a quarter, 18 dB: an eighth, 30 dB: nearly gone. The deeper, "
+            "the more the filled-in ride noise carries.")
         vform.addRow("Damper (dB):", self.traffic_spin)
+        # Fuellpegel in Prozent (verkehr.FUELL_ANTEIL_VORGABE).
+        self.fill_pct_spin = QSpinBox(verkehr_gruppe)
+        self.fill_pct_spin.setRange(0, 100)
+        self.fill_pct_spin.setSingleStep(10)
+        self.fill_pct_spin.setSuffix(" %")
+        self.fill_pct_spin.setValue(verkehr.FUELL_ANTEIL_VORGABE)
+        self.fill_pct_spin.setToolTip(
+            "How loud the ride noise from the nearest quiet stretch is laid "
+            "over the damped vehicle. 100: the stretch stays about as loud as "
+            "before, only the vehicle is gone. 0: no fill, the stretch gets "
+            "quieter by the damper value - an audible dip.")
+        vform.addRow("Fill level:", self.fill_pct_spin)
         # Tiefpass auf dem Fuellstueck (verkehr.FUELL_TIEFPASS_*): Haken an/aus
         # und die Grenze in Hz. Gespeichert wird EIN Wert, traffic_fill_hz,
         # 0 heisst aus - der Haken ist nur die Bedienung dafuer (Bernd,
         # 10.09.2026: "ich dachte man kann das ein- und ausschalten").
         self.fill_check = QCheckBox("Filter the fill below", verkehr_gruppe)
-        self.fill_check.setChecked(True)
+        self.fill_check.setChecked(False)
         self.fill_check.setToolTip(
             "The ride noise laid over a damped vehicle is a copy of the "
             "nearest quiet stretch. With the filter only its part below the "
@@ -198,6 +211,7 @@ class AudioSeite(QWidget):
 
     def _fuellfilter_nachziehen(self, *_a):
         an = self.audio_check.isChecked() and self.traffic_check.isChecked()
+        self.fill_pct_spin.setEnabled(an)
         self.fill_check.setEnabled(an)
         self.fill_spin.setEnabled(an and self.fill_check.isChecked())
 
@@ -216,6 +230,7 @@ class AudioSeite(QWidget):
         if not self._voice_ok:
             return {"audio": 0, "audio_kbps": self.kbps_spin.value(),
                     "traffic": 0, "traffic_db": self.traffic_spin.value(),
+                    "traffic_fill_pct": self.fill_pct_spin.value(),
                     "traffic_fill_hz": self.fuell_hz(),
                     "voice": 0, "voice_model": self.voice_combo.currentData() or stimme.VORGABE}
         return {
@@ -223,6 +238,7 @@ class AudioSeite(QWidget):
             "audio_kbps": self.kbps_spin.value(),
             "traffic": 1 if self.traffic_check.isChecked() else 0,
             "traffic_db": self.traffic_spin.value(),
+            "traffic_fill_pct": self.fill_pct_spin.value(),
             "traffic_fill_hz": self.fuell_hz(),
             "voice": 1 if self.voice_check.isChecked() else 0,
             "voice_model": self.voice_combo.currentData() or stimme.VORGABE,
@@ -245,7 +261,9 @@ class AudioSeite(QWidget):
         db = self._zahl(werte, "traffic_db", verkehr.DAEMPFER_VORGABE_DB)
         self.traffic_spin.setValue(
             max(verkehr.DAEMPFER_MIN_DB, min(verkehr.DAEMPFER_MAX_DB, db)))
-        hz = self._zahl(werte, "traffic_fill_hz", verkehr.FUELL_TIEFPASS_VORGABE_HZ)
+        pct = self._zahl(werte, "traffic_fill_pct", verkehr.FUELL_ANTEIL_VORGABE)
+        self.fill_pct_spin.setValue(max(0, min(100, pct)))
+        hz = self._zahl(werte, "traffic_fill_hz", 0)
         self.fill_check.setChecked(hz > 0)
         if hz > 0:
             self.fill_spin.setValue(max(verkehr.FUELL_TIEFPASS_MIN_HZ,

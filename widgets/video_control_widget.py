@@ -59,6 +59,7 @@ class VideoControlWidget(QWidget):
     #: Seite A (Audio, ab 7.0): B-E als Sprechstelle anlegen, Suchlauf,
     #: Empfindlichkeit 1-5, und der Wechsel der Seite ("video"/"audio").
     voiceClicked            = Signal()
+    vehicleClicked          = Signal()
     findVoicesClicked       = Signal()
     sensitivityChanged      = Signal(int)
     seiteGewechselt         = Signal(str)
@@ -272,6 +273,19 @@ class VideoControlWidget(QWidget):
         layout.addWidget(self.voice_button)
         self.voice_button.hide()
 
+        # Fahrzeugstellen setzt nur der Nutzer (seit dem 10.09.2026 nacht,
+        # der Sucher entscheidet nichts mehr): [-, -], Vehicle - wie Voice.
+        self.vehicle_button = QPushButton("Vehicle")
+        self.vehicle_button.setToolTip(
+            "Mark the area between [- and -] as a passing vehicle.\n"
+            "The export turns it down and lays the ride noise from right\n"
+            "before it over it. Right-click the band in the timeline to\n"
+            "listen to the result, choose the fill, or remove it.")
+        self.vehicle_button.setFixedWidth(56)
+        self.vehicle_button.clicked.connect(self.vehicleClicked.emit)
+        layout.addWidget(self.vehicle_button)
+        self.vehicle_button.hide()
+
         self.find_button = QPushButton("Detect")
         self.find_button.setToolTip(
             "Detect the voices in all loaded videos and mark them at once.\n"
@@ -378,10 +392,14 @@ class VideoControlWidget(QWidget):
         self._seite_anwenden()
 
     # ---- Seite V / A -------------------------------------------------
-    def voice_seite_anbieten(self, an: bool):
-        """Den Seitenknopf zeigen (Encode-Mode mit Voice-Zusatz). Ohne ihn
-        steht die Leiste auf Seite V."""
+    def voice_seite_anbieten(self, an: bool, stimmen: bool = True, fahrzeuge: bool = True):
+        """Den Seitenknopf zeigen (Encode-Mode, "Remove voices" oder "Damp
+        passing vehicles" an). stimmen: Voice, Detect, Sens zeigen (Remove
+        voices an, Voice-Zusatz da); fahrzeuge: Vehicle zeigen (Damp an).
+        Ohne den Knopf steht die Leiste auf Seite V."""
         self._audio_da = bool(an)
+        self._stimmen_da = bool(stimmen)
+        self._fahrzeuge_da = bool(fahrzeuge)
         if not self._audio_da and self._seite != "video":
             self._seite = "video"
             self.seiteGewechselt.emit(self._seite)
@@ -417,9 +435,12 @@ class VideoControlWidget(QWidget):
         self.ovl_button.setVisible(ovl and not audio)
         self.autocut_button.setVisible(edit and not audio and is_gpx_video_shift_set())
         # Seite A
-        self.voice_button.setVisible(audio)
-        self.find_button.setVisible(audio)
-        self.sens_button.setVisible(audio)
+        stimmen = audio and getattr(self, "_stimmen_da", True)
+        fahrzeuge = audio and getattr(self, "_fahrzeuge_da", True)
+        self.voice_button.setVisible(stimmen)
+        self.find_button.setVisible(stimmen)
+        self.sens_button.setVisible(stimmen)
+        self.vehicle_button.setVisible(fahrzeuge)
         if audio:
             self.markB_button.setToolTip("Mark the Begin of the stretch with voices")
             self.markE_button.setToolTip("Mark the End of the stretch with voices")

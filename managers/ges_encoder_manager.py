@@ -501,6 +501,7 @@ def _verkehr_setzen(tonclips, verkehr_cfg, quellen, timeline, log):
     # Effekt am Clip, wie der 360-Shader am Bild. audiocheblimit (audiofx,
     # im Bundle) ist ein Tschebyscheff-Filter; mode=low-pass, 4 Pole.
     fuell_hz = int(verkehr_cfg.get("fuell_hz") or 0)
+    fuell_anteil = verkehr_cfg.get("fuell_anteil", verkehr.FUELL_ANTEIL_VORGABE)
     tiefpass_fehler = []
 
     def tiefpass_anhaengen(clip):
@@ -519,19 +520,21 @@ def _verkehr_setzen(tonclips, verkehr_cfg, quellen, timeline, log):
     je_uri = {}
     for pfad, asset in zip(quellen.pfade, quellen.assets):
         # Traegt eine Ersatz-WAV den Ton (Voice Remover), haengen die
-        # Tonclips an IHREM Asset, und die Fundstellen wurden auf ihr
-        # gesucht (ges_xfade_main) - in IHRER Zeit, wie der inpoint der
-        # Tonclips. Sonst gilt die Quelldatei.
+        # Tonclips an IHREM Asset, und die Stellen gelten in IHRER Zeit
+        # (ges_xfade_main rechnet sie um), wie der inpoint der Tonclips.
+        # Die Fuellung kommt trotzdem aus der QUELLDATEI: die WAV traegt nur
+        # den behaltenen Bereich, das Stueck davor ist nicht darin.
+        # Je Eintrag: (ereignis, Asset fuer die Fuellung).
         liste = quellen.tonersatz_liste(asset)
         if liste:
             for _von, _bis, wav, ton in liste:
                 daten = analysen.get(wav)
                 if daten:
-                    je_uri[ton.get_id()] = daten.get("ereignisse") or []
+                    je_uri[ton.get_id()] = [(ev, asset) for ev in daten.get("ereignisse") or []]
         else:
             daten = analysen.get(pfad)
             if daten:
-                je_uri[asset.get_id()] = daten.get("ereignisse") or []
+                je_uri[asset.get_id()] = [(ev, asset) for ev in daten.get("ereignisse") or []]
     if daempfer <= 0 or not je_uri:
         return 0, 0, 0
 
@@ -555,7 +558,7 @@ def _verkehr_setzen(tonclips, verkehr_cfg, quellen, timeline, log):
             continue
         m_von = tc.inpoint / NS
         m_bis = (tc.inpoint + tc.dauer) / NS
-        for ev in ereignisse:
+        for ev, fuell_asset in ereignisse:
             if (ev["bis"] + verkehr.RAMPE_S <= m_von
                     or ev["von"] - verkehr.RAMPE_S >= m_bis):
                 continue
@@ -575,7 +578,7 @@ def _verkehr_setzen(tonclips, verkehr_cfg, quellen, timeline, log):
                 inpoint = int(round((q + (a - a_s)) * NS))
                 laenge = int(round((b - a) * NS))
                 eintrag = ebene_frei(start)
-                clip = eintrag[0].add_asset(tc.asset, start, inpoint, laenge,
+                clip = eintrag[0].add_asset(fuell_asset, start, inpoint, laenge,
                                             GES.TrackType.AUDIO)
                 if clip is None:
                     log(f"[TRAFFIC] fill clip at {start / NS:.2f}s could not "
@@ -583,9 +586,11 @@ def _verkehr_setzen(tonclips, verkehr_cfg, quellen, timeline, log):
                     continue
                 eintrag[1] = start + laenge
                 tiefpass_anhaengen(clip)
-                fc = _Tonclip(clip, start, inpoint, laenge, tc.asset, tc.rampen)
+                fc = _Tonclip(clip, start, inpoint, laenge, fuell_asset, tc.rampen)
                 fc.kurven.append([(tc.ausgabe(t), v)
-                                  for t, v in verkehr.gegenstueck(kurve)])
+                                  for t, v in verkehr.fuellpegel(
+                                      kurve, daempfer, fuell_anteil,
+                                      ev.get("fuellung_db", 0.0))])
                 fc.kurven.append([(tc.ausgabe(ev["von"] + t), v)
                                   for t, v in verkehr.fuellkurve(stuecke, i)])
                 neue.append(fc)
@@ -952,9 +957,10 @@ def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_
         f"{gesamt / NS:.6f}s at {breite}x{hoehe} @ {fps_n}/{fps_d}")
     if verkehr_cfg:
         hz = int(verkehr_cfg.get("fuell_hz") or 0)
-        log(f"[TRAFFIC] {stellen} spot(s) damped by up to "
+        log(f"[TRAFFIC] {stellen} spot(s) turned down by "
             f"{verkehr_cfg.get('daempfer_db')} dB, {fuellclips} fill clip(s) "
-            f"on {fuellebenen} layer(s), fill "
+            f"on {fuellebenen} layer(s) at "
+            f"{verkehr_cfg.get('fuell_anteil', verkehr.FUELL_ANTEIL_VORGABE)} %, "
             + (f"low-passed at {hz} Hz" if hz else "unfiltered"))
     return timeline, gesamt
 
@@ -1871,34 +1877,63 @@ def ges_xfade_main(cfg_path, abbruch=None):
         else:
             daempfer = int(cfg.get("traffic_db", verkehr.DAEMPFER_VORGABE_DB)
                            or verkehr.DAEMPFER_VORGABE_DB)
+            # Die Stellen setzt der Nutzer ("vehicle_regions": {pfad:
+            # [[von, bis, fuellung], ...]} in Sekunden der Datei, Seite A des
+            # Video-Controls) - kein Sucher, seit dem 10.09.2026 nacht.
+            # Ohne Stellen wird nichts gedaempft.
+            regionen = cfg.get("vehicle_regions") or {}
             analysen = {}
-            for pfad in videos:
-                # Mit Voice Remover: jede Ersatz-WAV einzeln abfahren, die
-                # Fundstellen gelten dann in der Zeit der WAV. Ohne: die
-                # Quelldatei als Ganzes.
-                if pfad in ersatz:
-                    laeufe = [(wav, f"{os.path.basename(pfad)} {von:.0f}-{bis:.0f}s")
-                              for von, bis, wav in ersatz[pfad]]
-                else:
-                    laeufe = [(pfad, os.path.basename(pfad))]
-                for datei, name in laeufe:
-                    if datei in analysen:
-                        continue
+            gesamt = 0
+            for pfad, (a_ns, b_ns) in zip(quellen.pfade, quellen.grenzen):
+                liste = regionen.get(pfad) or []
+                if not liste:
+                    continue
+                dauer_s = (b_ns - a_ns) / NS
+                stellen = []
+                for eintrag in liste:
                     try:
-                        analysen[datei] = verkehr.analyse(
-                            datei, log,
-                            _zehner_fortschritt(log, "[TRAFFIC]", name, "scanning"),
-                            abbruch, name=name)
-                    except verkehr.Abgebrochen:
-                        raise GesRenderAbgebrochen("Export stopped by user")
+                        von, bis = float(eintrag[0]), float(eintrag[1])
+                        art = str(eintrag[2]) if len(eintrag) > 2 else verkehr.FUELLUNG_VORGABE
+                    except (TypeError, ValueError, IndexError):
+                        continue
+                    if bis - von < verkehr.RAHMEN_S:
+                        continue
+                    stellen.append(verkehr.stelle_von_hand(von, bis, art, dauer_s))
+                gesamt += len(stellen)
+                if pfad in ersatz:
+                    # Der Ton kommt aus den Ersatz-WAVs des Voice Removers:
+                    # die Stellen gelten dort in der Zeit der WAV; die
+                    # Fuellung bleibt in der Zeit der Quelldatei, denn sie
+                    # wird aus der Quelldatei geholt (_verkehr_setzen).
+                    for w_von, w_bis, wav in ersatz[pfad]:
+                        in_wav = []
+                        for st in stellen:
+                            if st["bis"] <= w_von or st["von"] >= w_bis:
+                                continue
+                            kopie = dict(st)
+                            kopie["von"] = round(max(st["von"], w_von) - w_von, 3)
+                            kopie["bis"] = round(min(st["bis"], w_bis) - w_von, 3)
+                            in_wav.append(kopie)
+                        analysen[wav] = {"ereignisse": in_wav}
+                else:
+                    analysen[pfad] = {"ereignisse": stellen}
+                log(f"[TRAFFIC] {os.path.basename(pfad)}: {len(stellen)} vehicle "
+                    f"stretch(es) marked")
+            if gesamt == 0:
+                log("[TRAFFIC] no vehicle stretches marked - nothing to damp")
             try:
                 fuell_hz = int(cfg.get("traffic_fill_hz", verkehr.FUELL_TIEFPASS_VORGABE_HZ))
             except (TypeError, ValueError):
                 fuell_hz = verkehr.FUELL_TIEFPASS_VORGABE_HZ
             if fuell_hz and fuell_hz < verkehr.FUELL_TIEFPASS_MIN_HZ:
                 fuell_hz = verkehr.FUELL_TIEFPASS_MIN_HZ
+            try:
+                fuell_anteil = int(cfg.get("traffic_fill_pct", verkehr.FUELL_ANTEIL_VORGABE))
+            except (TypeError, ValueError):
+                fuell_anteil = verkehr.FUELL_ANTEIL_VORGABE
             verkehr_cfg = {"daempfer_db": daempfer, "analysen": analysen,
-                           "fuell_hz": min(fuell_hz, verkehr.FUELL_TIEFPASS_MAX_HZ)}
+                           "fuell_hz": min(fuell_hz, verkehr.FUELL_TIEFPASS_MAX_HZ),
+                           "fuell_anteil": max(0, min(100, fuell_anteil))}
 
     timeline, gesamt_ns = _timeline_bauen(quellen, skip_list, overlay_list,
                                           breite, hoehe, fps_n, fps_d, log,

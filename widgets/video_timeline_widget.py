@@ -81,10 +81,11 @@ class VideoTimelineWidget(QWidget):
     #: (nummer, rohzeit, globale Position). Das Fenster stellt das Menue
     #: zusammen - Merge-Fade an, aus, Laenge.
     nahtMenuRequested = Signal(int, float, object)
-    #: Rechtsklick auf eine Sprechstelle (Band des Voice Removers, ab 7.0):
-    #: (start, ende, globale Position). Das Fenster zeigt das Menue. Kommt
-    #: nur auf Seite A des Video-Controls (set_bearbeitung("audio")).
-    sprechstelleMenuRequested = Signal(float, float, object)
+    #: Rechtsklick auf ein Band (ab 7.0): (art, start, ende, globale
+    #: Position); art "voice" (Sprechstelle, orange) oder "vehicle"
+    #: (Fahrzeugstelle, blau). Das Fenster zeigt das Menue. Kommt nur auf
+    #: Seite A des Video-Controls (set_bearbeitung("audio")).
+    bandMenuRequested = Signal(str, float, float, object)
     #: Der Ansichtsknopf links oben wurde geschaltet: "off", "video",
     #: "audio", "beides". Das Fenster merkt sich das und holt Bilder.
     ansichtGewechselt = Signal(str)
@@ -138,7 +139,9 @@ class VideoTimelineWidget(QWidget):
         # (Baender des Voice Removers) werden in jedem Zustand gezeichnet.
         self._pegelkurve = []           # [(zeit_s, dB)]
         self._pegel_zeigen = False
+        self._pegel_hinweis = ""        # Text, solange die Kurve noch gelesen wird
         self._sprechstellen = []        # [(von_s, bis_s)] in Gesamtzeit
+        self._fahrzeugstellen = []      # [(von_s, bis_s)] in Gesamtzeit
         # Welche Seite das Video-Control zeigt: "video" - Rechtsklick
         # bedient Schnitt, Overlay, Naht; "audio" - nur die Sprechstellen.
         # So trifft man nie eine Aktion der anderen Seite.
@@ -1345,6 +1348,7 @@ class VideoTimelineWidget(QWidget):
         self._draw_vorschaubilder(painter, w, h, timeline_real_width)
         if self._pegel_zeigen:
             self._draw_pegelkurve(painter, w, h, timeline_real_width)
+            self._draw_pegel_hinweis(painter, w, h)
         self._draw_sprechstellen(painter, w, h, timeline_real_width)
         self._draw_time_ticks(painter, w, h, timeline_real_width)
         self._draw_boundaries_and_markers(painter, w, h, timeline_real_width)
@@ -1421,6 +1425,9 @@ class VideoTimelineWidget(QWidget):
     #: Farbe der Sprechstellen - dieselbe wie im Audio Zoom.
     SPRECHSTELLE_FARBE = QColor(255, 140, 0, 120)
     SPRECHSTELLE_RAND = QColor(255, 170, 60)
+    #: Fahrzeugstellen - dieselbe Farbe wie im Audio Zoom.
+    FAHRZEUG_FARBE = QColor(80, 160, 255, 120)
+    FAHRZEUG_RAND = QColor(120, 190, 255)
     #: Hoehe der Baender in Pixeln, ueber den Zeitmarken.
     SPRECHSTELLE_HOEHE = 6
 
@@ -1434,6 +1441,33 @@ class VideoTimelineWidget(QWidget):
         """Tonspur als Hintergrund, auch zusammen mit den Bildern."""
         self._pegel_zeigen = bool(an)
         self.update()
+
+    def set_pegel_hinweis(self, text: str):
+        """Hinweis in der Leiste, solange die Tonspur im Hintergrund gelesen
+        wird (leer: keiner). Gezeichnet nur in der Ton-Ansicht - der Nutzer
+        soll sehen, dass die Kurve kommt und warum sie dauert (Bernd,
+        11.09.2026)."""
+        text = text or ""
+        if text != self._pegel_hinweis:
+            self._pegel_hinweis = text
+            self.update()
+
+    def _draw_pegel_hinweis(self, painter, w, h):
+        if not self._pegel_hinweis:
+            return
+        from PySide6.QtGui import QPen, QBrush, QFontMetrics
+        fm = QFontMetrics(painter.font())
+        breite = min(w - 16, fm.horizontalAdvance(self._pegel_hinweis) + 16)
+        hoehe = fm.height() + 8
+        x = max(4, (w - breite) / 2)
+        y = max(2, (h - 14 - hoehe) / 2)
+        kasten = QRectF(x, y, breite, hoehe)
+        painter.setPen(QPen(QColor(0, 200, 220, 200), 1))
+        painter.setBrush(QBrush(QColor(20, 20, 20, 190)))
+        painter.drawRoundedRect(kasten, 4, 4)
+        painter.setPen(QPen(QColor(230, 230, 230)))
+        painter.drawText(kasten, Qt.AlignCenter, fm.elidedText(
+            self._pegel_hinweis, Qt.ElideRight, int(breite - 12)))
 
     # ---- Ansichtsknopf ---------------------------------------------------
     def ansicht(self) -> str:
@@ -1498,6 +1532,27 @@ class VideoTimelineWidget(QWidget):
                 return (a, b)
         return None
 
+    def set_fahrzeugstellen(self, stellen):
+        """stellen: Liste aus (von_s, bis_s) in Gesamtzeit - Fahrzeugstellen
+        (blau, eine Reihe ueber den Sprechstellen)."""
+        self._fahrzeugstellen = [(float(a), float(b)) for a, b in (stellen or [])]
+        self.update()
+
+    def band_bei(self, zeit_s):
+        """(art, von, bis) des Bandes unter der Zeit, oder None. Faehrt
+        eine Fahrzeugstelle ueber einer Sprechstelle, gewinnt das schmalere
+        Band - meist ist das die Fahrzeugstelle."""
+        treffer = []
+        for a, b in self._fahrzeugstellen:
+            if a <= zeit_s <= b:
+                treffer.append(("vehicle", a, b))
+        for a, b in self._sprechstellen:
+            if a <= zeit_s <= b:
+                treffer.append(("voice", a, b))
+        if not treffer:
+            return None
+        return min(treffer, key=lambda t: t[2] - t[1])
+
     def _draw_pegelkurve(self, painter, w, h, timeline_real_width):
         """Der Pegel als Flaeche von unten, je Pixelspalte der hoechste Wert
         im Zeitfenster der Spalte - wie im Audio Zoom, nur in Rohzeit der
@@ -1541,18 +1596,26 @@ class VideoTimelineWidget(QWidget):
     def _draw_sprechstellen(self, painter, w, h, timeline_real_width):
         """Die Sprechstellen als schmale Baender ueber den Zeitmarken - in
         jedem Zustand der Leiste, damit man sie auch mit Bildern sieht."""
-        if not self._sprechstellen or self.total_duration <= 0 or timeline_real_width <= 0:
+        if self.total_duration <= 0 or timeline_real_width <= 0:
+            return
+        if not self._sprechstellen and not self._fahrzeugstellen:
             return
         from PySide6.QtGui import QPen, QBrush
         y = h - 14 - self.SPRECHSTELLE_HOEHE
-        painter.setPen(QPen(self.SPRECHSTELLE_RAND, 1))
-        painter.setBrush(QBrush(self.SPRECHSTELLE_FARBE))
-        for a, b in self._sprechstellen:
-            xa = (a / self.total_duration) * timeline_real_width - self._horizontal_offset
-            xb = (b / self.total_duration) * timeline_real_width - self._horizontal_offset
-            if xb < 0 or xa > w:
-                continue
-            painter.drawRect(QRectF(xa, y, max(2.0, xb - xa), self.SPRECHSTELLE_HOEHE))
+        reihen = (
+            (self._sprechstellen, y, self.SPRECHSTELLE_FARBE, self.SPRECHSTELLE_RAND),
+            (self._fahrzeugstellen, y - self.SPRECHSTELLE_HOEHE - 2,
+             self.FAHRZEUG_FARBE, self.FAHRZEUG_RAND),
+        )
+        for stellen, yy, farbe, rand in reihen:
+            painter.setPen(QPen(rand, 1))
+            painter.setBrush(QBrush(farbe))
+            for a, b in stellen:
+                xa = (a / self.total_duration) * timeline_real_width - self._horizontal_offset
+                xb = (b / self.total_duration) * timeline_real_width - self._horizontal_offset
+                if xb < 0 or xa > w:
+                    continue
+                painter.drawRect(QRectF(xa, yy, max(2.0, xb - xa), self.SPRECHSTELLE_HOEHE))
 
     def _draw_time_ticks(self, painter, w, h, timeline_real_width):
         if self.total_duration <= 0 or timeline_real_width <= 0:
@@ -2040,14 +2103,14 @@ class VideoTimelineWidget(QWidget):
         # Seite A des Video-Controls: nur die Sprechstellen. Schnitt,
         # Overlay und Naht gehoeren zu Seite V und bleiben dort.
         if self._bearbeitung == "audio":
-            band = self.sprechstelle_bei(time_clicked)
+            band = self.band_bei(time_clicked)
             if band is None:
                 event.ignore()
                 return
-            self._markieren(band[0], band[1])
+            art, a, b = band
+            self._markieren(a, b)
             try:
-                self.sprechstelleMenuRequested.emit(band[0], band[1],
-                                                    event.globalPos())
+                self.bandMenuRequested.emit(art, a, b, event.globalPos())
             finally:
                 self._markieren(None)
             event.accept()

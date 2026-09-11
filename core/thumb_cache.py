@@ -161,6 +161,19 @@ class ThumbCache(QObject):
             self._reihenfolge.clear()
             self._offen.clear()
 
+    def anhalten(self, hoechstens_s=15.0):
+        """Den Ladefaden anhalten und WARTEN, bis er steht: die Auftraege
+        werden verworfen (die Bilder bleiben), das laufende Bild wird noch
+        fertig gelesen. Gebraucht, bevor der Audio-Scan dieselbe Datei
+        liest - zwei Leser auf einem externen Laufwerk machten aus 1 s
+        Scan 54 s (10.09.2026 nacht)."""
+        self._abbrechen = True
+        with self._sperre:
+            self._offen.clear()
+        faden = getattr(self, "_faden", None)
+        if faden is not None and faden.is_alive():
+            faden.join(hoechstens_s)
+
     # ------------------------------------------------------------------
     # Ladefaden
     # ------------------------------------------------------------------

@@ -35,18 +35,32 @@ the original sound (see Known).
 
 **Damp passing vehicles**
 
-A car or motorbike passing the camera is a mountain in the level: seconds
-above the noise of wind and tyres, a short top, down again. The scanner
-reads the sound track of each source file once (GStreamer's level element,
-100 ms frames, no model, no numpy), finds every such mountain against a
-rolling background level, and the export pulls each one down towards the
-background by at most the damper (Encoder Setup, "Damper (dB)", default
-12) while the nearest quiet stretch of the same file is laid over it as
-ride noise. The ride stays as loud as before, the vehicle moves into the
-distance. The treatment follows the method of Kinotomo Audio by
-benilerouge.org - the method only, no code. Scan results are cached under
-the temp folder by path, size and time of the file; the damper is applied
-at export time, so changing it costs no rescan.
+The treatment of Kinotomo Audio by benilerouge.org - the method only, no
+code: a stretch with a passing car or motorbike is turned down ("volume
+original", here "Damper (dB)", 3-30, default 12 = a quarter) and the ride
+noise from right next to it is laid over it ("volume added", here "Fill
+level" 0-100 %, default 100), one continuous piece of the same length, so
+wind and tyres stay and the vehicle recedes. With the fill at 100 the
+stretch stays about as loud as before and only the vehicle is gone; at 0
+it gets quieter by the damper, an audible dip. "Filter the fill" (off by
+default) keeps only the low part of the copied piece, in case the mount
+squeaks.
+
+Which stretches are treated is decided by ear, not by a scanner. Mark
+them on page A of the video control - `[-` and `-]` around the vehicle,
+then **Vehicle** - and they appear as blue bands in the timeline and the
+Audio Zoom. Right-click a band: **Listen …** renders 30 s before the
+stretch, the stretch as it will be exported and 30 s after, small and
+fast, and plays it in a window with Play, Stop and "Jump to stretch"
+(3 s before it);
+**Fill** chooses where the ride noise comes from - from before the
+stretch (default), from after it, or none; "Start and end …" moves it,
+"Remove" takes it away. Every change is on the Undo stack, the stretches
+are stored per file under `vehicle_regions` in the project file. Without
+marked stretches nothing is damped. An automatic scanner was built and
+measured during development: it finds loud passes, but on a windy or busy
+road it marks most of the ride and fills it with copies that do not belong
+there - a level meter cannot hear. It is not in the release.
 
 **Remove voices**
 
@@ -71,8 +85,11 @@ Runtime; a 250 Hz high-pass in front of it for wind on the microphone -
 for the search only, the exported sound is untouched), **Sens** sets its
 sensitivity 1-7 (1 clear speech only, 7 everything that might be, default
 3). The stretches are orange bands in the timeline; right-click one on
-page A for "Start and end…", "Remove stretch" and "Remove all stretches".
-Right-click on page V still means cut, overlay and join, nothing else.
+page A for "Listen …" (the stretch rendered as it will be exported, 10 s
+before and after, played in a small window), "Start and end…", "Remove
+stretch" and "Remove all". **Vehicle** marks a stretch for the traffic
+damper the same way, in blue - see "Damp passing vehicles". Right-click on
+page V still means cut, overlay and join, nothing else.
 Every change is on the Undo stack ("Voices marked", "Voices removed",
 "Voices detected"…). Stored per file in seconds of that file under
 `voice_regions` in the project file; exported as `voice_regions`, and the

@@ -62,8 +62,10 @@ FELDER = (
     # Verkehr daempfen (core/verkehr): an/aus und der Daempfer in dB.
     ("traffic", 0),
     ("traffic_db", 12),
-    # Tiefpass auf dem Fuellstueck in Hz, 0 = ungefiltert (verkehr.FUELL_*).
-    ("traffic_fill_hz", 1000),
+    # Pegel der Fuellung in Prozent (verkehr.FUELL_ANTEIL_VORGABE) und
+    # Tiefpass auf dem Fuellstueck in Hz, 0 = ungefiltert - wie Kinotomo: aus.
+    ("traffic_fill_pct", 100),
+    ("traffic_fill_hz", 0),
     # Stimmen entfernen (core/stimme): an/aus und das Modell ("mdx", "demucs").
     ("voice", 0),
     ("voice_model", "mdx"),

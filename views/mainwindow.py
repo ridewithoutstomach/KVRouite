@@ -39,6 +39,7 @@ import hashlib
 import statistics
 import fitparse
 import gc
+import threading
 
 
             
@@ -565,11 +566,36 @@ class MainWindow(QMainWindow):
         # Playlist / Keyframe-Daten
         self.playlist = []
         self.video_durations = []
+        # Tonspur im Hintergrund (ab 7.0, 11.09.2026): ein Faden liest die
+        # Pegelverlaeufe gleich nach dem Laden der Videos, die Oberflaeche
+        # sieht alle 250 ms nach - siehe _tonspur_hintergrund_starten.
+        self._tonspur_sperre = threading.Lock()
+        self._tonspur_faden = None
+        self._tonspur_offen = []        # noch zu lesende Pfade
+        self._tonspur_fertig = []       # gelesen, Kurve noch nicht nachgezogen
+        self._tonspur_aktuell = None    # Pfad, der gerade gelesen wird
+        self._tonspur_abbruch = False
+        self._tonspur_prozent = 0       # Fortschritt in der aktuellen Datei
+        self._tonspur_timer = QTimer(self)
+        self._tonspur_timer.setInterval(250)
+        self._tonspur_timer.timeout.connect(self._tonspur_nachsehen)
+        # Eigenes Feld rechts in der Statuszeile: showMessage() wird beim
+        # Laden von anderen Stellen wieder geloescht (clearMessage nach dem
+        # Vorrendern), der Hinweis stand dann gar nicht da (Bernd,
+        # 11.09.2026: "aktuell sehe ich naemlich null").
+        self._tonspur_label = QLabel("")
+        self._tonspur_label.hide()
+        self.statusBar().addPermanentWidget(self._tonspur_label)
         # Sprechstellen des Voice Removers (ab 7.0): je Videopfad eine Liste
         # [[von, bis], ...] in Sekunden DER DATEI. Gefunden vom Detektor
         # (stimmen_suchen) oder von Hand gesetzt; Projektdatei "voice_regions".
         # Der Export trennt nur dort - siehe ges_encoder_manager.
         self._sprechstellen = {}
+        # Fahrzeugstellen des Daempfers (ab 7.0), vom Nutzer gesetzt: je
+        # Videopfad [[von, bis, fuellung], ...] in Sekunden der Datei,
+        # fuellung "before"/"after"/"none" (core/verkehr.FUELLUNGEN).
+        # Projektdatei "vehicle_regions". Kein Sucher setzt sie.
+        self._fahrzeugstellen = {}
         # 360-Blickwinkel, ein Eintrag je Video - siehe _blick360_liste().
         self.view360_views = []
         # True, sobald ein Projekt den 360-Zustand mitgebracht hat. Dann
@@ -1249,7 +1275,7 @@ class MainWindow(QMainWindow):
         self.timeline.cutHardToggleRequested.connect(self._on_cut_hard_toggle)
         self.timeline.cutMenuRequested.connect(self._on_cut_menu)
         self.timeline.nahtMenuRequested.connect(self._on_naht_menu)
-        self.timeline.sprechstelleMenuRequested.connect(self._on_sprechstelle_menu)
+        self.timeline.bandMenuRequested.connect(self._on_band_menu)
         self.timeline.ansichtGewechselt.connect(self._timeline_ansicht_gewechselt)
         self.timeline.cutMoveRequested.connect(self._on_cut_move)
         # Entf auf einem ausgewaehlten Schnitt geht denselben Weg wie der
@@ -1406,7 +1432,7 @@ class MainWindow(QMainWindow):
         # Sprechstellen, zum Nachbessern. Ein Modul wie der Chart-Flow -
         # zum Start verdeckt, waehlbar in jedem umschaltbaren Fenster.
         self.audio_zoom = AudioZoomWidget(self._modul_reserve)
-        self.audio_zoom.bandEntfernen.connect(self._sprechstelle_entfernen)
+        self.audio_zoom.bandMenuRequested.connect(self._on_band_menu)
         self.audio_zoom.bandAnlegen.connect(self._sprechstelle_anlegen)
         self.audio_zoom.zeitGewaehlt.connect(self._on_timeline_marker_moved)
 
@@ -1416,11 +1442,10 @@ class MainWindow(QMainWindow):
             "flow":  ("Chart-Flow",  self.chart_flow),
             "gpx":   ("GPX Table", self.bottom_right_widget),
         }
-        # Der Audio Zoom dient den Sprechstellen - ohne Voice-Zusatz gibt es
-        # das Modul nicht. Die Ton-Ansicht der Zeitleiste dagegen ist reines
-        # GStreamer und bleibt auch in Lite.
-        if stimme.verfuegbar()[0]:
-            self._module["audio"] = ("Audio Zoom", self.audio_zoom)
+        # Der Audio Zoom zeigt Pegel, Sprech- und Fahrzeugstellen; Pegel und
+        # Fahrzeugstellen (Daempfer) sind reines GStreamer - das Modul gibt
+        # es deshalb auch in Lite.
+        self._module["audio"] = ("Audio Zoom", self.audio_zoom)
         self._slots["or"].inhalt_setzen("video", self.video_area_widget, "Video")
         self._slots["ol"].inhalt_setzen("map", self.map_area_widget, "Map")
         self._slots["ul"].inhalt_setzen("chart", self.chart, "Chart")
@@ -1603,6 +1628,7 @@ class MainWindow(QMainWindow):
         self.video_control.cutClicked.connect(self.on_cut_clicked_video)
         # Seite A des Video-Controls (Sprechstellen, ab 7.0).
         self.video_control.voiceClicked.connect(self._on_voice_button_clicked)
+        self.video_control.vehicleClicked.connect(self._on_vehicle_button_clicked)
         self.video_control.findVoicesClicked.connect(self._on_find_voices_clicked)
         self.video_control.sensitivityChanged.connect(self._on_sensitivity_changed)
         self.video_control.seiteGewechselt.connect(self.timeline.set_bearbeitung)
@@ -3666,6 +3692,10 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print("[WARN] window layout not saved:", e)
         try:
+            self._tonspur_hintergrund_anhalten()
+        except Exception as e:
+            print("[WARN] background audio scan not stopped:", e)
+        try:
             self.video_editor.shutdown_player()
         except Exception as e:
             print("[WARN] player not shut down:", e)
@@ -4290,13 +4320,15 @@ class MainWindow(QMainWindow):
         gemerkte Zustand hergestellt): Bilder holen oder verwerfen, die
         Tonspur nachziehen, merken."""
         QSettings("KVRouite", "KVRouite").setValue(self._TIMELINE_ANSICHT_KEY, name)
+        # Erst der Ton, dann die Bilder: beide lesen dieselbe Datei, und
+        # nebeneinander bremsen sie sich auf einem externen Laufwerk aus.
+        if self.timeline.audio_an() and getattr(self, "audio_zoom", None) is not None:
+            self._tonspur_holen()
+            self._sprechstellen_anzeigen()
         bilder = self.timeline.bilder_an()
         if bilder != getattr(self, "_bilder_vorher", None):
             self._bilder_vorher = bilder
             self._thumbs_umschalten(bilder)
-        if self.timeline.audio_an() and getattr(self, "audio_zoom", None) is not None:
-            self._tonspur_holen()
-            self._sprechstellen_anzeigen()
 
     def _tonspur_holen(self):
         """Die Ton-Ansicht braucht den Pegelverlauf: fehlt er fuer eine Datei
@@ -4306,11 +4338,173 @@ class MainWindow(QMainWindow):
         die Sprachwerte bleiben dort leer."""
         if not self.playlist:
             return
-        if all(verkehr.aus_cache(p) is not None for p in self.playlist):
+        if not any(verkehr.fehlende_bereiche(p, None) for p in self.playlist):
             return
-        if self._audio_abfahren("Sound track") is None:
+        # Ist "Audio" in den Encoder-Einstellungen an, liest der
+        # Hintergrundfaden die Tonspuren schon seit dem Laden der Videos -
+        # dann hier kein Dialog, die Kurve erscheint Datei fuer Datei
+        # (Bernd, 11.09.2026). Der Aufruf reiht nur nach, was noch fehlt.
+        if self._tonspur_im_hintergrund():
+            self._tonspur_hintergrund_starten()
+            return
+        # Solange gelesen wird, keine Vorschaubilder holen: beide lesen
+        # dieselbe Datei auf demselben (externen) Laufwerk, und das Springen
+        # zweier Leser in 4 GB machte aus 1 s Scan 54 s (scan.log,
+        # 10.09.2026 nacht).
+        # Waehrend des Scans darf der Bilderlader auch nicht neu anspringen:
+        # das Neuzeichnen der Zeitleiste stoesst ihn sonst wieder an
+        # (thumbs_anstossen, thumbs_grundstock pruefen _audio_scan_laeuft).
+        self._audio_scan_laeuft = True
+        try:
+            self._thumb_timer.stop()
+            self._thumbs.anhalten()
+            ergebnis = self._audio_abfahren("Sound track")
+        finally:
+            self._audio_scan_laeuft = False
+        if self.thumbs_an():
+            self.thumbs_anstossen(sofort=True)
+            QTimer.singleShot(0, self.thumbs_grundstock)
+        if ergebnis is None:
             self.statusBar().showMessage(
                 "Audio scan cancelled - the sound track stays empty.", 6000)
+
+    # ---- Tonspur im Hintergrund (11.09.2026) -------------------------------
+    def _tonspur_im_hintergrund(self) -> bool:
+        """Ob die Tonspuren ohne Dialog im Hintergrund gelesen werden: wenn
+        "Audio" in den Encoder-Einstellungen an ist (Bernd, 11.09.2026:
+        "wenn der user im config audio aktiviert hat")."""
+        s = QSettings("KVRouite", "KVRouite")
+        return bool(s.value("encoder/audio", 1, type=int))
+
+    def _tonspur_hintergrund_laeuft(self) -> bool:
+        faden = self._tonspur_faden
+        return faden is not None and faden.is_alive()
+
+    def _tonspur_hintergrund_starten(self):
+        """Alle Dateien der Videoliste, deren Pegelverlauf noch nicht im
+        Zwischenspeicher liegt, in einem Faden abfahren - ohne Dialog, gleich
+        nach dem Laden der Videos, nicht erst beim Umschalten auf die
+        Ton-Ansicht (Bernd, 11.09.2026).
+
+        Gemessen am 11.09.2026 frueh an einem 1-min-Clip vom USB-Laufwerk
+        (kalt, nicht im Dateicache): jedes Verfahren, das die Tonspur aus
+        dem MP4 liest, braucht die volle Plattenzeit - 3,4 s je Minute
+        Video, also ~40 s je 4-GB-Datei bei 100 MB/s -, auch Shotcuts
+        AudioLevelsTask (mit melt nachgebaut: liest die ganze Datei).
+        Shotcut ist beim Lesen nicht schneller, es blockiert dabei nur
+        nicht und zeigt die Kurve stueckweise. So auch hier: der Faden
+        legt jede fertige Datei in den Zwischenspeicher, _tonspur_nachsehen
+        zieht die Kurve Datei fuer Datei nach.
+
+        Der Bilderlader laeuft daneben weiter (Bernd, 11.09.2026: die
+        Vorschaubilder sollen da sein). Dass zwei Leser auf derselben Datei
+        sich auf einem externen Laufwerk bremsen (10.09.2026 nacht: 54 s
+        statt 1 s), ist bekannt und in Kauf genommen."""
+        if not self.playlist or not self._tonspur_im_hintergrund():
+            return
+        offen = [p for p in self.playlist if verkehr.fehlende_bereiche(p, None)]
+        with self._tonspur_sperre:
+            for p in offen:
+                # Nicht doppelt: was gerade gelesen wird oder eben fertig
+                # wurde, liegt noch nicht im Zwischenspeicher, zaehlt aber
+                # nicht als offen (sonst "1 more file" bei einer Datei und
+                # ein zweiter Lesedurchlauf - Bernd, 11.09.2026).
+                if (p not in self._tonspur_offen and p != self._tonspur_aktuell
+                        and p not in self._tonspur_fertig):
+                    self._tonspur_offen.append(p)
+            if not self._tonspur_offen or self._tonspur_hintergrund_laeuft():
+                return
+            self._tonspur_abbruch = False
+            self._tonspur_faden = threading.Thread(
+                target=self._tonspur_hintergrund_arbeit, daemon=True, name="tonspur")
+        self._tonspur_faden.start()
+        self._tonspur_timer.start()
+        self._tonspur_nachsehen()
+
+    def _tonspur_hintergrund_arbeit(self):
+        """Der Faden: eine Datei nach der anderen aus _tonspur_offen, das
+        Ergebnis landet im Zwischenspeicher (verkehr.analyse), der Pfad in
+        _tonspur_fertig. Keine Oberflaeche von hier aus - das macht
+        _tonspur_nachsehen im Hauptfaden."""
+        while True:
+            with self._tonspur_sperre:
+                if self._tonspur_abbruch or not self._tonspur_offen:
+                    self._tonspur_aktuell = None
+                    return
+                pfad = self._tonspur_offen.pop(0)
+                self._tonspur_aktuell = pfad
+                self._tonspur_prozent = 0
+
+            def fortschritt(prozent):
+                self._tonspur_prozent = int(prozent)
+
+            try:
+                verkehr.analyse(pfad, print, fortschritt, lambda: self._tonspur_abbruch)
+            except verkehr.Abgebrochen:
+                with self._tonspur_sperre:
+                    self._tonspur_aktuell = None
+                return
+            except Exception as exc:
+                print(f"[AUDIO] {os.path.basename(pfad)}: background scan failed: {exc}")
+            with self._tonspur_sperre:
+                self._tonspur_fertig.append(pfad)
+
+    def _tonspur_nachsehen(self):
+        """Alle 250 ms im Hauptfaden: fertige Dateien in die Kurve, den
+        Stand (Datei, Prozent, wie viele noch) ins Feld der Statuszeile."""
+        with self._tonspur_sperre:
+            fertig = self._tonspur_fertig[:]
+            self._tonspur_fertig.clear()
+            aktuell = self._tonspur_aktuell
+            prozent = self._tonspur_prozent
+            offen = len(self._tonspur_offen)
+            laeuft = self._tonspur_hintergrund_laeuft()
+        if fertig:
+            self._tonspur_kurve_nachziehen()
+        if laeuft:
+            if aktuell:
+                text = f"Reading sound track: {os.path.basename(aktuell)} {prozent}%"
+                if offen:
+                    text += f"  (+{offen} more)"
+                self._tonspur_label.setText(text)
+                self._tonspur_label.show()
+                # Auch in der Leiste selbst, solange die Kurve fehlt oder
+                # waechst - sonst sieht die Ton-Ansicht nur leer aus.
+                self.timeline.set_pegel_hinweis(
+                    "Reading the sound tracks - this can take a while depending "
+                    f"on the drive. {os.path.basename(aktuell)} {prozent}%"
+                    + (f", {offen} more file(s) to go" if offen else ""))
+            return
+        self._tonspur_timer.stop()
+        self._tonspur_label.hide()
+        self.timeline.set_pegel_hinweis("")
+        if not self._tonspur_abbruch:
+            self.statusBar().showMessage("Sound track read.", 4000)
+        self._tonspur_kurve_nachziehen()
+
+    def _tonspur_kurve_nachziehen(self):
+        """Die Kurve aus dem Zwischenspeicher neu an Zeitleiste und Audio
+        Zoom geben - nur, wenn eine der beiden sie gerade zeigt."""
+        if getattr(self, "audio_zoom", None) is None or not self.playlist:
+            return
+        if self.timeline.audio_an() or self.audio_zoom.isVisible():
+            kurve = self._pegelkurve_global()
+            self.timeline.set_pegelkurve(kurve)
+            self.audio_zoom.set_pegelkurve(kurve)
+
+    def _tonspur_hintergrund_anhalten(self, hoechstens_s=5.0):
+        """Den Faden anhalten und warten, bis er steht (pegel_messen fragt
+        alle 200 ms nach). Vor jedem Dialog-Scan (_audio_abfahren), vor
+        "New Project" und beim Schliessen - zwei Leser auf einer Datei darf
+        es nicht geben."""
+        with self._tonspur_sperre:
+            self._tonspur_offen.clear()
+            self._tonspur_abbruch = True
+            faden = self._tonspur_faden
+        if faden is not None and faden.is_alive():
+            faden.join(hoechstens_s)
+        if self._tonspur_timer.isActive():
+            self._tonspur_nachsehen()
 
     def _thumbs_umschalten(self, an: bool):
         """Vorschaubilder holen oder verwerfen.
@@ -4406,7 +4600,7 @@ class MainWindow(QMainWindow):
 
     def _thumbs_nachladen(self):
         """Fehlende Bilder anfordern und zeichnen, was schon da ist."""
-        if not self.thumbs_an():
+        if not self.thumbs_an() or getattr(self, "_audio_scan_laeuft", False):
             return
         stellen = self._thumb_stellen()
         if not stellen:
@@ -4437,7 +4631,7 @@ class MainWindow(QMainWindow):
 
     def thumbs_anstossen(self, sofort: bool = False):
         """Nachladen anstossen - verzoegert, damit Zoomen fluessig bleibt."""
-        if not self.thumbs_an():
+        if not self.thumbs_an() or getattr(self, "_audio_scan_laeuft", False):
             return
         if sofort:
             self._thumb_timer.stop()
@@ -4457,7 +4651,7 @@ class MainWindow(QMainWindow):
         Die Bilder sind zugleich das groebste Raster - beim Herauszoomen
         werden genau sie gebraucht, es ist also nichts verschenkt.
         """
-        if not self.thumbs_an():
+        if not self.thumbs_an() or getattr(self, "_audio_scan_laeuft", False):
             return
         dauern = getattr(self, "video_durations", None) or []
         dateien = getattr(self, "playlist", None) or []
@@ -4691,6 +4885,111 @@ class MainWindow(QMainWindow):
                 for pfad, stellen in self._sprechstellen.items()
                 if stellen and pfad in self.playlist}
 
+    # ---- Fahrzeugstellen: dieselbe Mechanik, mit Fuellart je Stelle ----
+    def _fahrzeugstellen_global(self):
+        """[(von, bis, fuellung)] in Gesamtzeit, sortiert."""
+        liste = []
+        for pfad, stellen in self._fahrzeugstellen.items():
+            versatz = self._datei_versatz(pfad)
+            if versatz is None:
+                continue
+            for eintrag in stellen:
+                von, bis = float(eintrag[0]), float(eintrag[1])
+                art = eintrag[2] if len(eintrag) > 2 else verkehr.FUELLUNG_VORGABE
+                liste.append((versatz + von, versatz + bis, art))
+        liste.sort()
+        return liste
+
+    def _fahrzeugstellen_export(self):
+        return {pfad: [[round(float(e[0]), 3), round(float(e[1]), 3),
+                        e[2] if len(e) > 2 else verkehr.FUELLUNG_VORGABE] for e in stellen]
+                for pfad, stellen in self._fahrzeugstellen.items()
+                if stellen and pfad in self.playlist}
+
+    def _fahrzeugstelle_finden(self, von_s, bis_s):
+        """(pfad, eintrag) der Stelle, die in Gesamtzeit bei von..bis liegt."""
+        pfad, lokal = self._global_zu_datei((von_s + bis_s) / 2.0)
+        for eintrag in self._fahrzeugstellen.get(pfad) or []:
+            if eintrag[0] <= lokal <= eintrag[1]:
+                return pfad, eintrag
+        return pfad, None
+
+    def _fahrzeugstelle_entfernen(self, von_s, bis_s, merken=True):
+        pfad, eintrag = self._fahrzeugstelle_finden(von_s, bis_s)
+        if eintrag is None:
+            return
+        if merken:
+            self._sprechstellen_undo_merken("Vehicle removed")
+        rest = [e for e in self._fahrzeugstellen.get(pfad, []) if e is not eintrag]
+        if rest:
+            self._fahrzeugstellen[pfad] = rest
+        else:
+            self._fahrzeugstellen.pop(pfad, None)
+        self._sprechstellen_anzeigen()
+
+    def _fahrzeugstelle_anlegen(self, von_s, bis_s, fuellung=None, merken=True):
+        """Neue Fahrzeugstelle in Gesamtzeit; ueber eine Naht hinweg wird
+        sie je Datei geteilt. Ueberlappende Stellen werden verschmolzen, die
+        Fuellart der neuen gilt."""
+        if bis_s - von_s < 0.2 or not self.playlist:
+            return
+        fuellung = fuellung or verkehr.FUELLUNG_VORGABE
+        if merken:
+            self._sprechstellen_undo_merken("Vehicle marked")
+        versatz = 0.0
+        for pfad, dauer in zip(self.playlist, self.video_durations):
+            a = max(von_s, versatz) - versatz
+            b = min(bis_s, versatz + dauer) - versatz
+            versatz += dauer
+            if b - a < 0.05:
+                continue
+            liste = sorted((self._fahrzeugstellen.get(pfad) or []) + [[a, b, fuellung]],
+                           key=lambda e: e[0])
+            neu = []
+            for e in liste:
+                if neu and e[0] <= neu[-1][1]:
+                    neu[-1][1] = max(neu[-1][1], e[1])
+                    if e[0] == a and e[1] == b:
+                        neu[-1][2] = fuellung
+                else:
+                    neu.append([float(e[0]), float(e[1]),
+                                e[2] if len(e) > 2 else verkehr.FUELLUNG_VORGABE])
+            self._fahrzeugstellen[pfad] = neu
+        self._sprechstellen_anzeigen()
+
+    def _fahrzeugstelle_fuellung_setzen(self, von_s, bis_s, fuellung):
+        pfad, eintrag = self._fahrzeugstelle_finden(von_s, bis_s)
+        if eintrag is None or fuellung not in verkehr.FUELLUNGEN:
+            return
+        self._sprechstellen_undo_merken("Vehicle fill changed")
+        if len(eintrag) > 2:
+            eintrag[2] = fuellung
+        else:
+            eintrag.append(fuellung)
+        self._sprechstellen_anzeigen()
+
+    def _on_vehicle_button_clicked(self):
+        """Knopf "Vehicle" auf Seite A: der Bereich [- bis -] wird eine
+        Fahrzeugstelle - wie "Voice"."""
+        von, bis = self.timeline.markB_time_s, self.timeline.markE_time_s
+        if von is None or bis is None or von < 0 or bis < 0:
+            QMessageBox.information(
+                self, "Vehicle",
+                "Mark the stretch first: [- at its begin, -] at its end.")
+            return
+        if bis - von < 0.2:
+            QMessageBox.information(
+                self, "Vehicle", "The end must lie behind the start.")
+            return
+        self._fahrzeugstelle_anlegen(float(von), float(bis))
+        self.cut_manager.on_markClear_clicked()
+        self.timeline.set_markB_time(-1)
+        self.timeline.set_markE_time(-1)
+        self.on_deselect_clicked()
+        self.statusBar().showMessage(
+            "Vehicle %s - %s marked - right-click the band to listen"
+            % (self._sek_kurz(von), self._sek_kurz(bis)), 6000)
+
     def _schnitte_global(self):
         """Die Schnitte als [(von, bis)] in Gesamtzeit, oder []."""
         try:
@@ -4722,33 +5021,55 @@ class MainWindow(QMainWindow):
             if versatz is None or daten is None:
                 continue
             for i, db in enumerate(daten.get("pegel") or []):
-                punkte.append((versatz + i * verkehr.RAHMEN_S, float(db)))
+                if db is not None:     # None: nicht abgefahren
+                    punkte.append((versatz + i * verkehr.RAHMEN_S, float(db)))
         return punkte
 
-    def sprechstellen_bedienbar(self) -> bool:
-        """Ob Seite A und die Baender ueberhaupt zu sehen sind: nur im
-        Encode-Mode, mit Voice-Zusatz (Lite: nie), und wenn im Encoder Setup
-        "Remove voices" an ist. Sonst ergibt Markieren keinen Sinn (Bernd,
-        10.09.2026: "dann darf ich das ganze Audio-Gedoens eigentlich nicht
-        sehen"). Die Stellen selbst bleiben gespeichert."""
+    def _seite_a_flags(self):
+        """(stimmen, fahrzeuge): was auf Seite A bedienbar ist. Stimmen nur
+        im Encode-Mode mit Voice-Zusatz (Lite: nie) und "Remove voices" an;
+        Fahrzeuge im Encode-Mode mit "Damp passing vehicles" an - auch in
+        Lite, der Daempfer ist reines GStreamer. Sonst ergibt Markieren
+        keinen Sinn (Bernd, 10.09.2026: "dann darf ich das ganze
+        Audio-Gedoens eigentlich nicht sehen"). Die Stellen selbst bleiben
+        gespeichert."""
         if getattr(self, "_edit_mode", "") != "encode":
-            return False
-        if not stimme.verfuegbar()[0]:
-            return False
-        return bool(QSettings("KVRouite", "KVRouite").value("encoder/voice", 0, type=int))
+            return False, False
+        s = QSettings("KVRouite", "KVRouite")
+        stimmen = stimme.verfuegbar()[0] and bool(s.value("encoder/voice", 0, type=int))
+        fahrzeuge = bool(s.value("encoder/traffic", 0, type=int))
+        return stimmen, fahrzeuge
+
+    def sprechstellen_bedienbar(self) -> bool:
+        """Ob Seite A ueberhaupt zu sehen ist (Stimmen oder Fahrzeuge)."""
+        stimmen, fahrzeuge = self._seite_a_flags()
+        return stimmen or fahrzeuge
 
     def _sprechstellen_bedienung_nachziehen(self):
-        """Seite A des Video-Controls und die Baender an den Schalter
-        "Remove voices" haengen."""
-        self.video_control.voice_seite_anbieten(self.sprechstellen_bedienbar())
+        """Seite A des Video-Controls und die Baender an die Schalter
+        "Remove voices" und "Damp passing vehicles" haengen."""
+        stimmen, fahrzeuge = self._seite_a_flags()
+        self.video_control.voice_seite_anbieten(stimmen or fahrzeuge, stimmen, fahrzeuge)
         self._sprechstellen_anzeigen()
 
     def _sprechstellen_anzeigen(self):
         """Zeitleiste und Audio Zoom nachziehen. Ohne eingeschalteten Voice
         Remover bleiben die Baender unsichtbar (sprechstellen_bedienbar)."""
-        stellen = self._sprechstellen_global() if self.sprechstellen_bedienbar() else []
+        stimmen_an, fahrzeuge_an = self._seite_a_flags()
+        if not self.sprechstellen_bedienbar():
+            # Der Smoke-Test und alte Aufrufer schalten ueber diese eine
+            # Funktion; ist sie wahr, aber keiner der Schalter gesetzt,
+            # zeigen wir beides.
+            stimmen_an = fahrzeuge_an = False
+        elif not (stimmen_an or fahrzeuge_an):
+            stimmen_an = fahrzeuge_an = True
+        stellen = self._sprechstellen_global() if stimmen_an else []
         self.timeline.set_sprechstellen(stellen)
         self.audio_zoom.set_sprechstellen(stellen)
+        fahrzeuge = ([(a, b) for a, b, _f in self._fahrzeugstellen_global()]
+                     if fahrzeuge_an else [])
+        self.timeline.set_fahrzeugstellen(fahrzeuge)
+        self.audio_zoom.set_fahrzeugstellen(fahrzeuge)
         self.audio_zoom.set_schnitte(self._schnitte_global())
         self.audio_zoom.set_gesamt(sum(self.video_durations))
         if not self.playlist:
@@ -4781,6 +5102,25 @@ class MainWindow(QMainWindow):
                         sauber.append([a, b])
                 if sauber:
                     self._sprechstellen[pfad] = sorted(sauber)
+        # "vehicle_regions": [[von, bis, fuellung], ...] je Datei.
+        daten = project_data.get("vehicle_regions")
+        self._fahrzeugstellen = {}
+        if isinstance(daten, dict):
+            for pfad, stellen in daten.items():
+                if pfad not in self.playlist:
+                    continue
+                sauber = []
+                for eintrag in stellen or []:
+                    try:
+                        a, b = float(eintrag[0]), float(eintrag[1])
+                    except (TypeError, ValueError, IndexError):
+                        continue
+                    art = eintrag[2] if len(eintrag) > 2 and eintrag[2] in verkehr.FUELLUNGEN \
+                        else verkehr.FUELLUNG_VORGABE
+                    if b > a >= 0:
+                        sauber.append([a, b, art])
+                if sauber:
+                    self._fahrzeugstellen[pfad] = sorted(sauber, key=lambda e: e[0])
         self._sprechstellen_anzeigen()
 
     def stimmen_suchen(self, empfindlichkeit):
@@ -4800,7 +5140,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Detect voices", "Detector not available: " + grund)
             return (0, 0.0)
         empfindlichkeit = max(1, min(sprache.EMPFINDLICHKEIT_MAX, int(empfindlichkeit)))
-        alle = self._audio_abfahren("Detect voices")
+        alle = self._audio_abfahren("Detect voices", mit_sprache=True)
         if alle is None:
             return None
         gefunden = {}
@@ -4811,6 +5151,8 @@ class MainWindow(QMainWindow):
                 print(f"[VOICE] {name}: no speech probabilities - detector "
                       f"not available while scanning")
                 continue
+            # None, wo nicht abgefahren wurde (weggeschnitten): keine Sprache.
+            werte = [0.0 if w is None else w for w in werte]
             stellen = sprache.stellen(werte, empfindlichkeit, daten.get("dauer"))
             if stellen:
                 gefunden[pfad] = [[float(a), float(b)] for a, b in stellen]
@@ -4821,47 +5163,97 @@ class MainWindow(QMainWindow):
         self._sprechstellen_anzeigen()
         return self._sprechstellen_summe()
 
-    def _audio_abfahren(self, titel):
+    def _audio_abfahren(self, titel, mit_sprache=False):
         """Die Tonspur jeder Datei der Videoliste abfahren (core/verkehr:
         Pegel und Sprachwerte, aus dem Zwischenspeicher wenn schon
         geschehen), mit Fortschrittsdialog. Rueckgabe {pfad: daten} oder
         None bei Abbruch. Gemeinsamer Unterbau von "Detect" und der
         Ton-Ansicht der Zeitleiste."""
         from PySide6.QtWidgets import QProgressDialog, QApplication
-        offen = [p for p in self.playlist if verkehr.aus_cache(p) is None]
+        # Liest der Hintergrundfaden gerade, erst anhalten - sonst lesen
+        # zwei auf derselben Datei (11.09.2026).
+        self._tonspur_hintergrund_anhalten()
+        # Die ganze Datei: seit der Scan nur die Tonspur aus dem MP4 liest
+        # (verkehr.pegel_messen), ist das eine Sekunde je Datei, und die
+        # Kurve gilt dann ueberall, auch nach einem anderen Schnitt.
+        gebraucht = {}
+        offen = [p for p in self.playlist
+                 if verkehr.fehlende_bereiche(p, None, mit_sprache)]
         ergebnis = {}
         if not offen:
             for pfad in self.playlist:
-                ergebnis[pfad] = verkehr.aus_cache(pfad)
+                ergebnis[pfad] = verkehr.analyse(pfad, bereiche=gebraucht.get(pfad),
+                                                 mit_sprache=mit_sprache)
             return ergebnis
         dialog = QProgressDialog("Scanning the audio...", "Cancel", 0,
                                  100 * len(offen), self)
         dialog.setWindowTitle(titel)
         dialog.setWindowModality(Qt.WindowModal)
         dialog.setMinimumDuration(0)
+        # Kein Selbstzuruecksetzen: die Tonspur meldet 100 %, bevor der
+        # Sprachdetektor rechnet. Mit autoReset versteckte sich der Dialog
+        # bei 100 % und kam mit dem naechsten Wert 50 ms spaeter wieder -
+        # sekundenlanges Flackern eines leeren Rahmens (Bernd, 11.09.2026).
+        dialog.setAutoReset(False)
+        dialog.setAutoClose(False)
         dialog.setValue(0)
         QApplication.processEvents()
 
+        # Der Scan laeuft in einem eigenen Faden. Im Hauptfaden stritt er
+        # sich bei jedem Fortschrittsschritt und jeder Abbruchfrage mit der
+        # Oberflaeche um den Interpreter: 4,5 s Arbeit wurden zu einer
+        # Minute (Bernd, 10.09.2026 nacht, "eine halbe Ewigkeit"). Hier
+        # meldet der Faden nur Zahlen, das Fenster liest sie alle 50 ms.
+        import threading
+        import time as _time
+        stand = {"prozent": 0, "abbruch": False}
+
+        def fortschritt(prozent):
+            stand["prozent"] = int(prozent)
+
         def abbruch():
-            QApplication.processEvents()
-            return dialog.wasCanceled()
+            return stand["abbruch"]
 
         try:
             nr = 0
             for pfad in self.playlist:
                 name = os.path.basename(pfad)
-                daten = verkehr.aus_cache(pfad)
-                if daten is None:
+                if pfad in offen:
                     dialog.setLabelText(f"{name}: scanning the audio track...")
+                    stand["prozent"] = 0
+                    kiste = {}
 
-                    def fortschritt(prozent, _nr=nr):
-                        dialog.setValue(_nr * 100 + int(prozent))
+                    def arbeit(_pfad=pfad):
+                        try:
+                            kiste["daten"] = verkehr.analyse(
+                                _pfad, print, fortschritt, abbruch,
+                                bereiche=gebraucht.get(_pfad),
+                                mit_sprache=mit_sprache)
+                        except BaseException as exc:      # auch Abgebrochen
+                            kiste["fehler"] = exc
+
+                    faden = threading.Thread(target=arbeit, daemon=True)
+                    faden.start()
+                    detektor_gemeldet = False
+                    while faden.is_alive():
+                        if (mit_sprache and stand["prozent"] >= 100
+                                and not detektor_gemeldet):
+                            detektor_gemeldet = True
+                            dialog.setLabelText(f"{name}: detecting voices...")
+                        dialog.setValue(nr * 100 + stand["prozent"])
                         QApplication.processEvents()
-
-                    daten = verkehr.analyse(pfad, print, fortschritt, abbruch)
+                        if dialog.wasCanceled():
+                            stand["abbruch"] = True
+                        _time.sleep(0.05)
                     nr += 1
-                    if dialog.wasCanceled():
+                    if stand["abbruch"] or isinstance(kiste.get("fehler"), verkehr.Abgebrochen):
                         return None
+                    if "fehler" in kiste:
+                        raise kiste["fehler"]
+                    daten = kiste["daten"]
+                else:
+                    daten = verkehr.analyse(pfad, bereiche=gebraucht.get(pfad),
+                                            mit_sprache=mit_sprache)
                 ergebnis[pfad] = daten
         except verkehr.Abgebrochen:
             return None
@@ -4873,15 +5265,38 @@ class MainWindow(QMainWindow):
             dialog.close()
         return ergebnis
 
+    def _behaltene_bereiche_je_datei(self):
+        """{pfad: [(von, bis)]} in Sekunden der Datei - was nach den
+        Schnitten im Video bleibt. Ohne Schnitte die ganze Datei."""
+        gesamt = float(sum(self.video_durations))
+        if gesamt <= 0:
+            return {}
+        behalten = self._compute_keep_intervals(self._schnitte_global(), gesamt)
+        ergebnis = {}
+        versatz = 0.0
+        for pfad, dauer in zip(self.playlist, self.video_durations):
+            liste = []
+            for a, b in behalten:
+                von, bis = max(a, versatz) - versatz, min(b, versatz + dauer) - versatz
+                if bis - von > 0:
+                    liste.append((von, bis))
+            if liste:
+                ergebnis[pfad] = liste
+            versatz += dauer
+        return ergebnis
+
     def _sprechstellen_undo_merken(self, name):
         """Den Stand der Sprechstellen vor einer Aenderung auf den
         Strg+Z-Stapel legen - in derselben Reihe wie Schnitte, Overlays und
         GPX-Aenderungen (Bernd, 10.09.2026: Voice fehlte im Undo-Verlauf)."""
         stand = {pfad: [list(s) for s in stellen]
                  for pfad, stellen in self._sprechstellen.items()}
+        stand_f = {pfad: [list(s) for s in stellen]
+                   for pfad, stellen in self._fahrzeugstellen.items()}
 
         def zuruecknehmen():
             self._sprechstellen = stand
+            self._fahrzeugstellen = stand_f
             self._sprechstellen_anzeigen()
 
         self._undo_ablegen(zuruecknehmen, name)
@@ -4925,38 +5340,149 @@ class MainWindow(QMainWindow):
             self._sprechstellen[pfad] = neu
         self._sprechstellen_anzeigen()
 
-    def _on_sprechstelle_menu(self, von_s, bis_s, global_pos):
-        """Rechtsklick auf ein Band in der Zeitleiste (Seite A) - gebaut
-        wie das Menue eines Overlays."""
+    def _on_band_menu(self, art, von_s, bis_s, global_pos):
+        """Rechtsklick auf ein Band (Zeitleiste oder Audio Zoom, Seite A) -
+        gebaut wie das Menue eines Overlays. art "voice" oder "vehicle"."""
         from PySide6.QtWidgets import QMenu
+        from PySide6.QtGui import QActionGroup
+        fahrzeug = art == "vehicle"
         menue = QMenu(self)
         titel = menue.addAction(
-            "Voices %s - %s  (%.1fs)"
-            % (self._sek_kurz(von_s), self._sek_kurz(bis_s), bis_s - von_s))
+            "%s %s - %s  (%.1fs)"
+            % ("Vehicle" if fahrzeug else "Voices",
+               self._sek_kurz(von_s), self._sek_kurz(bis_s), bis_s - von_s))
         titel.setEnabled(False)
+        menue.addSeparator()
+        a_hoeren = menue.addAction("Listen …  (30 s before and after, as exported)")
+        fuell_aktionen = {}
+        if fahrzeug:
+            _pfad, eintrag = self._fahrzeugstelle_finden(von_s, bis_s)
+            jetzt = (eintrag[2] if eintrag is not None and len(eintrag) > 2
+                     else verkehr.FUELLUNG_VORGABE)
+            menue.addSeparator()
+            gruppe = QActionGroup(menue)
+            for wert, text in (("before", "Fill: ride noise from before the stretch"),
+                               ("after", "Fill: ride noise from after the stretch"),
+                               ("none", "Fill: none - only turn it down")):
+                a = menue.addAction(text)
+                a.setCheckable(True)
+                a.setChecked(wert == jetzt)
+                gruppe.addAction(a)
+                fuell_aktionen[a] = wert
         menue.addSeparator()
         a_zeit = menue.addAction("Start and end …")
         menue.addSeparator()
         a_weg = menue.addAction("Remove stretch")
-        a_alle = menue.addAction("Remove all stretches")
+        a_alle = menue.addAction("Remove all vehicle stretches" if fahrzeug
+                                 else "Remove all voice stretches")
         gewaehlt = menue.exec(global_pos)
-        if gewaehlt is a_weg:
-            self._sprechstelle_entfernen(von_s, bis_s)
+        if gewaehlt is None:
+            return
+        if gewaehlt is a_hoeren:
+            self._stelle_anhoeren(art, von_s, bis_s)
+        elif gewaehlt in fuell_aktionen:
+            self._fahrzeugstelle_fuellung_setzen(von_s, bis_s, fuell_aktionen[gewaehlt])
+        elif gewaehlt is a_weg:
+            if fahrzeug:
+                self._fahrzeugstelle_entfernen(von_s, bis_s)
+            else:
+                self._sprechstelle_entfernen(von_s, bis_s)
         elif gewaehlt is a_zeit:
-            self._sprechstelle_zeit_dialog(von_s, bis_s)
+            self._sprechstelle_zeit_dialog(von_s, bis_s, art)
         elif gewaehlt is a_alle:
-            anzahl, _sek = self._sprechstellen_summe()
+            if fahrzeug:
+                anzahl = len(self._fahrzeugstellen_global())
+                frage = "Remove all %d marked vehicle stretches?" % anzahl
+            else:
+                anzahl, _sek = self._sprechstellen_summe()
+                frage = "Remove all %d marked stretches with voices?" % anzahl
             antwort = QMessageBox.question(
-                self, "Remove all stretches?",
-                "Remove all %d marked stretches with voices?" % anzahl,
+                self, "Remove all stretches?", frage,
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if antwort == QMessageBox.Yes:
-                self._sprechstellen_undo_merken("All voices removed")
-                self._sprechstellen = {}
+                self._sprechstellen_undo_merken(
+                    "All vehicles removed" if fahrzeug else "All voices removed")
+                if fahrzeug:
+                    self._fahrzeugstellen = {}
+                else:
+                    self._sprechstellen = {}
                 self._sprechstellen_anzeigen()
 
-    def _sprechstelle_zeit_dialog(self, von_s, bis_s):
-        """Anfang und Ende einer Sprechstelle als Zahlen (Gesamtzeit)."""
+    def _stelle_anhoeren(self, art, von_s, bis_s):
+        """"Listen …": den Ausschnitt 10 s vor bis 10 s nach der Stelle so
+        rendern, wie der Export es taete (Schnitte, Daempfer, Voice Remover
+        in den Stellen), klein und schnell, und im Abhoerfenster abspielen.
+        Nur so laesst sich entscheiden, ob die Stelle sitzt und die Fuellung
+        taugt (Bernd, 10.09.2026 nacht)."""
+        from views.anhoeren_dialog import AnhoerenDialog
+        gesamt = float(sum(self.video_durations))
+        if gesamt <= 0:
+            return
+        # 30 s Luft auf beiden Seiten (Bernd, 10.09.2026 nacht: 10 waren zu
+        # wenig); "Jump to stretch" im Abhoerfenster springt 3 s davor.
+        RAND = 30.0
+        a = max(0.0, von_s - RAND)
+        b = min(gesamt, bis_s + RAND)
+        s = QSettings("KVRouite", "KVRouite")
+        # Schnitte wie im Export, hart, und alles ausserhalb des Fensters weg.
+        skips = []
+        for cs, ce in sorted(self._schnitte_global()):
+            cs, ce = max(cs, a), min(ce, b)
+            if ce - cs > 0.05:
+                skips.append([cs, ce, 0])
+        if a > 0.0:
+            skips.append([0.0, a, -2])
+        if b < gesamt:
+            skips.append([b, gesamt, -1])
+        skips.sort()
+        cfg = {
+            "videos": list(self.playlist),
+            "skip_instructions": skips,
+            "merge_fades": [],
+            "overlay_instructions": [],
+            "final_output": os.path.join(tempfile.gettempdir(), "kvrouite_listen.mp4"),
+            "hardware_encode": "none", "encoder": "libx264", "crf": 30,
+            "fps": framerate.als_text(*framerate.parsen(s.value("encoder/fps", "30", type=str))),
+            "width": 320, "preset": "ultrafast",
+            "audio": True,
+            "audio_kbps": s.value("encoder/audio_kbps", 128, type=int),
+            "traffic": art == "vehicle" or bool(s.value("encoder/traffic", 0, type=int)),
+            "traffic_db": s.value("encoder/traffic_db", 12, type=int),
+            "traffic_fill_pct": s.value("encoder/traffic_fill_pct", 100, type=int),
+            "traffic_fill_hz": s.value("encoder/traffic_fill_hz", 0, type=int),
+            "voice": art == "voice" or bool(s.value("encoder/voice", 0, type=int)),
+            "voice_model": s.value("encoder/voice_model", "mdx", type=str),
+            "voice_regions": self._sprechstellen_export(),
+            "vehicle_regions": self._fahrzeugstellen_export(),
+            "view360": {"enabled": False, "views": []},
+        }
+        # Zwischenspeicher: der Schluessel ist alles, was den Ausschnitt
+        # bestimmt (Dateien, Fenster, Schnitte, Stellen, Daempfer, Voice).
+        # Aendert sich nichts, spielt der alte Ausschnitt sofort (Bernd,
+        # 10.09.2026 nacht: "warum liegt das nicht im Speicher").
+        kennung = json.dumps({k: v for k, v in cfg.items() if k != "final_output"},
+                             sort_keys=True, default=str)
+        ordner = os.path.join(config.TEMP_SEGMENTS_CONTAINER, "anhoeren")
+        os.makedirs(ordner, exist_ok=True)
+        ziel = os.path.join(ordner, hashlib.sha1(kennung.encode("utf-8")).hexdigest()[:20] + ".mp4")
+        cfg["final_output"] = ziel
+        titel = "%s %s - %s" % ("Vehicle" if art == "vehicle" else "Voices",
+                                self._sek_kurz(von_s), self._sek_kurz(bis_s))
+        if not os.path.isfile(ziel):
+            pfad_cfg = os.path.join(ordner, "listen.json")
+            with open(pfad_cfg, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, indent=2)
+            dlg = EncoderDialog(parent=self)
+            dlg.setWindowTitle("Rendering the stretch to listen to it")
+            dlg.show()
+            QApplication.processEvents()
+            ok = dlg.run_encoding(pfad_cfg, ziel=ziel)
+            if not ok or not os.path.isfile(ziel):
+                return
+        AnhoerenDialog(ziel, titel, stelle=(von_s - a, bis_s - a), parent=self).exec()
+
+    def _sprechstelle_zeit_dialog(self, von_s, bis_s, art="voice"):
+        """Anfang und Ende einer Stelle als Zahlen (Gesamtzeit)."""
         from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QDoubleSpinBox,
                                        QFormLayout, QLabel, QVBoxLayout)
         gesamt = float(sum(self.video_durations))
@@ -4999,6 +5525,15 @@ class MainWindow(QMainWindow):
         sb_b.valueChanged.connect(_pruefen)
         _pruefen()
         if dlg.exec() != QDialog.Accepted:
+            return
+        if art == "vehicle":
+            _pfad, eintrag = self._fahrzeugstelle_finden(von_s, bis_s)
+            fuellung = (eintrag[2] if eintrag is not None and len(eintrag) > 2
+                        else verkehr.FUELLUNG_VORGABE)
+            self._sprechstellen_undo_merken("Vehicle moved")
+            self._fahrzeugstelle_entfernen(von_s, bis_s, merken=False)
+            self._fahrzeugstelle_anlegen(round(sb_a.value(), 3), round(sb_b.value(), 3),
+                                         fuellung, merken=False)
             return
         self._sprechstellen_undo_merken("Voices moved")
         self._sprechstelle_entfernen(von_s, bis_s, merken=False)
@@ -6668,6 +7203,8 @@ class MainWindow(QMainWindow):
 
         # 2) Timeline neu berechnen
         self.rebuild_timeline()
+        # Tonspuren im Hintergrund lesen, wenn Audio an ist (11.09.2026).
+        self._tonspur_hintergrund_starten()
 
         # 3) Erst am Ende einmal den ersten Frame vom allerersten Video zeigen:
         if self.playlist:
@@ -7196,6 +7733,7 @@ class MainWindow(QMainWindow):
             idx = self.playlist.index(filepath)
             self.playlist.remove(filepath)
             self._sprechstellen.pop(filepath, None)
+            self._fahrzeugstellen.pop(filepath, None)
             if idx < len(self.video_durations):
                 self.video_durations.pop(idx)
 
@@ -8627,7 +9165,8 @@ class MainWindow(QMainWindow):
             frage = ExportBestaetigung(
                 self, gesamt_sekunden=max(0.0, gesamt),
                 dateien=len(self.playlist),
-                sprechstellen=(anzahl, sekunden) if anzahl else None)
+                sprechstellen=(anzahl, sekunden) if anzahl else None,
+                fahrzeugstellen=len(self._fahrzeugstellen_global()))
             ergebnis = frage.exec()
             # Die drei Schalter koennen dort umgestellt worden sein.
             self._sprechstellen_bedienung_nachziehen()
@@ -8678,7 +9217,8 @@ class MainWindow(QMainWindow):
             audio_kbps  = s.value("encoder/audio_kbps", 128, type=int)
             traffic_an  = bool(s.value("encoder/traffic", 0, type=int))
             traffic_db  = s.value("encoder/traffic_db", 12, type=int)
-            traffic_hz  = s.value("encoder/traffic_fill_hz", 1000, type=int)
+            traffic_hz  = s.value("encoder/traffic_fill_hz", 0, type=int)
+            traffic_pct = s.value("encoder/traffic_fill_pct", 100, type=int)
             voice_an    = voice_da and bool(s.value("encoder/voice", 0, type=int))
             voice_model = s.value("encoder/voice_model", "mdx", type=str)
 
@@ -8762,7 +9302,9 @@ class MainWindow(QMainWindow):
                 # Verkehr daempfen (core/verkehr): Schalter und Daempfer.
                 "traffic": traffic_an,
                 "traffic_db": traffic_db,
-                # Tiefpass auf dem Fuellstueck in Hz, 0 = ungefiltert.
+                # Fuellpegel in Prozent und Tiefpass auf dem Fuellstueck in
+                # Hz, 0 = ungefiltert.
+                "traffic_fill_pct": traffic_pct,
                 "traffic_fill_hz": traffic_hz,
                 # Stimmen entfernen (core/stimme): Schalter und Modell.
                 "voice": voice_an,
@@ -8770,6 +9312,9 @@ class MainWindow(QMainWindow):
                 # Sprechstellen je Datei (Sekunden der Datei): gibt es
                 # welche, trennt der Voice Remover nur dort.
                 "voice_regions": self._sprechstellen_export(),
+                # Fahrzeugstellen je Datei (Sekunden der Datei, mit
+                # Fuellart): nur dort wird gedaempft.
+                "vehicle_regions": self._fahrzeugstellen_export(),
                 # 360: derselbe Abschnitt wie in der Projektdatei. Ist er an,
                 # rendert ges_encoder_manager das projizierte 16:9-Bild statt
                 # des verzerrten 2:1-Equirects.
@@ -9800,6 +10345,7 @@ class MainWindow(QMainWindow):
         # Sprechstellen und Tonspur (Zeitleiste, Audio Zoom) leeren.
         try:
             self._sprechstellen = {}
+            self._fahrzeugstellen = {}
             self._sprechstellen_anzeigen()
         except Exception as e:
             print(f"[WARN] NewProject: voices cleanup: {e}")
@@ -10674,6 +11220,7 @@ class MainWindow(QMainWindow):
             # Datei - siehe _sprechstellen. Aeltere Projekte haben den
             # Schluessel nicht; dann gibt es keine.
             "voice_regions": self._sprechstellen_export(),
+            "vehicle_regions": self._fahrzeugstellen_export(),
         }
 
         if is_gpx_video_shift_set():
@@ -11050,8 +11597,10 @@ class MainWindow(QMainWindow):
             # Lassen sich die Schnitte noch verschieben und zuruecknehmen?
             # Das soll der Nutzer gleich erfahren, nicht erst beim Versuch.
             QTimer.singleShot(0, self._alte_schnitte_melden)
+            # Tonspuren im Hintergrund lesen, wenn Audio an ist (11.09.2026).
+            QTimer.singleShot(0, self._tonspur_hintergrund_starten)
 
-            
+
     def _rebuild_playlist_menu(self):
         self.playlist_menu.clear()
 
@@ -12255,11 +12804,14 @@ class MainWindow(QMainWindow):
 
 
     def _clear_video_playlist(self):
+        # Einen laufenden Hintergrund-Scan der Tonspuren erst anhalten.
+        self._tonspur_hintergrund_anhalten()
         # interne Zustände zurücksetzen
         self.playlist = []
         self.playlist_counter = 0
         self.video_durations = []
         self._sprechstellen = {}
+        self._fahrzeugstellen = {}
         self._sprechstellen_anzeigen()
         self.view360_views = []
         self._360_aus_projekt = False

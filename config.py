@@ -31,7 +31,7 @@ from PySide6.QtCore import QSettings
 # 1) Versions-Konfiguration & Modus
 ##############################################################################
 
-APP_VERSION = "7.00_314"
+APP_VERSION = "7.00"
 # use 4.30_pre for a pre Version
 
 # Aufrufoption "-menuup" (siehe KVRouite.py): das "..."-Menue der GPX-Tabelle
