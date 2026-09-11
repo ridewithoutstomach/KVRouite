@@ -12,7 +12,7 @@ KVRouite is a Python-based desktop application designed to synchronize GPX data 
 ![KVRouite Main Window](./screenshots/mainwindow.png)
 
 - Version: see Releases
-- Platforms: Windows 64-bit (official support), Linux (tested on Kubuntu 24.04.2), macOS 15+ on Apple Silicon and Intel (new - ready-made application bundles for both architectures, see the macOS section)
+- Platforms: Windows 64-bit (official support, ready-made download), Linux (tested on Kubuntu 24.04.2), macOS 15+ on Apple Silicon and Intel (run from source with Python - no ready-made bundle in 7.0, see the macOS section)
 - License: GNU General Public License v3.0 or later (GPL-3.0-or-later)
 - KVRouite helps action cam users and outdoor enthusiasts to synchronize their recorded videos with GPS data for perfect route visualization and editing.
 -------------------------------------------------------------------------------
@@ -52,7 +52,8 @@ The Windows download comes in the same two parts: "KVRouite_<ver>_Win_x64"
 "KVRouite_<ver>_Voice_Win_x64" (the voice remover and its detection; about
 900 MB). The Voice zip carries the same folder name and is simply unpacked
 over the KVRouite folder; the Voice installer does the same into an existing
-installation of the same version. The macOS bundle is Lite only.
+installation of the same version. There is no ready-made macOS download in
+7.0 - on macOS you install Python and run from source (see the macOS section).
 
 In short: to run KVRouite, install "requirements.txt". To also remove
 voices, install "requirements-voice.txt" on top. To build the executable,
@@ -64,14 +65,13 @@ the exact commands.
 
 ### No signed binaries - and what your alternatives are
 
-**This applies to the Windows builds and to the macOS bundle alike.** Neither is
-signed, and both will therefore be questioned by the operating system the first
-time you start them: SmartScreen warns about an unknown publisher on Windows,
-Gatekeeper refuses the first double-click on macOS.
+**This applies to the Windows download.** It is not signed, so Windows questions
+it the first time you start it: SmartScreen warns about an unknown publisher.
+macOS ships no ready-made download in 7.0 - there you install Python and run
+from source (see the macOS section), so there is nothing to click past.
 
-The reason is the same on both, and it is the only one: signing costs money
-every year. macOS needs a paid Apple Developer membership, Windows a
-code-signing certificate, both renewed annually. **KVRouite is a non-profit
+The reason is the only one there is: signing costs money every year - Windows
+needs a code-signing certificate, renewed annually. **KVRouite is a non-profit
 hobby project, given away for free, and I am not going to buy a licence in order
 to hand it out.** There is nothing hidden behind that.
 
@@ -244,41 +244,14 @@ actually ended up in it.
 
 ### 🍎 macOS
 
-macOS support is **new**, and there are two ways in:
-
-- **Recommended: install Python and run from source** (see *Requirements*
-  and *Setup and Run* below). This is the path that gets tested on
-  GitHub's macOS machines - Apple Silicon and Intel, macOS 15 and 26 -
-  and it has nothing in between you and the program: no packaging, no
-  code signing, no Gatekeeper.
-- **Experimental: the ready-made bundle** from the
-  [Releases page](https://github.com/ridewithoutstomach/KVRouite/releases).
-  It is convenient, but it adds a packaging layer that is hard to test
-  without a Mac of my own, and I do not have one. If the bundle does not
-  start for you, please try the source path before giving up - and tell me
-  (see *Feedback wanted* below).
-
-Both ways need **macOS 15 or newer**; the reason is in *Requirements*.
-
-#### The ready-made bundle (experimental)
-
-Two assets, one per architecture: `_macOS_arm64.zip` for Apple Silicon,
-`_macOS_x86_64.zip` for Intel. Apple menu > *About This Mac* tells you which one
-you need. Unzip it and move `KVRouite.app` to your Applications folder -
-everything it needs is inside, GStreamer included.
-
-**The first start needs one extra step.** The bundle is not signed by Apple,
-and macOS therefore refuses a plain double-click once.
-
-- Double-click, let it be refused, then open
-  **System Settings > Privacy & Security** and click **Open Anyway**.
-- Or in Terminal: `xattr -dr com.apple.quarantine /Applications/KVRouite.app`
-
-After that it starts by double-click like anything else.
-
-Why the extra step exists, and what your alternatives are, is explained once
-for all platforms at the top of this chapter:
-[No signed binaries](#no-signed-binaries---and-what-your-alternatives-are).
+On macOS you **install Python and run from source** - there is **no
+ready-made macOS download in 7.0**. Earlier versions had an experimental
+application bundle; 7.0 no longer ships one, because it adds a packaging
+layer that is hard to test without a Mac of my own, and I do not have one.
+The source path is the one that gets tested on GitHub's macOS machines
+(Apple Silicon and Intel, macOS 15 and 26), and it has nothing in between
+you and the program: no packaging, no code signing, no Gatekeeper. See
+*Requirements* and *Setup and Run* below; it needs **macOS 15 or newer**.
 
 #### Requirements
 
@@ -287,9 +260,8 @@ for all platforms at the top of this chapter:
   inside them are built for macOS 15 - among them `QtGui`, `QtWidgets` and
   `libshiboken6`. On macOS 13 or 14 the `pip install` therefore succeeds and
   the application still refuses to start, because macOS will not load those
-  libraries. The ready-made bundles contain the same libraries and have the
-  same floor. Measured on 2026-09-04 in the shipped 6.03 bundles: 18 files
-  declare a minimum of macOS 15.0, on both architectures.
+  libraries. Measured on 2026-09-04: 18 of these library files declare a
+  minimum of macOS 15.0, on both architectures.
 - **Python 3.12.10 or newer, or 3.14.x (64-bit)** from
   [python.org](https://www.python.org/downloads/macos/) - take the *macOS
   64-bit universal2 installer*. Neither Homebrew nor pyenv is needed.
@@ -350,8 +322,7 @@ brew install ffmpeg
 Please open an issue at
 <https://github.com/ridewithoutstomach/KVRouite/issues> and tell us:
 
-- your macOS version, whether the Mac is Apple Silicon or Intel, and whether you
-  used the bundle or ran from source
+- your macOS version and whether the Mac is Apple Silicon or Intel
 - whether the window opens and looks right
 - whether a video opens, plays, cuts and exports
 - any messages the Terminal printed - please paste the text
@@ -361,7 +332,7 @@ Please open an issue at
 ### ❗ Important Notes
 
 - These first two apply to running from source. They do not apply to the
-  Windows executable or the macOS bundle, which carry everything with them:
+  Windows executable, which carries everything with it:
   - Always create and activate the virtual environment **inside** the `KVRouite` folder.
   - Do **not** run `python KVRouite.py` outside the project folder.
 - **The first start takes noticeably longer** - a minute is normal on a slow
@@ -372,8 +343,8 @@ Please open an issue at
   executable. Nothing is wrong while it runs - just wait for the window.
 - On **Linux**, make sure the GStreamer packages listed above are installed. `ffmpeg` is optional and only needed for the Copy-Mode.
 - On **macOS**, nothing has to be installed system-wide - `requirements.txt` brings GStreamer along, same as on Windows.
-- On **macOS**, the ready-made bundle will not open by double-click the first
-  time. That is Gatekeeper, not a fault - see the macOS section.
+- On **macOS**, there is no ready-made download in 7.0 - install Python and run
+  from source, see the macOS section.
 
 
 
@@ -421,13 +392,11 @@ you can use the pre-built Windows binary:
 
 -------------------------------------------------------------------------------
 
-macOS Application Bundle
-------------------------
+macOS
+-----
 
-Take the asset ending in "_macOS_arm64.zip" (Apple Silicon) or
-"_macOS_x86_64.zip" (Intel), unzip it and move "KVRouite.app" to your
-Applications folder. The first start needs one extra step because the bundle is
-not signed - see [the macOS section](#-macos).
+7.0 ships no ready-made macOS download. On macOS, install Python and run from
+source - see [the macOS section](#-macos).
 
 -------------------------------------------------------------------------------
 
@@ -463,9 +432,11 @@ The resulting executable will be located at:
 Building the macOS Bundle Manually
 ----------------------------------
 
-On a Mac, with Python 3.12.1 or newer and the runtime requirements already
-installed. The macOS bundle is the Lite application: it has no voice remover,
-so neither requirements-voice.txt nor the models are needed:
+7.0 ships no macOS bundle; end users run from source (see the macOS section).
+These steps are only for building a Lite bundle for yourself. On a Mac, with
+Python 3.12.1 or newer and the runtime requirements already installed. The
+bundle is the Lite application: it has no voice remover, so neither
+requirements-voice.txt nor the models are needed:
 
     pip install --upgrade pip setuptools
     pip install -r requirements.txt
