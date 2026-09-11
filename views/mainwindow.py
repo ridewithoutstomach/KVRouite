@@ -1443,8 +1443,10 @@ class MainWindow(QMainWindow):
         # Sprechstellen, zum Nachbessern. Ein Modul wie der Chart-Flow -
         # zum Start verdeckt, waehlbar in jedem umschaltbaren Fenster.
         self.audio_zoom = AudioZoomWidget(self._modul_reserve)
-        self.audio_zoom.bandMenuRequested.connect(self._on_band_menu)
+        self.audio_zoom.bandMenuRequested.connect(
+            lambda art, a, b, pos: self._on_band_menu(art, a, b, pos, quelle="zoom"))
         self.audio_zoom.bandAnlegen.connect(self._sprechstelle_anlegen)
+        self.audio_zoom.bandGeaendert.connect(self._band_geaendert)
         self.audio_zoom.zeitGewaehlt.connect(self._on_timeline_marker_moved)
 
         self._module = {
@@ -5376,9 +5378,11 @@ class MainWindow(QMainWindow):
         self._sprechvorschlaege_bereinigen()
         self._sprechstellen_anzeigen()
 
-    def _on_band_menu(self, art, von_s, bis_s, global_pos):
+    def _on_band_menu(self, art, von_s, bis_s, global_pos, quelle="timeline"):
         """Rechtsklick auf ein Band (Zeitleiste oder Audio Zoom, Seite A) -
-        gebaut wie das Menue eines Overlays. art "voice" oder "vehicle"."""
+        gebaut wie das Menue eines Overlays. art "voice" oder "vehicle".
+        quelle "zoom" oder "timeline": Start/Ende bearbeitet man nur im Audio
+        Zoom (Bernd, 11.09.2026), dort bietet das Menue "Start and end …" an."""
         from PySide6.QtWidgets import QMenu
         from PySide6.QtGui import QActionGroup
         if art in ("vehicle_hint", "voice_hint"):
@@ -5409,8 +5413,11 @@ class MainWindow(QMainWindow):
                 gruppe.addAction(a)
                 fuell_aktionen[a] = wert
         menue.addSeparator()
-        a_zeit = menue.addAction("Start and end …")
-        menue.addSeparator()
+        # Start/Ende/Laenge bearbeitet man mit dem Feinsteller, nur im Audio
+        # Zoom (dort sind die Baender hoch genug zum Fassen).
+        a_zeit = menue.addAction("Adjust start / end / length …") if quelle == "zoom" else None
+        if a_zeit is not None:
+            menue.addSeparator()
         a_weg = menue.addAction("Remove stretch")
         a_alle = menue.addAction("Remove all vehicle stretches" if fahrzeug
                                  else "Remove all voice stretches")
@@ -5426,8 +5433,8 @@ class MainWindow(QMainWindow):
                 self._fahrzeugstelle_entfernen(von_s, bis_s)
             else:
                 self._sprechstelle_entfernen(von_s, bis_s)
-        elif gewaehlt is a_zeit:
-            self._sprechstelle_zeit_dialog(von_s, bis_s, art)
+        elif a_zeit is not None and gewaehlt is a_zeit:
+            self.audio_zoom.start_bearbeiten(art, von_s, bis_s)
         elif gewaehlt is a_alle:
             if fahrzeug:
                 anzahl = len(self._fahrzeugstellen_global())
@@ -5608,63 +5615,28 @@ class MainWindow(QMainWindow):
                 return
         AnhoerenDialog(ziel, titel, stelle=(von_s - a, bis_s - a), parent=self).exec()
 
-    def _sprechstelle_zeit_dialog(self, von_s, bis_s, art="voice"):
-        """Anfang und Ende einer Stelle als Zahlen (Gesamtzeit)."""
-        from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QDoubleSpinBox,
-                                       QFormLayout, QLabel, QVBoxLayout)
-        gesamt = float(sum(self.video_durations))
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Voices start and end")
-        aussen = QVBoxLayout(dlg)
-        form = QFormLayout()
-
-        def _feld(wert):
-            sb = QDoubleSpinBox(dlg)
-            sb.setDecimals(1)
-            sb.setSingleStep(0.5)
-            sb.setRange(0.0, gesamt)
-            sb.setValue(float(wert))
-            sb.setSuffix(" s")
-            return sb
-
-        sb_a = _feld(von_s)
-        sb_b = _feld(bis_s)
-        form.addRow("Start", sb_a)
-        form.addRow("End", sb_b)
-        aussen.addLayout(form)
-        hinweis = QLabel(dlg)
-        hinweis.setWordWrap(True)
-        aussen.addWidget(hinweis)
-        knoepfe = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dlg)
-        aussen.addWidget(knoepfe)
-        knoepfe.accepted.connect(dlg.accept)
-        knoepfe.rejected.connect(dlg.reject)
-
-        def _pruefen():
-            laenge = sb_b.value() - sb_a.value()
-            ok = laenge >= 0.2
-            hinweis.setText("Length %.1f s" % laenge
-                            + ("" if ok else "\nThe end must lie behind the start."))
-            knoepfe.button(QDialogButtonBox.Ok).setEnabled(ok)
-
-        sb_a.valueChanged.connect(_pruefen)
-        sb_b.valueChanged.connect(_pruefen)
-        _pruefen()
-        if dlg.exec() != QDialog.Accepted:
+    def _band_geaendert(self, art, a0, b0, a, b):
+        """Der Feinsteller des Audio Zoom hat Start/Ende/Laenge eines Bandes
+        geaendert (Gesamtzeit): die alte Stelle weg, die neue anlegen - ein
+        Undo-Schritt. Bei Fahrzeugen bleibt die Fuellung erhalten."""
+        a, b = round(float(a), 3), round(float(b), 3)
+        if b - a < 0.1:
             return
         if art == "vehicle":
-            _pfad, eintrag = self._fahrzeugstelle_finden(von_s, bis_s)
+            _pfad, eintrag = self._fahrzeugstelle_finden(a0, b0)
             fuellung = (eintrag[2] if eintrag is not None and len(eintrag) > 2
                         else verkehr.FUELLUNG_VORGABE)
             self._sprechstellen_undo_merken("Vehicle moved")
-            self._fahrzeugstelle_entfernen(von_s, bis_s, merken=False)
-            self._fahrzeugstelle_anlegen(round(sb_a.value(), 3), round(sb_b.value(), 3),
-                                         fuellung, merken=False)
-            return
-        self._sprechstellen_undo_merken("Voices moved")
-        self._sprechstelle_entfernen(von_s, bis_s, merken=False)
-        self._sprechstelle_anlegen(round(sb_a.value(), 3), round(sb_b.value(), 3), merken=False)
+            self._fahrzeugstelle_entfernen(a0, b0, merken=False)
+            self._fahrzeugstelle_anlegen(a, b, fuellung, merken=False)
+        else:
+            self._sprechstellen_undo_merken("Voices moved")
+            self._sprechstelle_entfernen(a0, b0, merken=False)
+            self._sprechstelle_anlegen(a, b, merken=False)
+        self.statusBar().showMessage(
+            "%s stretch set to %s - %s"
+            % ("Vehicle" if art == "vehicle" else "Voice",
+               self._sek_kurz(a), self._sek_kurz(b)), 5000)
 
     def _on_voice_button_clicked(self):
         """Knopf "Voice" auf Seite A: der Bereich [- bis -] wird eine

@@ -59,6 +59,11 @@ BAND_RAND = QColor(255, 170, 60)
 #: Ziehen kuerzer als das zaehlt als Klick.
 ZIEHEN_MIN_PX = 6
 
+#: Wie nah der Zeiger an einer Bandkante sein muss, um sie zu fassen.
+KANTE_PX = 6
+#: Kuerzer darf ein Band beim Bearbeiten nicht werden.
+MIN_LAENGE_S = 0.1
+
 
 #: Fahrzeugstellen - dieselbe Farbe wie in der Zeitleiste.
 FAHRZEUG_FARBE = QColor(80, 160, 255, 110)
@@ -72,6 +77,12 @@ class AudioZoomWidget(QWidget):
     #: Rechtsklick auf ein Band: (art, von, bis, globale Position) - das
     #: Fenster zeigt dasselbe Menue wie bei der Zeitleiste.
     bandMenuRequested = Signal(str, float, float, object)
+    #: Start/Ende/Laenge eines Bandes bearbeitet (dieselbe Technik wie beim
+    #: Verschieben eines Videocuts): (art, a0, b0, a, b) in Gesamtzeit. Das
+    #: Fenster nimmt die alte Stelle weg und legt die neue an, ein
+    #: Undo-Schritt (Bernd, 11.09.2026: nur im Audio Zoom, saubere Methode
+    #: wie beim Videocut statt Zahlen-Dialog).
+    bandGeaendert = Signal(str, float, float, float, float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -94,6 +105,13 @@ class AudioZoomWidget(QWidget):
         self._zieh_start = None     # x beim Druecken
         self._zieh_jetzt = None
         self._band_unter_zeiger = None
+        # Feinsteller fuer Start/Ende/Laenge eines Bandes.
+        self._edit = None           # (art, a0, b0) in Gesamtzeit, oder None
+        self._edit_neu = None       # (a, b) Vorschau
+        self._edit_kante = None     # "links" / "rechts" / "block"
+        self._edit_fein = False     # True: Knopfleiste statt Ziehen
+        self._edit_knoepfe = {}     # Name -> QRectF
+        self._edit_zeit_start = 0.0 # Zeit unter dem Zeiger beim Zugriff
 
     # ------------------------------------------------------------ Daten
     def set_pegelkurve(self, punkte):
@@ -176,6 +194,24 @@ class AudioZoomWidget(QWidget):
             return None
         return min(treffer, key=lambda t: t[2] - t[1])
 
+    def _band_kante_unter(self, x, w, von):
+        """Was liegt an Bildschirm-x? ((art, a, b), kante) mit kante
+        "links"/"rechts"/"block", oder (None, None). Nur markierte Baender
+        (Sprech- und Fahrzeugstellen), nicht die Vorschlaege. Kanten zuerst,
+        damit die gemeinsame Kante zweier Baender fassbar bleibt."""
+        reihen = (("voice", self._stellen), ("vehicle", self._fahrzeuge))
+        for art, stellen in reihen:
+            for a, b in stellen:
+                if abs(x - self._x(a, w, von)) <= KANTE_PX:
+                    return (art, a, b), "links"
+                if abs(x - self._x(b, w, von)) <= KANTE_PX:
+                    return (art, a, b), "rechts"
+        for art, stellen in reihen:
+            for a, b in stellen:
+                if self._x(a, w, von) <= x <= self._x(b, w, von):
+                    return (art, a, b), "block"
+        return None, None
+
     # ------------------------------------------------------------ Maus
     def enterEvent(self, event):
         self._maus_drin = True
@@ -197,9 +233,43 @@ class AudioZoomWidget(QWidget):
         event.accept()
 
     def mousePressEvent(self, event):
+        w = max(1, self.width())
+        von, _bis = self._von_bis()
+        x = event.position().x()
+        # Offener Feinsteller: nur Knoepfe und das erneute Fassen der Kante.
+        if self._edit_fein:
+            if event.button() != Qt.LeftButton:
+                event.ignore(); return
+            name = self._edit_knopf_unter(event.position())
+            if name == "zurueck":
+                self._edit_ruecken(-self._edit_schritt(event.modifiers()))
+            elif name == "vor":
+                self._edit_ruecken(+self._edit_schritt(event.modifiers()))
+            elif name == "ok":
+                self._edit_anwenden()
+            elif name == "abbruch":
+                self._edit_abbrechen()
+            elif abs(x - self._edit_kante_x(w, von)) <= KANTE_PX:
+                self._edit_wieder_ziehen(x, w, von)
+            event.accept(); return
         if event.button() == Qt.LeftButton:
-            self._zieh_start = event.position().x()
-            self._zieh_jetzt = self._zieh_start
+            # Zuerst fragen: liegt der Zeiger an einer Bandkante oder in einem
+            # Band? Dann bearbeiten statt ein neues Band ziehen.
+            band, kante = self._band_kante_unter(x, w, von)
+            if band is not None:
+                art, a0, b0 = band
+                self._edit = (art, float(a0), float(b0))
+                self._edit_kante = kante
+                self._edit_neu = (float(a0), float(b0))
+                self._edit_zeit_start = self._t(x, w, von)
+                self._edit_press_x = x
+                self._edit_fein = False
+                self.setCursor(Qt.SizeAllCursor if kante == "block"
+                               else Qt.SizeHorCursor)
+                self.setFocus()
+                event.accept(); return
+            self._zieh_start = x
+            self._zieh_jetzt = x
             event.accept()
             return
         super().mousePressEvent(event)
@@ -207,18 +277,56 @@ class AudioZoomWidget(QWidget):
     def mouseMoveEvent(self, event):
         w = max(1, self.width())
         von, _bis = self._von_bis()
+        x = event.position().x()
+        # Beim Bearbeiten ziehen wir die Kante / den Block.
+        if self._edit is not None and not self._edit_fein:
+            self._edit_aktualisieren(x, w, von)
+            event.accept(); return
+        if self._edit_fein:
+            if self._edit_knopf_unter(event.position()) is not None:
+                self.setCursor(Qt.PointingHandCursor)
+            elif abs(x - self._edit_kante_x(w, von)) <= KANTE_PX:
+                self.setCursor(Qt.SizeHorCursor)
+            else:
+                self.setCursor(Qt.ArrowCursor)
+            event.accept(); return
         if self._zieh_start is not None:
-            self._zieh_jetzt = event.position().x()
+            self._zieh_jetzt = x
             self.update()
         else:
-            band = self._band_bei(self._t(event.position().x(), w, von))
-            if band != self._band_unter_zeiger:
-                self._band_unter_zeiger = band
-                self.setCursor(Qt.PointingHandCursor if band else Qt.ArrowCursor)
+            # Zeigerform: an einer Bandkante der Groessenpfeil, sonst wie bisher.
+            band, kante = self._band_kante_unter(x, w, von)
+            if kante in ("links", "rechts"):
+                self.setCursor(Qt.SizeHorCursor)
+            else:
+                b2 = self._band_bei(self._t(x, w, von))
+                self.setCursor(Qt.PointingHandCursor if b2 else Qt.ArrowCursor)
+            b2 = self._band_bei(self._t(x, w, von))
+            if b2 != self._band_unter_zeiger:
+                self._band_unter_zeiger = b2
                 self.update()
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        # Bearbeiten losgelassen: in die Knopfleiste wechseln (nicht sofort
+        # anwenden), wie beim Videocut. Ein Klick MITTEN in ein Band, ohne zu
+        # ziehen, bleibt ein Sprung zur Position - nur Kanten und ein
+        # gezogener Block oeffnen den Feinsteller.
+        if self._edit is not None and not self._edit_fein \
+                and event.button() == Qt.LeftButton:
+            gezogen = abs(event.position().x() - getattr(self, "_edit_press_x", event.position().x())) >= ZIEHEN_MIN_PX
+            if self._edit_kante == "block" and not gezogen:
+                w = max(1, self.width()); von, _b = self._von_bis()
+                self._edit = self._edit_neu = self._edit_kante = None
+                self.setCursor(Qt.ArrowCursor)
+                self.zeitGewaehlt.emit(max(0.0, self._t(event.position().x(), w, von)))
+                self.update()
+                event.accept(); return
+            self._edit_fein = True
+            self.setCursor(Qt.ArrowCursor)
+            self.setFocus()
+            self.update()
+            event.accept(); return
         if event.button() == Qt.LeftButton and self._zieh_start is not None:
             w = max(1, self.width())
             von, _bis = self._von_bis()
@@ -240,6 +348,211 @@ class AudioZoomWidget(QWidget):
             event.accept()
             return
         super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event):
+        if self._edit_fein:
+            if event.key() in (Qt.Key_Left,):
+                self._edit_ruecken(-self._edit_schritt(event.modifiers()))
+            elif event.key() in (Qt.Key_Right,):
+                self._edit_ruecken(+self._edit_schritt(event.modifiers()))
+            elif event.key() in (Qt.Key_Return, Qt.Key_Enter):
+                self._edit_anwenden()
+            elif event.key() == Qt.Key_Escape:
+                self._edit_abbrechen()
+            else:
+                super().keyPressEvent(event); return
+            event.accept(); return
+        super().keyPressEvent(event)
+
+    # -------------------------------------------------- Feinsteller Band
+    @staticmethod
+    def _edit_schritt(modifiers):
+        """Schrittweite: ohne 1 ms, Shift 10 ms, Alt 100 ms."""
+        if modifiers & Qt.AltModifier:
+            return 0.1
+        if modifiers & Qt.ShiftModifier:
+            return 0.01
+        return 0.001
+
+    def start_bearbeiten(self, art, a, b):
+        """Vom Menue: den Feinsteller fuer dieses Band oeffnen, Ende fassen,
+        und den Ausschnitt darauf zentrieren, damit man es sieht."""
+        self._edit = (art, float(a), float(b))
+        self._edit_neu = (float(a), float(b))
+        self._edit_kante = "rechts"
+        self._edit_fein = True
+        self._mitte = (float(a) + float(b)) / 2.0
+        if self._fenster < (b - a) * 1.5:
+            self._fenster = min(FENSTER_MAX_S, max(FENSTER_MIN_S, (b - a) * 3))
+        self.setFocus()
+        self.update()
+
+    def _edit_grenzen_werte(self):
+        lo = 0.0
+        hi = self._gesamt if self._gesamt > 0 else (self._edit_neu[1] + 3600.0)
+        return lo, hi
+
+    def _edit_aktualisieren(self, x, w, von):
+        if self._edit is None:
+            return
+        _art, a0, b0 = self._edit
+        lo, hi = self._edit_grenzen_werte()
+        delta = self._t(x, w, von) - self._edit_zeit_start
+        if self._edit_kante == "links":
+            a = min(max(a0 + delta, lo), b0 - MIN_LAENGE_S); b = b0
+        elif self._edit_kante == "rechts":
+            a = a0; b = max(min(b0 + delta, hi), a0 + MIN_LAENGE_S)
+        else:
+            laenge = b0 - a0
+            a = min(max(a0 + delta, lo), hi - laenge); b = a + laenge
+        neu = (a, b)
+        if neu != self._edit_neu:
+            self._edit_neu = neu
+            self.update()
+
+    def _edit_ruecken(self, schritt_s):
+        if self._edit is None or self._edit_neu is None:
+            return
+        _art, a0, b0 = self._edit
+        a, b = self._edit_neu
+        lo, hi = self._edit_grenzen_werte()
+        if self._edit_kante == "links":
+            a = min(max(a + schritt_s, lo), b0 - MIN_LAENGE_S)
+        elif self._edit_kante == "rechts":
+            b = max(min(b + schritt_s, hi), a0 + MIN_LAENGE_S)
+        else:
+            laenge = b0 - a0
+            a = min(max(a + schritt_s, lo), hi - laenge); b = a + laenge
+        neu = (round(a, 3), round(b, 3))
+        if neu != self._edit_neu:
+            self._edit_neu = neu
+            self.update()
+
+    def _edit_wieder_ziehen(self, x, w, von):
+        """Aus der Knopfleiste heraus die Kante erneut mit der Maus fassen."""
+        _art, a0, b0 = self._edit
+        a, b = self._edit_neu
+        bisher = (b - b0) if self._edit_kante == "rechts" else (a - a0)
+        self._edit_zeit_start = self._t(x, w, von) - bisher
+        self._edit_fein = False
+        self.setCursor(Qt.SizeAllCursor if self._edit_kante == "block"
+                       else Qt.SizeHorCursor)
+        self.update()
+
+    def _edit_abbrechen(self):
+        self._edit = self._edit_neu = self._edit_kante = None
+        self._edit_fein = False
+        self._edit_knoepfe = {}
+        self.setCursor(Qt.ArrowCursor)
+        self.update()
+
+    def _edit_anwenden(self):
+        if self._edit is None:
+            self._edit_abbrechen(); return
+        art, a0, b0 = self._edit
+        a, b = self._edit_neu or (a0, b0)
+        self._edit = self._edit_neu = self._edit_kante = None
+        self._edit_fein = False
+        self._edit_knoepfe = {}
+        self.setCursor(Qt.ArrowCursor)
+        self.update()
+        if abs(a - a0) < 0.0005 and abs(b - b0) < 0.0005:
+            return
+        self.bandGeaendert.emit(art, a0, b0, round(a, 3), round(b, 3))
+
+    def _edit_kante_x(self, w, von):
+        a, b = self._edit_neu
+        return self._x(b if self._edit_kante == "rechts" else a, w, von)
+
+    def _edit_knopf_unter(self, pos):
+        for name, r in self._edit_knoepfe.items():
+            if r.contains(QPointF(pos)):
+                return name
+        return None
+
+    def _draw_edit(self, painter, w, h, von, bis, oben, unten):
+        """Vorschau des bearbeiteten Bandes (gelber Rahmen) und, in der
+        Knopfleiste, die Leiste [<] [>] Lage Verschiebung [Haken] [Kreuz] -
+        wie beim Verschieben eines Videocuts."""
+        art, a0, b0 = self._edit
+        a, b = self._edit_neu
+        gelb = QColor(255, 204, 0)
+        # Vorschau-Rahmen (nur wenn im Ausschnitt sichtbar).
+        if not (b < von or a > bis):
+            xa = max(0.0, self._x(a, w, von)); xb = min(float(w), self._x(b, w, von))
+            if xb > xa:
+                painter.setPen(QPen(gelb, 1, Qt.DashLine))
+                painter.setBrush(QBrush(QColor(255, 204, 0, 40)))
+                painter.drawRect(QRectF(xa, oben, xb - xa, unten - oben))
+        if not self._edit_fein:
+            return
+        # Beschriftung der Leiste.
+        if self._edit_kante == "links":
+            lage = "Start %.3f s" % a; delta = a - a0
+        elif self._edit_kante == "rechts":
+            lage = "End %.3f s" % b; delta = b - b0
+        else:
+            lage = "%.3f - %.3f s" % (a, b); delta = a - a0
+        schub = "%+.3f s" % delta
+        fm = painter.fontMetrics()
+        hoehe = fm.height() + 10
+        q = hoehe - 6
+        luecke = 6
+        b_lage = fm.horizontalAdvance(lage)
+        b_schub = fm.horizontalAdvance(schub)
+        breite = (3 + 2 * (q + luecke) + luecke + b_lage + 2 * luecke
+                  + b_schub + 3 * luecke + 2 * (q + luecke) + 3 - luecke)
+        kante_x = self._edit_kante_x(w, von)
+        x = kante_x + 12
+        if x + breite > w:
+            x = max(0.0, kante_x - 12 - breite)
+        y = max(0.0, (h - hoehe) / 2.0)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(0, 0, 0, 225))
+        painter.drawRect(QRectF(x, y, breite, hoehe))
+        painter.setPen(QPen(gelb, 1)); painter.setBrush(Qt.NoBrush)
+        painter.drawRect(QRectF(x, y, breite, hoehe))
+        knoepfe = {}
+        lauf = [x + 3]
+        d = q * 0.28
+
+        def knopf(name):
+            r = QRectF(lauf[0], y + 3, q, q)
+            knoepfe[name] = r
+            painter.setPen(QPen(gelb, 1)); painter.setBrush(QColor(255, 204, 0, 40))
+            painter.drawRect(r)
+            lauf[0] += q + luecke
+            return r
+
+        def pfeil(r, nach_rechts):
+            m = r.center()
+            if nach_rechts:
+                pts = [QPointF(m.x() - d, m.y() - d), QPointF(m.x() + d, m.y()),
+                       QPointF(m.x() - d, m.y() + d)]
+            else:
+                pts = [QPointF(m.x() + d, m.y() - d), QPointF(m.x() - d, m.y()),
+                       QPointF(m.x() + d, m.y() + d)]
+            painter.setPen(Qt.NoPen); painter.setBrush(gelb)
+            painter.drawPolygon(QPolygonF(pts))
+
+        pfeil(knopf("zurueck"), False)
+        pfeil(knopf("vor"), True)
+        lauf[0] += luecke
+        y_text = y + 5 + fm.ascent()
+        painter.setPen(gelb); painter.drawText(QPointF(lauf[0], y_text), lage)
+        lauf[0] += b_lage + 2 * luecke
+        painter.setPen(QColor("#ffffff")); painter.drawText(QPointF(lauf[0], y_text), schub)
+        lauf[0] += b_schub + 3 * luecke
+        r = knopf("ok"); m = r.center()
+        painter.setPen(QPen(QColor("#7CFC00"), 2)); painter.setBrush(Qt.NoBrush)
+        painter.drawPolyline(QPolygonF([QPointF(m.x() - d, m.y()),
+                                        QPointF(m.x() - d * 0.2, m.y() + d),
+                                        QPointF(m.x() + d, m.y() - d)]))
+        r = knopf("abbruch"); m = r.center()
+        painter.setPen(QPen(QColor("#ff5555"), 2))
+        painter.drawLine(QPointF(m.x() - d, m.y() - d), QPointF(m.x() + d, m.y() + d))
+        painter.drawLine(QPointF(m.x() - d, m.y() + d), QPointF(m.x() + d, m.y() - d))
+        self._edit_knoepfe = knoepfe
 
     def contextMenuEvent(self, event):
         w = max(1, self.width())
@@ -388,6 +701,10 @@ class AudioZoomWidget(QWidget):
             x = self._x(self._zeit, w, von)
             painter.setPen(QPen(QColor("white"), 2))
             painter.drawLine(QPointF(x, 0), QPointF(x, h))
+
+        # Feinsteller eines Bandes ueber allem.
+        if self._edit is not None:
+            self._draw_edit(painter, w, h, von, bis, oben, unten)
 
         # Beschriftung
         painter.setPen(QPen(QColor(200, 200, 200), 1))
