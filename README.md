@@ -429,33 +429,6 @@ The resulting executable will be located at:
 
 -------------------------------------------------------------------------------
 
-Building the macOS Bundle Manually
-----------------------------------
-
-7.0 ships no macOS bundle; end users run from source (see the macOS section).
-These steps are only for building a Lite bundle for yourself. On a Mac, with
-Python 3.12.1 or newer and the runtime requirements already installed. The
-bundle is the Lite application: it has no voice remover, so neither
-requirements-voice.txt nor the models are needed:
-
-    pip install --upgrade pip setuptools
-    pip install -r requirements.txt
-    pip install -r requirements-build-macos.txt
-    python3 build_macos.py
-
-The build refuses to finish if anything is missing that must not be missing:
-no GStreamer runtime, no license texts, or an ffmpeg or mpv binary that slipped
-in (neither may be shipped - see the licensing sections below). The result,
-named after the architecture it was built for:
-
-    dist/KVRouite_<version>_macOS_<arch>/KVRouite_<version>_macOS_<arch>.zip
-
-A separate requirements file exists because the Windows one carries pefile and
-pywin32-ctypes, which have no purpose on a Mac. The PyInstaller version is
-pinned to the same one both platforms use.
-
--------------------------------------------------------------------------------
-
 Third-Party Components
 -----------------------
 
@@ -585,9 +558,9 @@ Voice remover (since 7.0)
   the original.
 - Binaries: **Windows only**, as the Voice add-on (zip or installer).
   Installed by pip, placed into "_internal" of the Windows build, the models
-  into "_internal/voice_models". The macOS bundle is the Lite application
-  and carries none of it; on Linux nothing of this is distributed with
-  KVRouite.
+  into "_internal/voice_models". There is no ready-made macOS or Linux
+  download in 7.0; on those platforms you run from source, so none of this is
+  distributed as a binary - you install it with pip yourself.
 
 Traffic damper (since 7.0)
 - KVRouite's own code, no third-party component. The treatment follows the

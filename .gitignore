@@ -85,3 +85,13 @@ AUFBEWAHRUNG_FRISTEN.md
 # Vorlagen fuer die Release-Beschreibung auf GitHub - nur lokal gebraucht.
 RELEASE*.md
 RELEASE*.txt
+
+# macOS-Builder - bewusst NICHT im Repo (ab 7.0). Wir liefern kein Mac-Binary
+# aus; ohne den Builder kann niemand aus dem Repo ein ungeprueftes Mac-Binary
+# bauen und weitergeben. Die Dateien bleiben lokal, falls wir sie brauchen.
+# Der reine Quelltest-Workflow (.github/workflows/macos.yml) bleibt im Repo.
+build_macos.py
+requirements-build-macos.txt
+tools/pruefe_macos_buendel.py
+.github/workflows/build-macos.yml
+.github/workflows/macos-binary-testen.yml
