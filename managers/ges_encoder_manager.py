@@ -136,15 +136,22 @@ _HW_ENCODER = GST_HW_ENCODER
 # Tonspur: AAC in MP4. Die Kandidaten in der Reihenfolge, in der sie
 # genommen werden - der erste, der im laufenden GStreamer vorhanden ist.
 #
+#   fdkaacenc  gstreamer1.0-plugins-bad, wo die Distribution ihn baut - die
+#              beste Qualitaet, im Windows-Bundle aber nicht vorhanden.
+#   avenc_aac  gstreamer1.0-libav, also ueberall, wo die Vorschau laeuft.
+#              Rank 0 - encodebin nimmt ihn erst nach _anmelden(). Bevorzugt
+#              seit dem 11.09.2026: voaacenc wuergt bei Windgeraeusch das
+#              Band um 6-7 kHz ab und laesst es stossweise durch - ein
+#              deutlich hoerbares Kreischen (Bernds Rhodes-Aufnahme). Gemessen
+#              und im Ohr bestaetigt: avenc_aac gibt dieselbe Bitrate 128k
+#              sauber wieder (6-7-kHz-Band deckungsgleich mit der Quelle,
+#              voaacenc 30 dB tiefer mit starker Schwankung).
 #   voaacenc   im Windows-/macOS-Bundle (gstreamer_plugins_restricted),
 #              unter Linux in gstreamer1.0-plugins-bad. Rank 128, "bitrate"
-#              in bit/s, gemessen: laeuft durch encodebin.
-#   fdkaacenc  gstreamer1.0-plugins-bad, wo die Distribution ihn baut.
-#   avenc_aac  gstreamer1.0-libav, also ueberall, wo die Vorschau laeuft.
-#              Rank 0 - encodebin nimmt ihn erst nach _anmelden().
+#              in bit/s. Nur noch Rueckfall, wenn avenc_aac fehlt.
 #   mfaacenc   Windows Media Foundation; nur als letzter Ausweg, sein
 #              "bitrate" kennt nur feste Stufen.
-_AAC_ENCODER = ("voaacenc", "fdkaacenc", "avenc_aac", "mfaacenc")
+_AAC_ENCODER = ("fdkaacenc", "avenc_aac", "voaacenc", "mfaacenc")
 _AAC = "audio/mpeg,mpegversion=4"
 
 # x264/x265 kennen dieselben Namen wie auf der ffmpeg-Kommandozeile.
