@@ -52,7 +52,7 @@ ZIEL = os.path.join(BASIS, "third-party-licenses", "voice")
 PAKETE = (
     "audio-separator", "torch", "torchvision", "onnxruntime", "onnx-weekly",
     "onnx2torch-py313", "numpy", "scipy", "scikit-learn", "librosa",
-    "numba", "llvmlite", "soundfile", "soxr",
+    "numba", "llvmlite", "soundfile", "soxr", "resampy", "samplerate",
     "audioread", "pydub", "julius", "einops", "rotary-embedding-torch",
     "beartype", "ml_collections", "ml_dtypes", "sympy", "mpmath",
     "networkx", "Jinja2", "MarkupSafe", "filelock", "fsspec",

@@ -620,8 +620,8 @@ Voice remover (since 7.0)
 
 Traffic damper (since 7.0)
 - KVRouite's own code, no third-party component. The treatment follows the
-  method of Kinotomo Audio by benilerouge.org (MIT) - mentioned as a courtesy,
-  no code was taken.
+  method of Kinotomo Audio by Alain Côté (benilerouge.org, MIT) - mentioned as
+  a courtesy, no code was taken.
 
 GoPro GPS Extraction
 - Based on: gopro2gpx by Juan M. Casillas (https://github.com/juanmcasillas/gopro2gpx)

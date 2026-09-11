@@ -114,10 +114,10 @@ stand-in" so it cannot be mistaken for the original.
 "Damp passing vehicles" (Encoder Setup, page Audio) is KVRouite's own code:
 GStreamer's level element finds the passing vehicles, the treatment is
 built from clips on the GStreamer Editing Services timeline. The treatment
-follows the method of Kinotomo Audio by benilerouge.org (MIT): pull the
-stretch down and lay nearby ride noise over it. No code was taken from it,
-so no license obligation arises; the mention is a courtesy to its author,
-who shared the source.
+follows the method of Kinotomo Audio by Alain Côté (benilerouge.org, MIT):
+pull the stretch down and lay nearby ride noise over it. No code was taken
+from it, so no license obligation arises; the mention is a courtesy to its
+author, Alain Côté, who shared the source.
 
 --------------------------------------------------------------------------------
  Not shipped, although KVRouite can use them

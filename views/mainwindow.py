@@ -7413,16 +7413,26 @@ class MainWindow(QMainWindow):
             <b>5. Voice remover</b> (since 7.0) -
             <a href='https://github.com/nomadkaraoke/python-audio-separator'>python-audio-separator</a>
             (MIT) with <b>PyTorch</b> (BSD-3-Clause), <b>ONNX Runtime</b> (MIT),
-            NumPy, SciPy, librosa and further packages (BSD, MIT, ISC, Apache-2.0,
-            MPL-2.0), listed with their license texts in
-            <code>_internal/third-party-licenses/voice</code>. Two of them are
-            LGPL-2.1-or-later and replaceable shared libraries: <b>libsndfile</b>
-            and <b>libsoxr</b>. The separation models are the MDX-Net model
-            trained by the <a href='https://github.com/Anjok07/ultimatevocalremovergui'>Ultimate
-            Vocal Remover</a> team (Anjok07, aufr33; MIT) and <b>Demucs v4</b>
+            NumPy, SciPy, scikit-learn, librosa, numba, torchvision and further
+            packages (BSD, MIT, ISC, Apache-2.0, MPL-2.0), listed with their
+            license texts in <code>_internal/third-party-licenses/voice</code>.
+            Two of them are LGPL-2.1-or-later and replaceable shared libraries:
+            <b>libsndfile</b> and <b>libsoxr</b>. The separation models are the
+            MDX-Net model trained by the
+            <a href='https://github.com/Anjok07/ultimatevocalremovergui'>Ultimate
+            Vocal Remover (UVR)</a> team (Anjok07, aufr33; MIT) and <b>Demucs v4</b>
             by Meta (MIT); their architecture code comes from Meta, tsurumeso,
             kuielab and ZFTurbo (all MIT) - see
-            <code>_internal/third-party-licenses/LICENSE.UVR-upstreams</code>.<br><br>
+            <code>_internal/third-party-licenses/LICENSE.UVR-upstreams</code>.
+            Speech detection (<i>Detect</i>) uses <b>Silero VAD</b>
+            (Silero Team, MIT). Not shipped: <b>diffq-fixed</b> (CC BY-NC 4.0),
+            which the library asks for - KVRouite installs a GPL stand-in of its
+            own under that name.<br>
+            <b>6. Traffic damper</b> (since 7.0) - KVRouite's own code, no
+            third-party component. The treatment follows the method of
+            <b>Kinotomo Audio</b> by Alain C&ocirc;t&eacute;
+            (<a href='https://benilerouge.org'>benilerouge.org</a>, MIT) -
+            method only, no code taken, named as a courtesy.<br><br>
 
             GStreamer is what plays, cuts and renders video in KVRouite, so it is
             always loaded. On Linux it is not distributed with KVRouite at all -
