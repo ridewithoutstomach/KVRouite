@@ -639,3 +639,5 @@ Project: **KVRouite — Kinomap Video Route Suite** (officially supported by Kin
 No cookies/trackers are set on the project website beyond what is technically necessary.  
 GitHub may process connection data per their Privacy Statement.  
 For contact, please use GitHub Issues or the email button on the imprint page.
+
+GoPro is a trademark of GoPro, Inc. KVRouite is an independent project and is not affiliated with or endorsed by GoPro; the name is used only to say which files the program can read.

@@ -55,7 +55,7 @@ Gemessen wird, in dieser Reihenfolge (Nummern wie im Plan, Abschnitt 2):
      yaw = 0 bis 5,0 s, danach yaw = 45 Grad. Gesucht wird das erste
      Ausgabebild, das sich stark vom Vorgaenger unterscheidet; sein PTS
      sagt, ob der Wert schon fuer den Buffer bei 5,000 s galt.
-     (Nicht 180 Grad: die ORION360-Testtafel zeigt dort "BACK" statt
+     (Nicht 180 Grad: die Testtafel im Testclip zeigt dort "BACK" statt
      "FRONT" bei sonst gleichem Raster, der Differenzwert bleibt bei 1.)
   4. Tempo: Render mit Probe gegen Render ohne Probe (Bilder je Sekunde
      Rechenzeit), Vorschau mit Probe (Bilder in 5 s Echtzeit).
@@ -125,7 +125,7 @@ def blick_schwenk(t_timeline):
 def blick_sprung(t_timeline):
     """Yaw 0 bis SPRUNG_S, danach SPRUNG_GRAD.
 
-    Nicht 180 Grad: das Testbild 360_test_1920x960.mp4 (ORION360-Testtafel)
+    Nicht 180 Grad: das Testbild 360_test_1920x960.mp4 (eine Testtafel)
     zeigt bei 180 Grad dieselbe Tafel mit "BACK" statt "FRONT" - fuer den
     Differenzwert praktisch dasselbe Bild. 45 Grad trifft zwischen zwei
     Tafeln und ist eindeutig.

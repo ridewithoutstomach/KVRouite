@@ -62,9 +62,11 @@ from the track (course to the next GPX point, averaged over two seconds of
 track, looking two seconds ahead - both adjustable), while keyframes only
 set tilt and zoom. Videos that are not calibrated keep their keyframes. The
 settings and the calibration are saved in the project; the export receives
-the resulting view path and needs no GPX. If the 360° video was exported
-without direction lock (the picture centre already follows the camera),
-following turns the view away - switch it off then.
+the resulting view path and needs no GPX. Meant for videos exported with
+the direction locked ("direction lock" or "world lock" in the camera
+software), where the picture centre stays on a fixed compass direction. A
+normal 360° export already follows the camera; there, following turns the
+view away - leave it off, the app asks once when you switch it on.
 
 **360°: horizon tilt per video, and copying keyframes**
 

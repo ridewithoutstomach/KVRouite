@@ -36,8 +36,9 @@ Nutzer den Blick von Hand nach vorn, und die App merkt sich
 fuer dieses Video. Danach gilt yaw(t) = kurs(t) + offset.
 
 Zeigt die Bildmitte NICHT auf eine feste Richtung, sondern dreht sie mit
-der Kamera mit (Insta360 Studio ohne Richtungssperre), dann ist "vorn"
-schon vorn, und das Folgen dreht den Blick weg. Dann schaltet man es ab.
+der Kamera mit (Export ohne Richtungssperre, der Normalfall), dann ist
+"vorn" schon vorn, und das Folgen dreht den Blick weg. Dann schaltet man
+es ab.
 
 Was hier steht, ist reine Rechnung ohne Qt und ohne GStreamer:
 
@@ -61,9 +62,10 @@ MINDEST_WEG_M = 1.0
 
 #: Vorgaben, die im Dialog "360 Setup" einstellbar sind.
 #:
-#: Die Glaettung ist in SEKUNDEN, nicht in Punkten: die Insta360-GPX vom
-#: 12.09.2026 hat 10 Punkte je Sekunde (2199 von 2445 Punkten teilen den
-#: Zeitstempel mit dem Vorgaenger), eine GoPro- oder Radcomputer-GPX einen.
+#: Die Glaettung ist in SEKUNDEN, nicht in Punkten: die GPX aus der
+#: 360-Kamera vom 12.09.2026 hat 10 Punkte je Sekunde (2199 von 2445
+#: Punkten teilen den Zeitstempel mit dem Vorgaenger), eine GoPro- oder
+#: Radcomputer-GPX einen.
 #: "5 Punkte" waeren dort 0,5 s und hier 5 s. fenster_punkte() rechnet um.
 GLAETTUNG_VORGABE_S = 2.0      # je Seite
 VORAUSSCHAU_VORGABE_S = 2.0    # der Fahrer schaut dahin, wo er gleich ist

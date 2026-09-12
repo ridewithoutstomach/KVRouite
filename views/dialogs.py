@@ -436,8 +436,8 @@ class OutputFrameRateDialog(QDialog):
     """Zeigt nach dem Laden, mit welcher Bildrate exportiert wird.
 
     Die Rate wird aus der ersten Videodatei gelesen und vorgeschlagen - so
-    machen es Schnittprogramme auch (Shotcut "Automatic", Resolve "set project
-    frame rate from first clip"). Stimmt die Ausgabe mit der Quelle ueberein,
+    machen es Schnittprogramme auch ("Projektrate aus dem ersten Clip").
+    Stimmt die Ausgabe mit der Quelle ueberein,
     muss nichts umgerechnet werden: jedes Ausgabebild ist genau ein Quellbild,
     und Video und GPX-Spur bleiben auf die Millisekunde beieinander.
 

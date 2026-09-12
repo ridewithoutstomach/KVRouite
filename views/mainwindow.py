@@ -1068,9 +1068,9 @@ class MainWindow(QMainWindow):
 
         # Farbgebung: hell, dunkel oder wie das System es haelt (core/theme.py).
         from core import theme
-        # "Theme" und nicht "Appearance": so heisst es in Shotcut und Blender, und
-        # "Style" waere doppeldeutig - Qt nennt seine Zeichensaetze fuer
-        # Bedienelemente ebenfalls Style (windows11, Fusion).
+        # "Theme" und nicht "Appearance": so heisst es in den meisten
+        # Programmen, und "Style" waere doppeldeutig - Qt nennt seine
+        # Zeichensaetze fuer Bedienelemente ebenfalls Style (windows11, Fusion).
         appearance_menu = setup_menu.addMenu("Theme")
         self._theme_gruppe = QActionGroup(self)
         self._theme_gruppe.setExclusive(True)
@@ -4477,10 +4477,10 @@ class MainWindow(QMainWindow):
         Gemessen am 11.09.2026 frueh an einem 1-min-Clip vom USB-Laufwerk
         (kalt, nicht im Dateicache): jedes Verfahren, das die Tonspur aus
         dem MP4 liest, braucht die volle Plattenzeit - 3,4 s je Minute
-        Video, also ~40 s je 4-GB-Datei bei 100 MB/s -, auch Shotcuts
-        AudioLevelsTask (mit melt nachgebaut: liest die ganze Datei).
-        Shotcut ist beim Lesen nicht schneller, es blockiert dabei nur
-        nicht und zeigt die Kurve stueckweise. So auch hier: der Faden
+        Video, also ~40 s je 4-GB-Datei bei 100 MB/s -, auch andere
+        Schnittprogramme (nachgemessen: sie lesen die ganze Datei).
+        Sie sind beim Lesen nicht schneller, sie blockieren dabei nur
+        nicht und zeigen die Kurve stueckweise. So auch hier: der Faden
         legt jede fertige Datei in den Zwischenspeicher, _tonspur_nachsehen
         zieht die Kurve Datei fuer Datei nach.
 
@@ -13435,12 +13435,12 @@ class MainWindow(QMainWindow):
         erklaerung = QLabel(dlg)
         erklaerung.setWordWrap(True)
         erklaerung.setText(
-            "Only for 360° videos exported with Direction Lock (Insta360 "
-            "Studio) or World Lock (GoPro Player). In such a video the "
-            "picture centre stays on a fixed compass direction, so the "
-            "camera no longer turns with the road. \"Follow route "
-            "direction\" turns it into every bend again, using the course "
-            "from the GPX track.\n\n"
+            "Only for 360° videos exported with the direction locked (the "
+            "\"direction lock\" or \"world lock\" setting of your camera "
+            "software). In such a video the picture centre stays on a "
+            "fixed compass direction, so the camera no longer turns with "
+            "the road. \"Follow route direction\" turns it into every bend "
+            "again, using the course from the GPX track.\n\n"
             "With a normal export the picture centre already follows the "
             "camera - leave this off there, it would turn the view away.\n\n"
             "The app has to learn once per video where \"forward\" is: put "
@@ -13463,12 +13463,13 @@ class MainWindow(QMainWindow):
                 return
             antwort = QMessageBox.question(
                 dlg, "Follow route direction",
-                "This is meant ONLY for 360° videos exported with Direction "
-                "Lock (Insta360 Studio) or World Lock (GoPro Player), where "
-                "the picture centre stays on a fixed compass direction.\n\n"
+                "This is meant ONLY for 360° videos exported with the "
+                "direction locked (\"direction lock\" or \"world lock\" in "
+                "your camera software), where the picture centre stays on "
+                "a fixed compass direction.\n\n"
                 "With a normal 360° export the camera already follows the "
                 "road, and this function would turn the view AWAY from it.\n\n"
-                "Was this video exported with Direction Lock / World Lock?",
+                "Was this video exported with the direction locked?",
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if antwort != QMessageBox.Yes:
                 cb.setChecked(False)
