@@ -15,6 +15,40 @@ KVRouite is a Python-based desktop application designed to synchronize GPX data 
 - Platforms: Windows 64-bit (official support, ready-made download), Linux (tested on Kubuntu 24.04.2), macOS 15+ on Apple Silicon and Intel (run from source with Python - no ready-made bundle in 7.0, see the macOS section)
 - License: GNU General Public License v3.0 or later (GPL-3.0-or-later)
 - KVRouite helps action cam users and outdoor enthusiasts to synchronize their recorded videos with GPS data for perfect route visualization and editing.
+
+What KVRouite can do
+--------------------
+
+**Video**
+
+- Load one or many videos (GoPro chapters go in in recording order), play them as one timeline, and cut them: mark begin and end, cut, trim the start or the end, undo any step from a named history.
+- Export in Encode Mode with crossfades at every cut, a Merge-Fade at a file join that costs no frame, hardware encoders (NVIDIA, AMD, Intel, VAAPI) or x264/x265, encoder presets, and overlays (logos, images) with fades (for the patent notice on H.264, H.265 and AAC see `gstreamer/NOTICE.txt`). Copy Mode exports without re-encoding if ffmpeg is installed.
+- Preview and export build the same timeline, so what you see is what gets rendered.
+
+**GPX**
+
+- Import, merge and cut GPX tracks together with the video, extract the GPS track from GoPro files, and synchronise video and track with one click on a GPX point.
+- Repair a track: close gaps (with or without routing), remove time and way errors, resample to one second, smooth, edit heights by hand in a profile editor, fetch elevations, fix speed spikes at a cut.
+- Bookmarks on GPX points, charts of speed, elevation and slope, and a summary of the whole track.
+
+**Sound** (since 7.0)
+
+- The sound track goes into the export, with the same crossfades as the picture.
+- Damp passing vehicles: mark a passing car or motorbike and the export turns it down and fills the stretch with the ride noise around it, so wind and tyres stay.
+- Remove voices with a trained separation model (optional Voice add-on), with detection of where voices and vehicles are.
+
+**360° video** (since 7.02)
+
+- A real projection out of the sphere: drag to look around, wheel to zoom, and that view is what gets rendered as a normal 16:9 video.
+- Keyframes for the viewing direction on the timeline: the camera pans smoothly from one to the next or cuts hard, with undo.
+- Optionally the view follows the route direction from the GPX track, for videos exported with the direction locked.
+
+**Map and windows**
+
+- Integrated map with the track, satellite imagery, route building along roads, and four freely arrangeable windows for map, chart, chart flow and GPX table.
+
+Every function is described in the manual in `doc/` and every change in `CHANGELOG.md`.
+
 -------------------------------------------------------------------------------
 
 Requirements
