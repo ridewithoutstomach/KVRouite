@@ -241,9 +241,25 @@ class GesPlayerBackend:
         # gemacht wurde (etwa aus einer Projektdatei).
         self._blicke = []
         self._blick_vorgabe = view360.Blickwinkel()
-        # (Index der Quelldatei, Effekt) - damit ein Schwenk nur die Clips
-        # trifft, die zu diesem Video gehoeren.
+        # (Index der Quelldatei, Effekt, Rohzeit des Stuecks, ist Quellclip)
+        # - damit ein Schwenk nur die Clips trifft, die zu diesem Video
+        # gehoeren, und damit die Probe fuer den Blickverlauf weiss, was
+        # sie vor sich hat (siehe _proben_anhaengen).
         self._effekte = []
+        # Blickverlauf (Keyframes, core/blickverlauf.py), eingefroren als
+        # Kurve. None heisst: keine Marken, der feste Blick je Datei gilt.
+        # Die Probe im Streaming-Thread liest dieses Feld; getauscht wird
+        # es nur als Ganzes, deshalb braucht es keine Sperre.
+        self._kurve = None
+        # Ziehen mit der Maus in einer Datei MIT Marken: solange der Nutzer
+        # dreht, zeigt die Vorschau seinen Blick statt der Kurve. Erst
+        # Abspielen oder Springen holt die Kurve zurueck; KF macht aus dem
+        # gezogenen Blick eine Marke. -1 heisst: niemand zieht. Der
+        # gezogene Blick selbst liegt in _blick_hand - NICHT im Grundblick
+        # der Datei, denn der ist seit 12.09.2026 der Ausgangspunkt des
+        # Verlaufs und darf sich beim Bearbeiten einer Marke nicht mitdrehen.
+        self._blick_hand_index = -1
+        self._blick_hand = None
         # Drosselung fuers Auffrischen des Standbilds beim Schwenken.
         self._blick_timer = QTimer()
         self._blick_timer.setSingleShot(True)
@@ -553,9 +569,16 @@ class GesPlayerBackend:
             return self._ORIENT_180
         return None
 
-    def _clip_vorbereiten(self, clip, roh_ns=0, bildlage=None):
+    def _clip_vorbereiten(self, clip, roh_ns=0, bildlage=None, quelle=True):
         """
         Alles, was jeder Clip auf der Timeline braucht: Bildlage und 360.
+
+        `quelle` sagt, ob der Clip aus einer Quelldatei stammt (True) oder
+        ein vorgerenderter Blendenschnipsel ist (False). Nur Quellclips
+        bekommen die Probe fuer den Blickverlauf: ihr Zeitstempel ist die
+        Zeit in der Datei (gemessen, siehe view360.probe_anhaengen). Ein
+        Schnipsel zaehlt ab 0 und bekommt stattdessen den festen Blick der
+        Kurve an seiner Rohzeit - das ist die Kante, an der er sitzt.
 
         Der eine Trichter fuer beides. _rebuild() legt Clips an drei Stellen
         an - Blenden-Schnipsel und zwei Materialwege -, und alle drei gehen
@@ -582,25 +605,85 @@ class GesPlayerBackend:
             except Exception as exc:
                 self._note(f"Bildlage nicht setzbar: {exc}")
         if self._360_an:
-            self._360_anhaengen(clip, self._clip_at(roh_ns))
+            self._360_anhaengen(clip, self._clip_at(roh_ns), roh_ns, quelle)
         return clip
 
-    def _360_anhaengen(self, clip, index):
+    def _360_anhaengen(self, clip, index, roh_ns=0, quelle=True):
         """Shader an einen Clip haengen und ihn randlos aufs Zielbild legen."""
         breite, hoehe = self._preview_groesse()
         effekt = view360.effekt_anhaengen(
-            clip, self._blick(index), view360.ziel_aspect(breite, hoehe))
+            clip, self._blick_statisch(index, roh_ns, quelle),
+            view360.ziel_aspect(breite, hoehe))
         if effekt is None:
             self._note("360-Effekt liess sich nicht anhaengen")
             return
         view360.rahmen_setzen(clip, breite, hoehe)
-        self._effekte.append((index, effekt))
+        self._effekte.append((index, effekt, roh_ns, quelle))
 
     def _blick(self, index):
-        """Blickwinkel der Quelldatei mit diesem Platz."""
+        """Fester Blickwinkel (Grundblick) der Quelldatei mit diesem Platz."""
         if 0 <= index < len(self._blicke):
             return self._blicke[index]
         return self._blick_vorgabe
+
+    def _datei_bereich_s(self, index):
+        """(von, bis) der Quelldatei auf der Rohzeitachse, in Sekunden."""
+        if 0 <= index < len(self._assets):
+            start, dauer = self._assets[index][2], self._assets[index][3]
+            return start / NS, (start + dauer) / NS
+        return 0.0, 0.0
+
+    def _kurve_fuer(self, index):
+        """Die Kurve fuer die Probe dieser Datei - oder None, wenn der
+        Nutzer dort gerade mit der Maus dreht."""
+        if index == self._blick_hand_index:
+            return None
+        return self._kurve
+
+    def _blick_statisch(self, index, roh_ns, quelle):
+        """
+        Der Blick, der als feste Uniform an den Effekt geht.
+
+        Quellclips: der Grundblick - die Probe ueberschreibt ihn je Bild,
+        sobald die Datei Marken hat. Schnipsel: der Wert der Kurve an
+        ihrer Rohzeit, weil sie keine Probe bekommen.
+        """
+        if index == self._blick_hand_index and self._blick_hand is not None:
+            return self._blick_hand
+        kurve = self._kurve_fuer(index)
+        if kurve is not None and not quelle:
+            von, bis = self._datei_bereich_s(index)
+            blick = kurve.blick_bei(roh_ns / NS, von, bis, self._blick(index))
+            if blick is not None:
+                return blick
+        return self._blick(index)
+
+    def _proben_anhaengen(self):
+        """
+        Nach dem Aufbau der Timeline: die Probe fuer den Blickverlauf an
+        jeden Quellclip haengen. Erst nach commit_sync(), vorher gibt es
+        das glshader-Element noch nicht (gemessen, siehe
+        view360.shader_element). Ohne Kurve wird trotzdem angehaengt:
+        die Probe fragt bei jedem Bild nach und kostet ohne Kurve nichts
+        Nennenswertes - so braucht ein spaeteres set_blickverlauf() keinen
+        Umbau der Timeline.
+        """
+        if not self._360_an:
+            return
+        breite, hoehe = self._preview_groesse()
+        aspect = view360.ziel_aspect(breite, hoehe)
+        fehl = 0
+        for index, effekt, _roh_ns, quelle in self._effekte:
+            if not quelle or not (0 <= index < len(self._assets)):
+                continue
+            von, bis = self._datei_bereich_s(index)
+            if not view360.probe_anhaengen(
+                    effekt, von, von, bis,
+                    lambda i=index: self._kurve_fuer(i), aspect,
+                    lambda i=index: self._blick(i)):
+                fehl += 1
+        if fehl:
+            self._note(f"Blickverlauf: {fehl} Probe(n) nicht angehaengt")
 
     def _raw_total_ns(self):
         return self._assets[-1][2] + self._assets[-1][3] if self._assets else 0
@@ -743,7 +826,7 @@ class GesPlayerBackend:
                 self._clip_vorbereiten(
                     self._layer.add_asset(asset, fs - halb, 0, dauer,
                                           GES.TrackType.UNKNOWN), ks,
-                    bildlage=self._ORIENT_IDENTITY)
+                    bildlage=self._ORIENT_IDENTITY, quelle=False)
                 mit_blende += 1
                 # Das Folgematerial setzt dort an, wo die Blende WIRKLICH
                 # endet. Die gerenderte Datei ist gelegentlich ein Bild
@@ -761,6 +844,7 @@ class GesPlayerBackend:
 
         ovl = self._overlays_einsetzen()
         self._timeline.commit_sync()
+        self._proben_anhaengen()
         self._total_ns = self._final_total_ns
         if self._keeps:
             self._seek_ns(self._raw_to_final(roh_vorher))
@@ -1063,6 +1147,7 @@ class GesPlayerBackend:
 
     def play_index(self, index):
         if 0 <= index < len(self._assets):
+            self._blick_hand_index = -1
             self._seek_ns(self._raw_to_final(self._clip_start(index)))
 
     def index(self):
@@ -1084,6 +1169,9 @@ class GesPlayerBackend:
         if not self._assets:
             self._paused = True
             return
+        if not paused:
+            # Abspielen beendet das Ziehen: ab hier fuehrt die Kurve.
+            self._blick_hand_index = -1
         self._pipeline.set_state(Gst.State.PAUSED if paused else Gst.State.PLAYING)
         self._paused = bool(paused)
 
@@ -1100,6 +1188,7 @@ class GesPlayerBackend:
         if i < 0:
             i = 0
         raw = self._clip_start(i) + int(float(seconds) * NS)
+        self._blick_hand_index = -1
         self._seek_ns(self._raw_to_final(raw))
 
     def seek_global_raw(self, sekunden):
@@ -1116,6 +1205,8 @@ class GesPlayerBackend:
         if not self._assets:
             return
         raw = max(0, int(float(sekunden) * NS))
+        # Springen beendet das Ziehen: an der neuen Stelle gilt die Kurve.
+        self._blick_hand_index = -1
         self._seek_ns(self._raw_to_final(raw))
 
     def position_global(self):
@@ -1382,9 +1473,23 @@ class GesPlayerBackend:
         return True
 
     def view360(self, index=None):
-        """Blickwinkel des laufenden - oder eines bestimmten - Videos."""
+        """
+        Der Blick, der gerade zu sehen ist: beim Ziehen der gezogene, sonst
+        der Wert der Kurve an der aktuellen Rohzeit, ohne Marken der feste
+        Blick der Datei. Fuer einen anderen als den laufenden Index wird
+        ebenfalls die aktuelle Rohzeit genommen.
+        """
         if index is None:
             index = self.index()
+        if index == self._blick_hand_index and self._blick_hand is not None:
+            return self._blick_hand.werte()
+        kurve = self._kurve_fuer(index)
+        if kurve is not None and 0 <= index < len(self._assets):
+            von, bis = self._datei_bereich_s(index)
+            blick = kurve.blick_bei(self._current_raw_ns() / NS, von, bis,
+                                    self._blick(index))
+            if blick is not None:
+                return blick.werte()
         return self._blick(index).werte()
 
     def set_view360_liste(self, ansichten):
@@ -1417,8 +1522,48 @@ class GesPlayerBackend:
     def _alle_uniforms_setzen(self):
         breite, hoehe = self._preview_groesse()
         aspect = view360.ziel_aspect(breite, hoehe)
-        for index, effekt in self._effekte:
-            view360.uniforms_setzen(effekt, self._blick(index), aspect)
+        for index, effekt, roh_ns, quelle in self._effekte:
+            view360.uniforms_setzen(
+                effekt, self._blick_statisch(index, roh_ns, quelle), aspect)
+
+    # ------------------------------------------------------------------
+    # Blickverlauf (Keyframes)
+    # ------------------------------------------------------------------
+    def set_blickverlauf(self, verlauf):
+        """
+        Den Blickverlauf uebernehmen (core/blickverlauf.Blickverlauf oder
+        None). Die Liste wird eingefroren; die Proben an den Clips lesen
+        die Kurve ab dem naechsten Bild. Kein Timeline-Umbau.
+
+        Beendet ein laufendes Ziehen: nach dem Setzen einer Marke soll
+        die Vorschau wieder der Kurve folgen - an der Marke selbst ist das
+        derselbe Blick, es springt also nichts.
+        """
+        self._kurve = verlauf.einfrieren() if verlauf is not None else None
+        self._blick_hand_index = -1
+        if not self._360_an:
+            return True
+        self._alle_uniforms_setzen()
+        if self._paused:
+            self._blick_auffrischen_anstossen()
+        return True
+
+    def hat_blickverlauf(self, index=None):
+        """Hat die laufende (oder diese) Datei Marken?"""
+        if self._kurve is None:
+            return False
+        if index is None:
+            index = self.index()
+        von, bis = self._datei_bereich_s(index)
+        return self._kurve.hat_marken(von, bis)
+
+    def blick_hand_beenden(self):
+        """Das Ziehen ist vorbei - die Kurve gilt wieder."""
+        if self._blick_hand_index < 0:
+            return
+        self._blick_hand_index = -1
+        if self._360_an and self._kurve is not None and self._paused:
+            self._blick_auffrischen_anstossen()
 
     #: Kleinster Abstand zwischen zwei Auffrisch-Spruengen im Standbild.
     #: 60 ms sind rund 16 Spruenge je Sekunde - fluessig genug fuers Auge und
@@ -1438,10 +1583,23 @@ class GesPlayerBackend:
         """
         index = self.index()
         self._blicke_angleichen()
-        if 0 <= index < len(self._blicke):
+        if self._kurve is not None and self.hat_blickverlauf(index):
+            # Die Datei hat Marken: gedreht wird der HAND-Blick, nicht der
+            # Grundblick - der ist der Ausgangspunkt am Dateianfang. Der Zug
+            # setzt dort an, wo das Bild gerade steht (Kurve oder bisherige
+            # Hand); das Fenster schreibt den Wert ggf. in die Marke unterm
+            # Marker (blick360Geaendert -> _on_blick360_geaendert).
+            if index != self._blick_hand_index or self._blick_hand is None:
+                self._blick_hand = view360.Blickwinkel(*self.view360(index))
+            self._blick_hand.setzen(yaw, pitch, fov)
+        elif 0 <= index < len(self._blicke):
             self._blicke[index].setzen(yaw, pitch, fov)
+            self._blick_hand = None
         else:
             self._blick_vorgabe.setzen(yaw, pitch, fov)
+            self._blick_hand = None
+        # Ab jetzt zeigt diese Datei den gezogenen Blick, nicht die Kurve.
+        self._blick_hand_index = index
         if not self._360_an:
             return True
         self._alle_uniforms_setzen()

@@ -86,6 +86,7 @@ from .export_bestaetigung import ExportBestaetigung
 from config import TMP_KEYFRAME_DIR, MY_GLOBAL_TMP_DIR, is_soft_opengl_enabled
 from core.mp4_keyframes import keyframe_times_from_index
 from core import view360
+from core import blickverlauf
 from core import sprache
 from core import stimme
 from core import verkehr
@@ -608,6 +609,9 @@ class MainWindow(QMainWindow):
         self._sprechvorschlaege = {}
         # 360-Blickwinkel, ein Eintrag je Video - siehe _blick360_liste().
         self.view360_views = []
+        # 360-Blickverlauf (Keyframes) auf der Rohzeitachse - siehe
+        # _blickverlauf_holen() und core/blickverlauf.py.
+        self._blickverlauf = blickverlauf.Blickverlauf()
         # True, sobald ein Projekt den 360-Zustand mitgebracht hat. Dann
         # schaltet die Automatik nicht mehr dazwischen.
         self._360_aus_projekt = False
@@ -770,6 +774,14 @@ class MainWindow(QMainWindow):
             "Copy the current viewing direction and zoom to every video")
         view_menu.addAction(self.action_360_auf_alle)
         self.action_360_auf_alle.triggered.connect(self._on_blick360_auf_alle)
+
+        # Blickverlauf (Keyframes, seit 7.02): Marken auf der Rohzeitachse,
+        # dazwischen schwenkt die Kamera. Verwaltung in core/blickverlauf.py,
+        # Anwendung je Bild im Backend. Bedienung: Knopf in der
+        # Transportleiste und Zeitleiste (Stufe 2 des Plans), bis dahin die
+        # Tasten K / Shift+K aus dem Editor-Widget (blickmarkeSetzen /
+        # blickmarkeLoeschen). Keine Menueeintraege - Menues sind in dieser
+        # App kein Ort fuer Bearbeitungsfunktionen.
         
         setup_menu = menubar.addMenu("Config")
         
@@ -1294,6 +1306,10 @@ class MainWindow(QMainWindow):
         # Menuepunkt "Undo Cut" - mit denselben Pruefungen und derselben
         # Rueckfrage. Die Taste ist nur ein zweiter Zugang dorthin.
         self.timeline.cutDeleteRequested.connect(self._schnitt_zuruecknehmen)
+        # 360-Blickmarken auf der Zeitleiste (Stufe 2, abgesprochen 12.09.2026)
+        self.timeline.blickmarkeMoveRequested.connect(self._on_blickmarke_verschieben)
+        self.timeline.blickmarkeDeleteRequested.connect(self._on_blickmarke_loeschen_zeit)
+        self.timeline.blickmarkeMenuRequested.connect(self._on_blickmarke_menu)
         # Zwei Auskuenfte, die nur hier zu geben sind: in welchem Bereich ein
         # Schnitt liegen darf und ob er ueberhaupt umziehen darf. Die
         # Zeitleiste holt sie sich darueber, statt die Bedingungen ein zweites
@@ -1609,6 +1625,7 @@ class MainWindow(QMainWindow):
         self.video_control.stop_clicked.connect(self.on_stop)
         self.video_control.goto_video_end_clicked.connect(self.on_goto_video_end_clicked)
         self.video_control.step_value_changed.connect(self.on_step_mode_changed)
+        self.video_control.keyframeClicked.connect(self._on_blickmarke_setzen)   # KF (360)
         self.video_control.multiplier_value_changed.connect(self.on_multiplier_changed)
         self.video_control.backward_clicked.connect(self.step_manager.step_backward)
         self.video_control.forward_clicked.connect(self.step_manager.step_forward)
@@ -1705,6 +1722,8 @@ class MainWindow(QMainWindow):
             self._overlay_im_bild_geaendert)                                   # Overlay ziehen
         self.video_editor.blick360Geaendert.connect(
             self._on_blick360_geaendert)                                       # 360 schwenken
+        self.video_editor.blickmarkeSetzen.connect(self._on_blickmarke_setzen)      # 360 Taste K
+        self.video_editor.blickmarkeLoeschen.connect(self._on_blickmarke_loeschen)  # 360 Shift+K
         self.gpx_widget.gpx_list.tracksDropped.connect(self._on_tracks_dropped)  # GPX-Liste
         self.map_widget.tracksDropped.connect(self._on_tracks_dropped)    
         
@@ -2267,10 +2286,7 @@ class MainWindow(QMainWindow):
         # Encode-Mode sitzt jeder Schnitt auf dem gewaehlten Bild, und der
         # Keyframe-Index wird gar nicht gebaut - ein Knopf, der dann nur eine
         # Fehlermeldung bringt, gehoert nicht in die Oberflaeche.
-        if new_mode == "copy":
-            self.video_control.set_step_values(["s", "m", "k", "f", "c"])
-        else:
-            self.video_control.set_step_values(["s", "m", "f", "c"])
+        self._stepper_werte_setzen(new_mode)
 
         if new_mode == "off" and self._autoSyncVideoEnabled:
             print("[DEBUG] EditMode=off => deaktiviere AutoCutVideo+GPX")
@@ -8415,6 +8431,23 @@ class MainWindow(QMainWindow):
     def on_step_mode_changed(self, new_value):
         self.step_manager.set_step_mode(new_value)
 
+    def _stepper_werte_setzen(self, edit_mode=None):
+        """Welche Schrittweiten der Stepper-Knopf anbietet.
+
+        "k" nur im Copy-Mode (dort zeigt es, wo der Schnitt landet), "KF"
+        nur bei aktivem 360 (springt zu den Blickmarken). Beides an EINER
+        Stelle, damit der Wechsel des einen das andere nicht vergisst.
+        """
+        if edit_mode is None:
+            edit_mode = getattr(self, "_edit_mode", "off")
+        werte = ["s", "m"]
+        if edit_mode == "copy":
+            werte.append("k")
+        werte += ["f", "c"]
+        if getattr(self.video_editor, "_is_360_mode", False):
+            werte.append("KF")
+        self.video_control.set_step_values(werte)
+
     def on_multiplier_changed(self, new_value):
         numeric = new_value.replace("x", "")
         try:
@@ -13015,6 +13048,11 @@ class MainWindow(QMainWindow):
         self.video_editor.toggle_360_mode(checked)
         an = bool(getattr(self.video_editor, "_is_360_mode", False))
         self.action_toggle_360.setChecked(an)
+        # KF-Knopf, Stepper-Modus "v" und die Marken auf der Zeitleiste
+        # gibt es nur bei aktivem 360.
+        self.video_control.set_360_aktiv(an)
+        self._stepper_werte_setzen()
+        self._blickmarken_anzeigen()
         if an:
             # Beim Einschalten den gespeicherten Blickwinkel des laufenden
             # Videos wiederherstellen.
@@ -13047,9 +13085,31 @@ class MainWindow(QMainWindow):
         """
         liste = self._blick360_liste()
         self.video_editor.set_blick360_liste([b.werte() for b in liste])
+        self.video_editor.set_blickverlauf(self._blickverlauf_holen())
 
     def _on_blick360_geaendert(self, index, yaw, pitch, fov):
-        """Der Editor meldet einen neuen Blickwinkel - merken."""
+        """Der Editor meldet einen neuen Blickwinkel - merken.
+
+        Drei Faelle (Bernd, 12.09.2026: "bei allen anderen Aktionen setze
+        ich erst die Marke und fuehre dann die Aktion aus"):
+
+          1. Der Marker steht auf einer Blickmarke: Drehen aendert DIESE
+             Marke. Also KF druecken, dann drehen.
+          2. Das Video hat Marken, aber keine unterm Marker: Drehen zeigt
+             nur die Vorschau (Hand-Blick im Backend); KF macht daraus
+             eine Marke. Der Grundblick bleibt, er ist der Startpunkt.
+          3. Das Video hat keine Marken: Drehen aendert den festen Blick
+             der Datei, wie bis 7.01.
+        """
+        if (getattr(self.video_editor, "_is_360_mode", False)
+                and self.video_editor.hat_blickverlauf()):
+            verlauf = self._blickverlauf_holen()
+            t = float(self.video_editor.get_current_global_time())
+            marke = verlauf.bei(t)
+            if marke is not None:
+                verlauf.setzen(marke.t, yaw, pitch, fov)
+                self._blickverlauf_uebernehmen()
+            return
         liste = self._blick360_liste()
         if 0 <= index < len(liste):
             liste[index].setzen(yaw, pitch, fov)
@@ -13078,7 +13138,147 @@ class MainWindow(QMainWindow):
         return {
             "enabled": bool(getattr(self.video_editor, "_is_360_mode", False)),
             "views": [b.als_dict() for b in self._blick360_liste()],
+            # Blickverlauf (seit 7.02). Aeltere Programmstaende ueberlesen
+            # den Schluessel und rendern mit dem festen Blick je Datei.
+            "keyframes": self._blickverlauf_holen().als_liste(),
         }
+
+    # ------------------------------------------------------------------
+    # 360: Blickverlauf (Keyframes)
+    # ------------------------------------------------------------------
+    # Marken liegen auf der Rohzeitachse ueber alle Videos, wie die
+    # Schnitte. Gesetzt wird an der Marker-Position mit dem Blick, der
+    # gerade zu sehen ist - gezogen mit der Maus oder von der Kurve.
+    # Anzeige auf der Zeitleiste und Knoepfe folgen in Stufe 2 des Plans
+    # (doc/Plan_360_Editor.md); bis dahin Tasten K und Shift+K.
+
+    def _blickverlauf_holen(self):
+        verlauf = getattr(self, "_blickverlauf", None)
+        if verlauf is None:
+            verlauf = self._blickverlauf = blickverlauf.Blickverlauf()
+        return verlauf
+
+    def _blickmarke_stelle(self):
+        """(Rohzeit s) der Marke unter dem Marker - oder None mit Meldung."""
+        if not self.video_editor.blickmarke_moeglich():
+            return None
+        if not self.playlist:
+            self.video_editor.hinweis_zeigen("No video loaded")
+            return None
+        return float(self.video_editor.get_current_global_time())
+
+    def _blickverlauf_uebernehmen(self):
+        self.video_editor.set_blickverlauf(self._blickverlauf_holen())
+        self._blickmarken_anzeigen()
+
+    def _blickmarken_anzeigen(self):
+        """Die Marken auf die Zeitleiste geben - sichtbar nur bei 360."""
+        verlauf = self._blickverlauf_holen()
+        self.timeline.set_blickmarken(
+            [(m.t, m.art) for m in verlauf],
+            zeigen=bool(getattr(self.video_editor, "_is_360_mode", False)))
+
+    def _blickmarke_nummer(self, t):
+        """Laufende Nummer der Marke an t (1..n) oder 0."""
+        verlauf = self._blickverlauf_holen()
+        m = verlauf.bei(t)
+        return verlauf.zeiten().index(m.t) + 1 if m is not None else 0
+
+    def _on_blickmarke_verschieben(self, t_alt, t_neu):
+        """Raute auf der Zeitleiste gezogen und losgelassen."""
+        verlauf = self._blickverlauf_holen()
+        if verlauf.bei(t_neu) is not None and verlauf.bei(t_neu) is not verlauf.bei(t_alt):
+            self._blickmarke_melden(
+                f"There is already a keyframe at {t_neu:.2f}s")
+            return
+        if verlauf.verschieben(t_alt, t_neu):
+            self._blickverlauf_uebernehmen()
+            self._blickmarke_melden(
+                f"Keyframe {self._blickmarke_nummer(t_neu)} moved: "
+                f"{t_alt:.2f}s -> {t_neu:.2f}s")
+
+    def _on_blickmarke_loeschen_zeit(self, t):
+        """Entf auf der ausgewaehlten Raute."""
+        verlauf = self._blickverlauf_holen()
+        nummer = self._blickmarke_nummer(t)
+        if verlauf.entfernen(t):
+            self._blickverlauf_uebernehmen()
+            self._blickmarke_melden(
+                f"Keyframe {nummer} at {t:.2f}s removed ({len(verlauf)} left)")
+
+    def _on_blickmarke_menu(self, t, global_pos):
+        """Rechtsklick auf eine Raute - Menue wie beim Schnitt."""
+        from PySide6.QtWidgets import QMenu
+        verlauf = self._blickverlauf_holen()
+        marke = verlauf.bei(t)
+        if marke is None:
+            return
+        nummer = self._blickmarke_nummer(t)
+        menue = QMenu(self)
+        titel = menue.addAction(
+            f"Keyframe {nummer} at {self._sek_kurz(marke.t)}  "
+            f"(yaw {math.degrees(marke.yaw):+.0f}°, "
+            f"pitch {math.degrees(marke.pitch):+.0f}°, "
+            f"FOV {math.degrees(marke.fov):.0f}°)")
+        titel.setEnabled(False)
+        menue.addSeparator()
+        a_weich = menue.addAction("Smooth move to next keyframe")
+        a_weich.setCheckable(True)
+        a_weich.setChecked(marke.art == blickverlauf.WEICH)
+        a_hart = menue.addAction("Hard cut to next keyframe")
+        a_hart.setCheckable(True)
+        a_hart.setChecked(marke.art == blickverlauf.HART)
+        menue.addSeparator()
+        a_weg = menue.addAction("Remove keyframe\tDel")
+
+        gewaehlt = menue.exec(global_pos)
+        if gewaehlt is None:
+            return
+        if gewaehlt is a_weg:
+            self._on_blickmarke_loeschen_zeit(marke.t)
+        elif gewaehlt is a_weich or gewaehlt is a_hart:
+            art = blickverlauf.WEICH if gewaehlt is a_weich else blickverlauf.HART
+            if verlauf.art_setzen(marke.t, art):
+                self._blickverlauf_uebernehmen()
+                self._blickmarke_melden(
+                    f"Keyframe {nummer}: {'smooth move' if art == blickverlauf.WEICH else 'hard cut'} "
+                    f"to the next keyframe")
+
+    def _blickmarke_melden(self, text):
+        """Ins Bild UND auf die Konsole - damit man sieht, was passiert."""
+        print(f"[360] {text}")
+        self.video_editor.hinweis_zeigen(text)
+
+    def _on_blickmarke_setzen(self):
+        t = self._blickmarke_stelle()
+        if t is None:
+            return
+        yaw, pitch, fov = self.video_editor.blick360()
+        verlauf = self._blickverlauf_holen()
+        vorhanden = verlauf.bei(t) is not None
+        verlauf.setzen(t, yaw, pitch, fov)
+        self._blickverlauf_uebernehmen()
+        nummer = verlauf.zeiten().index(verlauf.bei(t).t) + 1
+        self._blickmarke_melden(
+            f"Keyframe {nummer} {'updated' if vorhanden else 'set'} at "
+            f"{t:.2f}s: yaw {math.degrees(yaw):+.0f}°, "
+            f"pitch {math.degrees(pitch):+.0f}°, FOV {math.degrees(fov):.0f}°"
+            f"  ({len(verlauf)} keyframe(s) total)")
+        print("[360] Keyframes: " + ", ".join(f"{z:.2f}s" for z in verlauf.zeiten()))
+
+    def _on_blickmarke_loeschen(self):
+        t = self._blickmarke_stelle()
+        if t is None:
+            return
+        verlauf = self._blickverlauf_holen()
+        if verlauf.entfernen(t):
+            self._blickverlauf_uebernehmen()
+            self._blickmarke_melden(
+                f"Keyframe at {t:.2f}s removed ({len(verlauf)} left)")
+        else:
+            self._blickmarke_melden(
+                f"No keyframe at {t:.2f}s (±{blickverlauf.TOLERANZ_S:.2f}s)")
+
 
 
     def keyPressEvent(self, event):
@@ -13160,6 +13360,13 @@ class MainWindow(QMainWindow):
           <tr><td>Reset View</td>
               <td><code>Ctrl + 0</code></td>
               <td>Reset the View; only available in 360° mode.</td></tr>
+
+          <tr><td>Set 360° keyframe</td>
+              <td><code>K</code></td>
+              <td>Store the current view at the marker; the view moves smoothly between keyframes. Only in 360° mode.</td></tr>
+          <tr><td>Delete 360° keyframe</td>
+              <td><code>Shift + K</code></td>
+              <td>Remove the keyframe at the marker position. Only in 360° mode.</td></tr>
 
           <tr><td>Add bookmark</td><td><code>Ctrl + B</code></td>
               <td>Bookmark the selected GPX row (menu Bookmarks, or right-click on the map or in the table).</td></tr>
@@ -13262,6 +13469,11 @@ class MainWindow(QMainWindow):
         self._sprechstellen_anzeigen()
         self.view360_views = []
         self._360_aus_projekt = False
+        self._blickverlauf = blickverlauf.Blickverlauf()
+        try:
+            self.timeline.set_blickmarken([], zeigen=False)
+        except Exception:
+            pass
         # Keyframes sind Positionen auf der globalen Zeitachse. Ohne Playlist
         # gibt es diese Achse nicht mehr.
         self.global_keyframes = []
@@ -13414,6 +13626,8 @@ class MainWindow(QMainWindow):
         self.view360_views = [view360.Blickwinkel.aus_dict(d)
                               for d in (daten.get("views") or [])]
         self._blick360_liste()          # auf die Länge der Playlist bringen
+        self._blickverlauf = blickverlauf.Blickverlauf.aus_liste(
+            daten.get("keyframes"))
         an = bool(daten.get("enabled"))
         if an and not self.video_editor.supports_360():
             self._360_aus_projekt = False

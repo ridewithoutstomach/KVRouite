@@ -8,6 +8,42 @@ Versions up to and including 5.0 are documented in the GitHub releases only.
 
 ---
 
+## 7.02 - in progress
+
+### Added
+
+**360°: keyframes for the viewing direction (stage 1 of the 360 editor)**
+
+Up to 7.01 every video had one fixed view in 360° mode. Now the view can
+change over time. The button **KF** (next to "cut", shown in 360° mode only)
+stores the current viewing direction and zoom as a keyframe at the marker;
+between two keyframes the camera pans smoothly (yaw takes the shorter way
+across 180°). The view the video starts with is the starting point: from
+the beginning of the video the camera pans smoothly from that view and
+reaches the first keyframe exactly there; after the last keyframe the view
+holds. Keyframes appear as small diamonds at the top of the timeline: click
+one to jump there, drag it to move it, `Del` removes the selected one, and a
+right-click offers "Smooth move" or "Hard cut" to the next keyframe. The
+stepper gets the mode **KF** (360° mode only) so the step buttons jump from
+keyframe to keyframe. `K` and `Shift+K` do the same as the button and `Del`.
+Keyframes belong to the video they lie in; a video without keyframes keeps
+its fixed view as before. Both orders work: press KF and then drag the
+picture, and the keyframe under the marker takes the new view; or drag first
+and press KF to store what you see. Dragging somewhere between keyframes
+only previews the view until you play, jump, or press KF.
+
+Preview and export use the same mechanism: a pad probe on the shader sets
+the view for every single frame (measured with `tools/mess_360_keyframes.py`,
+about 1.3 ms per frame, no loss in preview speed). The project file and the
+export job carry the keyframes under `view360.keyframes`; older program
+versions ignore the key and render the fixed view.
+
+Not yet in this stage: undo for keyframes, and moving keyframes along when
+videos are removed or reordered. Pre-rendered crossfade snippets use the
+fixed view at their cut.
+
+---
+
 ## 7.01 - 2026-09-11
 
 A small follow-up to 7.0 for the application without the Voice add-on.

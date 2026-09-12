@@ -29,6 +29,7 @@ Der Stepper hinter den Vor-/Zurueck-Knoepfen. Modi:
 - 'f' Einzelbild
 - 'k' Keyframes
 - 'c' Schnittkanten
+- 'KF' 360-Blickmarken (View-Keyframes), nur bei aktivem 360
 
 GRUNDSATZ: gezaehlt wird im FERTIGEN Video, nicht im Rohmaterial.
 
@@ -57,6 +58,10 @@ Was die Modi damit tun:
          erste danach, dazu Anfang und Ende des fertigen Videos. Nur im
          Encode-Mode, siehe _require_encode_mode(). Der Multiplier bleibt ohne
          Wirkung, es geht immer eine Kante weiter.
+
+  KF     zur naechsten 360-Blickmarke (core/blickverlauf), wie 'k', nur mit
+         der Liste aus dem Blickverlauf des Fensters. Marken in einem
+         Schnitt werden wie Keyframes uebersprungen.
 
 ZUM SPRINGEN: ein bildgenauer Sprung zeigt das ERSTE Bild AB der Zielzeit
 (so nachgemessen). Wer das letzte Bild VOR einem Zeitpunkt
@@ -118,6 +123,8 @@ where the cut will really land."""
             self._step_keyframe(+1)
         elif self.step_mode == 'c':
             self._step_cut(+1)
+        elif self.step_mode == 'KF':
+            self._step_blickmarke(+1)
         else:
             print(f"[DEBUG] step_mode='{self.step_mode}'? Unbekannter Modus.")
 
@@ -133,8 +140,49 @@ where the cut will really land."""
             self._step_keyframe(-1)
         elif self.step_mode == 'c':
             self._step_cut(-1)
+        elif self.step_mode == 'KF':
+            self._step_blickmarke(-1)
         else:
             print(f"[DEBUG] step_mode='{self.step_mode}'? Unbekannter Modus.")
+
+    # ------------------------------------------------------------------------
+    # KF => 360-Blickmarken
+    # ------------------------------------------------------------------------
+    def _step_blickmarke(self, direction: int):
+        """Zur naechsten / vorigen Blickmarke, mit Multiplier wie bei 'k'."""
+        verlauf = getattr(self.mainwindow, "_blickverlauf", None) \
+            if self.mainwindow else None
+        raw = verlauf.zeiten() if verlauf is not None else []
+        if not raw:
+            print("[DEBUG] (KF): Keine 360-Blickmarken vorhanden.")
+            self.video_editor.hinweis_zeigen("No 360° keyframes set (button KF)")
+            return
+        kfs = self._surviving_keyframes(raw)
+        if not kfs:
+            print("[DEBUG] (KF): Alle Blickmarken liegen in geschnittenen Bereichen.")
+            return
+        cur_s = self._get_current_global_time()
+        n = max(1, int(max(1.0, self.step_multiplier)))
+        EPS = 0.005
+        if direction > 0:
+            idx = next((i for i, t in enumerate(kfs) if t > cur_s + EPS), None)
+            if idx is None:
+                print("[DEBUG] (KF-forward): bereits an der letzten Blickmarke.")
+                return
+            idx = min(idx + (n - 1), len(kfs) - 1)
+        else:
+            idx = next((i for i in reversed(range(len(kfs)))
+                        if kfs[i] < cur_s - EPS), None)
+            if idx is None:
+                print("[DEBUG] (KF-backward): vor der ersten Blickmarke.")
+                return
+            idx = max(idx - (n - 1), 0)
+        target = kfs[idx]
+        print(f"[DEBUG] (KF {'+' if direction > 0 else '-'}): "
+              f"{cur_s:.3f} => {target:.3f} (Marke {idx + 1} von {len(kfs)})")
+        self.video_editor.seek_global(target)
+        self.video_editor.hinweis_zeigen(
+            f"Keyframe {idx + 1} of {len(kfs)}: {target:.2f}s")
 
     # ------------------------------------------------------------------------
     # s / m => Zeitschritte, im fertigen Video gemessen

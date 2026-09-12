@@ -71,6 +71,7 @@ from PySide6.QtCore import QSettings
 from core import stimme
 from core import verkehr
 from core import view360
+from core import blickverlauf
 from core.hardware_detect import GST_HW_ENCODER
 
 
@@ -768,19 +769,39 @@ def _bereiche_beschraenken(bereiche, stellen, rand_s):
 
 
 def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_d,
-                    log, blicke=None, merge_fades=None, verkehr_cfg=None):
+                    log, blicke=None, merge_fades=None, verkehr_cfg=None,
+                    kurve=None):
     """verkehr_cfg: None, oder {"daempfer_db": dB, "analysen": {pfad: daten}}
-    mit den Fundstellen aus core/verkehr.analyse - siehe _verkehr_setzen."""
+    mit den Fundstellen aus core/verkehr.analyse - siehe _verkehr_setzen.
+
+    kurve: eingefrorener Blickverlauf (core/blickverlauf.Kurve) oder None.
+    Mit Kurve bekommt jeder Quellclip eine Probe, die den Blick je Bild
+    setzt - derselbe Weg wie in der Vorschau (core/ges_backend). Standbilder
+    der Merge-Fades bekommen den festen Wert der Kurve an ihrer Rohzeit."""
     timeline = GES.Timeline.new_audio_video()
     blicke = blicke or []
     aspect = view360.ziel_aspect(breite, hoehe)
+    # (effekt, rohstart_s, von_s, bis_s) - die Proben kommen erst nach dem
+    # commit_sync() dran, vorher gibt es das Shader-Element noch nicht.
+    proben = []
 
-    def blick_fuer(rohstart):
-        """Blickwinkel des Videos, aus dem dieses Stueck stammt."""
+    def blick_fuer(rohstart, statisch=False):
+        """Blickwinkel des Videos, aus dem dieses Stueck stammt.
+
+        statisch=True: der Wert der Kurve an dieser Rohzeit (fuer Clips
+        ohne Probe), sonst der feste Blick der Datei."""
         if not blicke:
             return None
         index = quellen.index_bei(rohstart)
-        return blicke[index] if 0 <= index < len(blicke) else None
+        if not (0 <= index < len(blicke)):
+            return None
+        if statisch and kurve is not None:
+            von, bis = quellen.grenzen[index]
+            blick = kurve.blick_bei(rohstart / NS, von / NS, bis / NS,
+                                    blicke[index])
+            if blick is not None:
+                return blick
+        return blicke[index]
 
     def ns(sekunden):
         return _raster(sekunden, fps_n, fps_d)
@@ -835,13 +856,23 @@ def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_
         # Stueck geht hier durch, auch die Haelften einer Blende - beide werden
         # einzeln projiziert und danach ueber die alpha-Rampe gemischt, was
         # richtig ist: gemischt wird im fertigen Bild, nicht auf der Kugel.
-        blick = blick_fuer(rohstart)
+        # Quellclips bekommen die Probe fuer den Blickverlauf (ihr
+        # Zeitstempel ist die Zeit in der Datei, gemessen), alles andere -
+        # die Standbilder der Merge-Fades - den festen Wert an der Kante.
+        ist_quelle = any(asset is a for a in quellen.assets)
+        blick = blick_fuer(rohstart, statisch=not ist_quelle)
         if blick is not None:
-            if view360.effekt_anhaengen(clip, blick, aspect) is None:
+            effekt = view360.effekt_anhaengen(clip, blick, aspect)
+            if effekt is None:
                 raise GesRenderError(
                     "360 effect could not be attached: "
                     + (view360.fehlgrund() or "unbekannter Grund"))
             view360.rahmen_setzen(clip, breite, hoehe)
+            if kurve is not None and ist_quelle:
+                index = quellen.index_bei(rohstart)
+                von, bis = quellen.grenzen[index]
+                proben.append((effekt, von / NS, von / NS, bis / NS,
+                               blicke[index]))
         return clip
 
     def ton_setzen(layer, clip, asset, start, inpoint, dauer):
@@ -958,6 +989,18 @@ def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_
                                  zeit_ns, breite, hoehe, ns, clip_setzen, log)
 
     timeline.commit_sync()
+    if proben:
+        fehl = 0
+        for effekt, rohstart_s, von_s, bis_s, grund in proben:
+            if not view360.probe_anhaengen(effekt, rohstart_s, von_s, bis_s,
+                                           lambda: kurve, aspect,
+                                           lambda g=grund: g):
+                fehl += 1
+        if fehl:
+            raise GesRenderError(
+                f"360 keyframes: probe could not be attached to {fehl} clip(s)")
+        log(f"[GES] 360 keyframes: {len(kurve)} keyframe(s), "
+            f"{len(proben)} clip(s) follow the view path")
     gesamt = timeline.get_duration()
     log(f"[GES] Timeline: {len(stuecke)} piece(s), {blenden} crossfade(s), "
         f"{naehte} merge-fade(s), "
@@ -1813,12 +1856,18 @@ def ges_xfade_main(cfg_path, abbruch=None):
             log(f"[GES] Merge-fade entry not readable: {eintrag!r}")
 
     blicke = _blicke_liste(quellen, view360_cfg)
+    kurve = None
     if blicke:
         grund = view360.fehlgrund()
         if grund:
             raise GesRenderError(f"360 is switched on but does not work: {grund}")
         log(f"[GES] 360: {len(blicke)} source(s) are projected, "
             f"output {breite}x{hoehe}")
+        # Blickverlauf (Keyframes): derselbe Abschnitt wie in der
+        # Projektdatei. Fehlt er - aeltere Projekte -, gilt je Datei der
+        # feste Blick, wie bis 7.01.
+        kurve = blickverlauf.Blickverlauf.aus_liste(
+            view360_cfg.get("keyframes")).einfrieren()
 
     # Stimmen entfernen (core/stimme): je Quelldatei einmal die Tonspur
     # durch das Trennmodell - mit Zwischenspeicher - und die WAV ohne Stimme
@@ -1944,7 +1993,8 @@ def ges_xfade_main(cfg_path, abbruch=None):
 
     timeline, gesamt_ns = _timeline_bauen(quellen, skip_list, overlay_list,
                                           breite, hoehe, fps_n, fps_d, log,
-                                          blicke, merge_fades, verkehr_cfg)
+                                          blicke, merge_fades, verkehr_cfg,
+                                          kurve)
     profil = _profil(encoder, hw_encode, crf, preset, bitrate_mbps, log,
                      audio_kbps)
 

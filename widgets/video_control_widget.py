@@ -48,6 +48,9 @@ class VideoControlWidget(QWidget):
     cutClicked               = Signal()
     
     markClearClicked         = Signal()
+    #: "KF" gedrueckt: 360-Blickmarke am Marker setzen (Stufe 2 des
+    #: 360-Plans, abgesprochen 12.09.2026). Knopf nur bei aktivem 360.
+    keyframeClicked          = Signal()
 
     syncClicked              = Signal()
     set_beginClicked         = Signal()  
@@ -82,6 +85,7 @@ class VideoControlWidget(QWidget):
         self._cut = False
         self._ovl = False
         self._audio_da = False
+        self._360 = False
         self.seite_button = QPushButton()
         self.seite_button.setToolTip(
             "Switch the buttons: film = video (cut, sync, overlay), "
@@ -221,7 +225,18 @@ class VideoControlWidget(QWidget):
         self.cut_button.setFixedWidth(40)
         self.cut_button.clicked.connect(self.cutClicked.emit)
         layout.addWidget(self.cut_button)
-        
+
+        # 360-Blickmarke (Keyframe) am Marker setzen. Textknopf wie "cut",
+        # sichtbar nur auf Seite V bei aktivem 360 (set_360_aktiv).
+        self.kf_button = QPushButton("KF")
+        self.kf_button.setToolTip(
+            "Set a 360° keyframe at the marker: stores the current view.\n"
+            "The view moves smoothly between keyframes.")
+        self.kf_button.setFixedWidth(40)
+        self.kf_button.clicked.connect(self.keyframeClicked.emit)
+        self.kf_button.setVisible(False)
+        layout.addWidget(self.kf_button)
+
         
                 
         self.cut_begin_button = QPushButton()
@@ -394,6 +409,11 @@ class VideoControlWidget(QWidget):
         self._ovl = bool(show)
         self._seite_anwenden()
 
+    def set_360_aktiv(self, an: bool):
+        """360-Modus an oder aus - zeigt oder versteckt den KF-Knopf."""
+        self._360 = bool(an)
+        self._seite_anwenden()
+
     # ---- Seite V / A -------------------------------------------------
     def voice_seite_anbieten(self, an: bool, stimmen: bool = True, fahrzeuge: bool = True):
         """Den Seitenknopf zeigen (Encode-Mode, "Remove voices" oder "Damp
@@ -431,6 +451,7 @@ class VideoControlWidget(QWidget):
         # Seite V
         self.time_btn.setVisible(not audio)
         self.cut_button.setVisible(edit and not audio)
+        self.kf_button.setVisible(self._360 and not audio)
         self.cut_end_button.setVisible(cut and not audio)
         self.cut_begin_button.setVisible(cut and not audio)
         self.set_sync_button.setVisible(not audio)
@@ -567,7 +588,7 @@ class VideoControlWidget(QWidget):
             + ", ".join({
                 "s": "s = seconds", "m": "m = minutes",
                 "k": "k = keyframes", "f": "f = single frame",
-                "c": "c = cut edges",
+                "c": "c = cut edges", "KF": "KF = 360° keyframes",
             }.get(v, v) for v in self._step_values))
         if geaendert:
             self.step_value_changed.emit(self._step_values[self._step_index])

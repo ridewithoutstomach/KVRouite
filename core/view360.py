@@ -330,6 +330,98 @@ def uniforms_setzen(effekt, blickwinkel, aspect):
         return False
 
 
+def shader_element(effekt):
+    """
+    Das glshader-Element in der Effekt-Bin - oder None.
+
+    GES haengt die Bin aus EFFEKT_BIN in ein NleOperation; dort ist sie
+    ueber den Namen "kvr360" erreichbar. Gemessen am 12.09.2026
+    (tools/mess_360_keyframes.py): nach commit_sync() der Timeline ist das
+    Element da. Vorher kann es fehlen - dann None, und der Aufrufer
+    versucht es nach dem Commit noch einmal.
+    """
+    if effekt is None or _GST_IMPORT_ERROR is not None:
+        return None
+    try:
+        wurzel = effekt.get_nleobject()
+    except Exception:
+        wurzel = None
+    if wurzel is None or not isinstance(wurzel, Gst.Bin):
+        return None
+    treffer = wurzel.get_by_name("kvr360")
+    if treffer is not None:
+        return treffer
+    try:
+        for kind in wurzel.iterate_recurse():
+            fabrik = kind.get_factory()
+            if fabrik is not None and fabrik.get_name() == "glshader":
+                return kind
+    except Exception:
+        pass
+    return None
+
+
+def probe_anhaengen(effekt, rohstart_s, von_s, bis_s, kurve_holen, aspect,
+                    grundblick_holen=None):
+    """
+    Blickverlauf JE BILD: eine Buffer-Probe am Sink-Pad des Shaders.
+
+    Sie liest den Zeitstempel des Bildes, rechnet daraus die Rohzeit,
+    schlaegt in der Kurve nach und setzt die Uniforms, bevor der Shader
+    das Bild rechnet. Gemessen am 12.09.2026 (tools/mess_360_keyframes.py,
+    Ergebnisse in doc/Plan_360_Editor.md, Abschnitt 2):
+
+      - Der PTS an dieser Stelle ist die ZEIT IN DER QUELLDATEI. Die
+        Rohzeit der App ist deshalb rohstart_s + pts, ohne Clip-Start und
+        ohne In-Point. Das gilt fuer Quellclips - nicht fuer Standbilder
+        oder vorgerenderte Blenden, deren PTS bei 0 beginnt; die bekommen
+        keine Probe, sondern einen festen Blick.
+      - Der Wert greift fuer genau dieses Bild, nicht erst das naechste.
+      - Setzen direkt am Element kostet 0,16 ms je Bild und ist aus dem
+        Streaming-Thread heraus unbedenklich.
+      - Vor dem eigentlichen Clip liefert GStreamer ein paar Vorlauf-Bilder
+        vom Dateianfang; sie landen nicht im Bild und brauchen keine
+        Sonderbehandlung.
+
+    kurve_holen: Funktion ohne Argumente, die die aktuelle Kurve liefert
+    (core/blickverlauf.Kurve) oder None. Eine Funktion und kein Wert, damit
+    die Vorschau die Kurve austauschen oder vorruebergehend abschalten
+    kann (Ziehen mit der Maus), ohne die Timeline anzufassen.
+
+    von_s/bis_s: Rohbereich der Quelldatei - nur Marken darin zaehlen.
+    grundblick_holen: Funktion ohne Argumente, die den festen Blick der
+    Datei liefert - der Ausgangspunkt vor der ersten Marke (siehe
+    blickverlauf.Kurve.blick_bei). Liefert True, wenn die Probe haengt.
+    """
+    shader = shader_element(effekt)
+    if shader is None:
+        return False
+    pad = shader.get_static_pad("sink")
+    if pad is None:
+        return False
+    ns = float(Gst.SECOND)
+
+    def _auf_bild(_pad, info, _daten):
+        kurve = kurve_holen()
+        if kurve is None:
+            return Gst.PadProbeReturn.OK
+        try:
+            puffer = info.get_buffer()
+            if puffer is None or puffer.pts == Gst.CLOCK_TIME_NONE:
+                return Gst.PadProbeReturn.OK
+            grund = grundblick_holen() if grundblick_holen is not None else None
+            blick = kurve.blick_bei(rohstart_s + puffer.pts / ns, von_s, bis_s,
+                                    grund)
+            if blick is not None:
+                shader.set_property("uniforms", _uniforms(blick, aspect))
+        except Exception:
+            pass
+        return Gst.PadProbeReturn.OK
+
+    pad.add_probe(Gst.PadProbeType.BUFFER, _auf_bild, None)
+    return True
+
+
 def rahmen_setzen(clip, breite, hoehe):
     """
     Die Quelle randlos auf das Zielbild legen.

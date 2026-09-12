@@ -136,6 +136,12 @@ class VideoEditorWidget(QWidget):
     # 360-Blickwinkel des Videos mit diesem Index hat sich
     # geaendert: (index, yaw, pitch, fov) - alle drei in Radiant.
     blick360Geaendert = Signal(int, float, float, float)
+    # 360-Blickverlauf: der Nutzer will an der Marker-Position eine Marke
+    # setzen bzw. loeschen. Die Tasten haengen hier als ApplicationShortcut
+    # wie die Tempo-Tasten - eine QAction mit Buchstaben-Kuerzel kommt nicht
+    # durch, sobald die GPX-Tabelle oder die Karte den Fokus hat.
+    blickmarkeSetzen = Signal()
+    blickmarkeLoeschen = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -340,7 +346,11 @@ class VideoEditorWidget(QWidget):
         _sc(Qt.Key_6,      lambda: self.set_playback_rate(6.0))
         _sc(Qt.Key_7,      lambda: self.set_playback_rate(7.0))
         _sc(Qt.Key_8,      lambda: self.set_playback_rate(8.0))
-        _sc(Qt.Key_9,      lambda: self.set_playback_rate(9.0))  
+        _sc(Qt.Key_9,      lambda: self.set_playback_rate(9.0))
+
+        # 360-Blickverlauf: K setzt, Shift+K loescht (siehe Signale oben).
+        _sc(Qt.Key_K,             self._blickmarke_taste)
+        _sc(Qt.SHIFT | Qt.Key_K,  self._blickmarke_taste_loeschen)
 
         # -------- Keyboard Shortcuts --------
         # Speed: + / - (mehrere Varianten für unterschiedliche Tastaturen/Numpad)
@@ -1195,6 +1205,44 @@ class VideoEditorWidget(QWidget):
         if not self._backend.supports_360():
             return False
         return self._backend.set_view360_liste(ansichten)
+
+    # ---- 360°: Blickverlauf (Keyframes) -------------------------------------
+    # Die Marken selbst verwaltet das Hauptfenster (core/blickverlauf.py);
+    # hier geht der Verlauf nur ans Backend, das ihn je Bild anwendet.
+
+    def set_blickverlauf(self, verlauf):
+        """Blickverlauf ans Backend geben (Blickverlauf oder None)."""
+        if not self._backend.supports_360():
+            return False
+        return self._backend.set_blickverlauf(verlauf)
+
+    def hat_blickverlauf(self):
+        """Hat das laufende Video Marken?"""
+        try:
+            return bool(self._backend.hat_blickverlauf())
+        except Exception:
+            return False
+
+    def blickmarke_moeglich(self):
+        """Darf gerade eine Marke gesetzt werden? Meldet sonst den Grund."""
+        bereit = self._360_bereit(melden=True)
+        if not bereit:
+            print("[360] Keyframe: nicht moeglich - "
+                  + ("360-Modus ist aus (Taste V)" if self._backend.supports_360()
+                     else "Backend kann kein 360"))
+        return bereit
+
+    def _blickmarke_taste(self):
+        print("[360] Taste K")
+        self.blickmarkeSetzen.emit()
+
+    def _blickmarke_taste_loeschen(self):
+        print("[360] Taste Shift+K")
+        self.blickmarkeLoeschen.emit()
+
+    def hinweis_zeigen(self, text):
+        """Kurze Einblendung im Bild - dieselbe wie bei Tempo und Zoom."""
+        self._show_speed_label(text)
 
 
     # NEU in der Klasse ergänzen:

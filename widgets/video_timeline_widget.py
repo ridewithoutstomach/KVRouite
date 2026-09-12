@@ -24,7 +24,7 @@ import math
 from PySide6.QtWidgets import QWidget
 from PySide6.QtCore import Qt, QPoint, QPointF, QRectF, Signal
 from PySide6.QtGui import (QPainter, QPen, QBrush, QColor, QPolygon,
-                          QLinearGradient, QWheelEvent)
+                          QPolygonF, QLinearGradient, QWheelEvent)
 
 def _nice_number(value: float) -> float:
     
@@ -44,6 +44,13 @@ def _nice_number(value: float) -> float:
 
 class VideoTimelineWidget(QWidget):
     markerMoved = Signal(float)
+    #: 360-Blickmarken (Keyframes, seit 7.02): Verschieben beim Loslassen
+    #: (alt, neu), Entf auf der ausgewaehlten, Rechtsklick - das Menue baut
+    #: das Fenster, wie bei Schnitt und Overlay. Ein Klick auf eine Marke
+    #: setzt den Marker dorthin und meldet das ueber markerMoved.
+    blickmarkeMoveRequested = Signal(float, float)
+    blickmarkeDeleteRequested = Signal(float)
+    blickmarkeMenuRequested = Signal(float, object)
     overlayRemoveRequested = Signal(float, float)
     # Rechtsklick auf einen schwarzen Block: Blende <-> harte Kante
     cutHardToggleRequested = Signal(float, float)
@@ -219,6 +226,16 @@ class VideoTimelineWidget(QWidget):
         # Entf muss eindeutig sein, sonst weiss niemand, was gleich
         # verschwindet.
         self._gewaehltes_overlay = None
+        # 360-Blickmarken: [(rohzeit_s, art)] mit art "smooth" oder "hard",
+        # gezeichnet als Raute am oberen Rand, nur bei aktivem 360
+        # (set_blickmarken). Auswahl, Menue-Markierung und Ziehen wie bei
+        # Schnitten - eine Auswahl schliesst die anderen aus.
+        self._blickmarken = []
+        self._blickmarken_zeigen = False
+        self._gewaehlte_blickmarke = None
+        self._markierte_blickmarke = None
+        self._zieh_blickmarke = None
+        self._zieh_blickmarke_neu = None
 
         # Zwei Auskuenfte, die nur das MainWindow geben kann: in welchem
         # Bereich ein Schnitt liegen darf und ob er ueberhaupt umziehen darf.
@@ -556,6 +573,7 @@ class VideoTimelineWidget(QWidget):
         self._gewaehlter_schnitt = schnitt
         if schnitt is not None:
             self._gewaehltes_overlay = None
+            self._gewaehlte_blickmarke = None
         self.update()
 
     def _overlay_waehlen(self, overlay):
@@ -566,7 +584,80 @@ class VideoTimelineWidget(QWidget):
         self._gewaehltes_overlay = overlay
         if overlay is not None:
             self._gewaehlter_schnitt = None
+            self._gewaehlte_blickmarke = None
         self.update()
+
+    # ---- 360-Blickmarken ---------------------------------------------------
+    #: Halbe Breite der Raute in Pixeln; die Trefferzone ist etwas groesser.
+    _BLICKMARKE_PX = 6
+    _BLICKMARKE_HOEHE = 14
+
+    def set_blickmarken(self, marken, zeigen=True):
+        """Marken [(rohzeit_s, art)] uebernehmen; zeigen=False blendet sie
+        aus (360 aus). Eine Auswahl, die es nicht mehr gibt, faellt weg."""
+        self._blickmarken = [(float(t), art) for t, art in marken]
+        self._blickmarken_zeigen = bool(zeigen)
+        zeiten = [t for t, _a in self._blickmarken]
+        if self._gewaehlte_blickmarke is not None and not any(
+                abs(z - self._gewaehlte_blickmarke) < 0.001 for z in zeiten):
+            self._gewaehlte_blickmarke = None
+        self.update()
+
+    def _blickmarke_unter(self, x_mouse, y_mouse=None):
+        """Rohzeit der Marke unter dem Zeiger, sonst None. Die Rauten sitzen
+        oben; ein Klick weiter unten meint den Marker, nicht die Marke."""
+        if not self._blickmarken_zeigen or not self._blickmarken:
+            return None
+        if y_mouse is not None and y_mouse > self._BLICKMARKE_HOEHE + 4:
+            return None
+        beste, abstand = None, self._BLICKMARKE_PX + 2
+        for t, _art in self._blickmarken:
+            d = abs(x_mouse - self._x_bei_zeit(t))
+            if d <= abstand:
+                beste, abstand = t, d
+        return beste
+
+    def _blickmarke_waehlen(self, t):
+        if t == self._gewaehlte_blickmarke:
+            return
+        self._gewaehlte_blickmarke = t
+        if t is not None:
+            self._gewaehlter_schnitt = None
+            self._gewaehltes_overlay = None
+        self.update()
+
+    def _blickmarke_markieren(self, t):
+        """Hervorheben, solange ihr Menue offen ist (vgl. _markieren)."""
+        self._markierte_blickmarke = t
+        self.update()
+        from PySide6.QtWidgets import QApplication
+        QApplication.processEvents()
+
+    def _draw_blickmarken(self, painter, w, h, timeline_real_width):
+        """Rauten am oberen Rand: hohl = weicher Uebergang, gefuellt = hart.
+        Farbe wie der Merge-Fade, damit sie sich von Gelb (Marken), Blau
+        (Overlay, Naht) und Weiss (Marker) abhebt."""
+        if not self._blickmarken_zeigen or not self._blickmarken \
+                or self.total_duration <= 0:
+            return
+        r = self._BLICKMARKE_PX
+        mitte = self._BLICKMARKE_HOEHE / 2.0 + 1
+        for t, art in self._blickmarken:
+            x = self._x_bei_zeit(t)
+            if not (-20 < x < w + 20):
+                continue
+            raute = QPolygonF([QPointF(x, mitte - r), QPointF(x + r, mitte),
+                               QPointF(x, mitte + r), QPointF(x - r, mitte)])
+            if t == self._markierte_blickmarke:
+                painter.setPen(QPen(QColor(255, 255, 255, 230), 2))
+            elif t == self._gewaehlte_blickmarke:
+                painter.setPen(QPen(QColor("#ffcc00"), 2))
+            else:
+                painter.setPen(QPen(self.MERGE_FADE_FARBE, 2))
+            painter.setBrush(QBrush(self.MERGE_FADE_FARBE) if art == "hard"
+                             else QBrush(QColor(0, 0, 0, 160)))
+            painter.drawPolygon(raute)
+        painter.setBrush(Qt.NoBrush)
 
     def _overlay_unter(self, x_mouse):
         """Wie _kante_unter(), nur fuer die blauen Overlay-Balken."""
@@ -1111,6 +1202,19 @@ class VideoTimelineWidget(QWidget):
             event.accept()
             return
         if event.button() == Qt.LeftButton:
+            # Vor allem anderen die 360-Blickmarken oben am Rand: Klick
+            # waehlt aus und setzt den Marker dorthin; Ziehen verschiebt
+            # sie, entschieden wird beim Loslassen (wie beim Schnitt).
+            marke = self._blickmarke_unter(event.pos().x(), event.pos().y())
+            if marke is not None:
+                self._blickmarke_waehlen(marke)
+                self._zieh_blickmarke = marke
+                self._zieh_blickmarke_neu = marke
+                self.set_marker_position(marke)
+                self.markerMoved.emit(marke)
+                event.accept()
+                return
+            self._blickmarke_waehlen(None)
             # Zuerst die Schnitte fragen: liegt der Zeiger auf einer Kante
             # oder in einem Block, wird gezogen statt der Marker gesetzt.
             schnitt, art = self._kante_unter(event.pos().x())
@@ -1159,6 +1263,16 @@ class VideoTimelineWidget(QWidget):
             self._umzug_aktualisieren(event.pos().x(), event.pos())
             event.accept()
             return
+        if self._zieh_blickmarke is not None:
+            # Blickmarke ziehen: der Marker laeuft mit, damit man im Bild
+            # sieht, wohin die Marke wandert. Uebernommen wird beim Loslassen.
+            t = self._zeit_bei_x(event.pos().x())
+            if t is not None:
+                self._zieh_blickmarke_neu = t
+                self.set_marker_position(t)
+                self.markerMoved.emit(t)
+            event.accept()
+            return
         if not (self._dragging_marker or self._dragging_timeline):
             # Ohne gedrueckte Taste nur die Zeigerform. Rein geometrisch -
             # ob der Schnitt umziehen DARF, wird erst beim Zugriff geprueft.
@@ -1168,10 +1282,11 @@ class VideoTimelineWidget(QWidget):
             if naht != self._naht_unter_zeiger:
                 self._naht_unter_zeiger = naht
                 self.update()
+            marke = self._blickmarke_unter(event.pos().x(), event.pos().y())
             _s, art = self._kante_unter(event.pos().x())
             if art is None:
                 _o, art = self._overlay_unter(event.pos().x())
-            if naht is not None:
+            if naht is not None or marke is not None:
                 self._zeiger_setzen(Qt.PointingHandCursor)
             elif art in ("links", "rechts"):
                 self._zeiger_setzen(Qt.SizeHorCursor)
@@ -1235,6 +1350,14 @@ class VideoTimelineWidget(QWidget):
                 self.cutMoveRequested.emit(a0, b0, round(a, 3), round(b, 3))
             event.accept()
             return
+        if event.button() == Qt.LeftButton and self._zieh_blickmarke is not None:
+            alt, neu = self._zieh_blickmarke, self._zieh_blickmarke_neu
+            self._zieh_blickmarke = None
+            self._zieh_blickmarke_neu = None
+            if neu is not None and abs(neu - alt) >= 0.02:
+                self.blickmarkeMoveRequested.emit(alt, round(neu, 3))
+            event.accept()
+            return
         if event.button() == Qt.LeftButton and self._dragging_marker:
             self._dragging_marker = False
             event.accept()
@@ -1268,6 +1391,10 @@ class VideoTimelineWidget(QWidget):
             event.accept()
             return
         if event.key() in (Qt.Key_Delete, Qt.Key_Backspace):
+            if self._gewaehlte_blickmarke is not None:
+                self.blickmarkeDeleteRequested.emit(float(self._gewaehlte_blickmarke))
+                event.accept()
+                return
             if self._gewaehlter_schnitt is not None:
                 a, b = self._gewaehlter_schnitt
                 self.cutDeleteRequested.emit(float(a), float(b))
@@ -1280,9 +1407,11 @@ class VideoTimelineWidget(QWidget):
                 return
         elif event.key() == Qt.Key_Escape:
             if (self._gewaehlter_schnitt is not None
-                    or self._gewaehltes_overlay is not None):
+                    or self._gewaehltes_overlay is not None
+                    or self._gewaehlte_blickmarke is not None):
                 self._schnitt_waehlen(None)
                 self._overlay_waehlen(None)
+                self._blickmarke_waehlen(None)
                 event.accept()
                 return
         super().keyPressEvent(event)
@@ -1932,6 +2061,9 @@ class VideoTimelineWidget(QWidget):
                 painter.drawLine(x_b, 0, x_b, h)
         painter.setPen(pen_blue)
 
+        # Blickmarken vor dem Marker: der weisse Zeiger bleibt obenauf.
+        self._draw_blickmarken(painter, w, h, timeline_real_width)
+
         pen_marker = QPen(QColor("white"), 2)
         painter.setPen(pen_marker)
         painter.setBrush(QBrush(QColor("white")))
@@ -2191,6 +2323,17 @@ class VideoTimelineWidget(QWidget):
                 self.nahtMenuRequested.emit(naht, naht_zeit, event.globalPos())
             finally:
                 self._naht_markieren(None)
+        # 1c) 360-Blickmarke oben am Rand - vor Overlay und Schnitt, wie die
+        # Naht: die Raute ist klein, wer sie trifft, meint sie.
+        if not found_any:
+            marke = self._blickmarke_unter(event.pos().x(), event.pos().y())
+            if marke is not None:
+                found_any = True
+                self._blickmarke_markieren(marke)
+                try:
+                    self.blickmarkeMenuRequested.emit(marke, event.globalPos())
+                finally:
+                    self._blickmarke_markieren(None)
         # 2) Prüfen, ob time_clicked in einem Overlay-Intervall liegt
         for (start_s, end_s) in self._overlay_intervals:
             if found_any:
