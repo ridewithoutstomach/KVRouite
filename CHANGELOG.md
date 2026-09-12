@@ -8,7 +8,11 @@ Versions up to and including 5.0 are documented in the GitHub releases only.
 
 ---
 
-## 7.02 - in progress
+## 7.02 - 2026-09-12
+
+Full 360° editing. Up to 7.01 a 360° video had one fixed viewing direction
+per file; now the view is animated with keyframes, can follow the route
+direction from the GPX track, and exports with GPU encoders again.
 
 ### Added
 
@@ -22,8 +26,12 @@ across 180°). The view the video starts with is the starting point: from
 the beginning of the video the camera pans smoothly from that view and
 reaches the first keyframe exactly there; after the last keyframe the view
 holds. Keyframes appear as small diamonds at the top of the timeline: click
-one to jump there, drag it to move it, `Del` removes the selected one, and a
-right-click offers "Smooth move" or "Hard cut" to the next keyframe. The
+one to jump there, Ctrl+drag it to move it, `Del` removes the selected one, and a
+right-click decides how the keyframe is reached: "Smooth move into this
+keyframe" (the camera pans from the previous view) or "Hard cut into this
+keyframe" (the previous view holds and jumps here). Moving a diamond needs
+Ctrl held down while dragging - a plain drag always moves the white marker,
+so the two never compete when they lie on top of each other. The
 stepper gets the mode **KF** (360° mode only) so the step buttons jump from
 keyframe to keyframe. `K` and `Shift+K` do the same as the button and `Del`.
 Keyframes belong to the video they lie in; a video without keyframes keeps
@@ -38,9 +46,75 @@ about 1.3 ms per frame, no loss in preview speed). The project file and the
 export job carry the keyframes under `view360.keyframes`; older program
 versions ignore the key and render the fixed view.
 
-Not yet in this stage: undo for keyframes, and moving keyframes along when
-videos are removed or reordered. Pre-rendered crossfade snippets use the
-fixed view at their cut.
+Every keyframe action can be undone with Ctrl+Z (Edit > Undo history lists
+them). When videos are removed or reordered, the keyframes move with their
+video; keyframes of a removed video are dropped. Pre-rendered crossfade
+snippets use the fixed view at their cut.
+
+**360°: the view can follow the route direction (Config > 360 Setup)**
+
+With a synchronised GPX track the camera can turn into every bend by
+itself. Tick "Follow route direction" in Config > 360 Setup. The app has to
+learn once per video where "forward" is: put the marker anywhere, drag the
+picture so that you look straight ahead along the road, press "Forward is
+here" (with confirmation, undo possible). From then on the direction comes
+from the track (course to the next GPX point, averaged over two seconds of
+track, looking two seconds ahead - both adjustable), while keyframes only
+set tilt and zoom. Videos that are not calibrated keep their keyframes. The
+settings and the calibration are saved in the project; the export receives
+the resulting view path and needs no GPX. If the 360° video was exported
+without direction lock (the picture centre already follows the camera),
+following turns the view away - switch it off then.
+
+**360°: horizon tilt per video, and copying keyframes**
+
+Config > 360 Setup also has "Horizon tilt" for the current video: a
+correction in degrees for a 360° export whose horizon is slightly off. It
+shows immediately while you change it, OK keeps it, Cancel restores the old
+value, undo possible. Stored in the project and applied in the export.
+Right-click a keyframe diamond: "Copy the keyframes of this video to all
+videos" transfers them relative to each video's start, replacing the
+keyframes there (with confirmation, undo possible).
+
+### Fixed
+
+**360° export with a GPU encoder (NVENC) stopped at 1 % and never finished**
+
+The 360° projection delivers RGBA pictures. nvh265enc accepted them, fixed
+the HEVC profile on that, and at the renegotiation a moment later found no
+matching input format any more ("Returning EMPTY"); videoconvert reported
+"not negotiated" and the pipeline stood still without an error. The CPU
+encoders never took RGBA, so encodebin always converted first for them. For
+a 360° export - and only there - the encoder profile now prescribes NV12 or
+I420 as input, and encodebin converts before the encoder; every other export
+builds exactly the profile it built before. Measured: 10 s of 8K 360° footage
+with keyframes encode with NVENC in 14 s.
+
+**360° zoom could not get back to 90°**
+
+Fine mouse wheels report half notches, and every notch changed the field
+of view by 4°, so the zoom ended up on 88°, 92° or 98° and 90° was out of
+reach. The zoom now moves in whole degrees: one notch or one key press is
+1°, half notches are collected until a full one is complete, and the field
+of view always sits on a whole degree (30° … 120°).
+
+**Messages in the video picture were cut off and gone too soon**
+
+The message field top right (speed, zoom, 360° mode, keyframes) was fixed
+to 92 pixels and vanished after 2 seconds. It now grows with its text
+towards the left and stays for 4 seconds; a new message restarts the time.
+
+**Check boxes were invisible in the dark theme**
+
+Fusion drew the box in the input colour with an edge darkened from the
+window colour - dark grey on dark grey, and a ticked box showed only the
+tick. In the dark theme every check box now has a visible grey frame and
+turns blue when ticked.
+
+**Appending a GPX track to an empty track crashed**
+
+A missing space (`returnself.`) since October 2025 raised a NameError in
+the append path when no track was loaded yet.
 
 ---
 

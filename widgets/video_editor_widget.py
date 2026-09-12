@@ -519,9 +519,21 @@ class VideoEditorWidget(QWidget):
                 getattr(self, "speed_label", None))):
             if widget is None:
                 continue
-            widget.setFixedSize(self.HINWEIS_BREITE, self.HINWEIS_ZEILE)
             widget.setAlignment(Qt.AlignCenter)
-            widget.move(x_rechts, bild.y() + rand + zeile * (self.HINWEIS_ZEILE + 3))
+            if widget is getattr(self, "speed_label", None):
+                # Das Meldungsfeld waechst mit seinem Text nach links -
+                # "360° mode: ON", "Zoom: 90° FOV" und die Keyframe-Meldungen
+                # passten nicht in die 92 Pixel (Bernd, 12.09.2026). Rechts
+                # buendig unter den beiden festen Feldern.
+                breite = max(self.HINWEIS_BREITE,
+                             widget.fontMetrics().horizontalAdvance(widget.text()) + 16)
+                breite = min(breite, max(self.HINWEIS_BREITE, bild.width() - 2 * rand))
+                widget.setFixedSize(breite, self.HINWEIS_ZEILE)
+                x = max(bild.x(), rechts - breite - rand)
+            else:
+                widget.setFixedSize(self.HINWEIS_BREITE, self.HINWEIS_ZEILE)
+                x = x_rechts
+            widget.move(x, bild.y() + rand + zeile * (self.HINWEIS_ZEILE + 3))
             widget.raise_()
 
         # Die laufende Zeit nach unten rechts: oben draengeln sich schon die
@@ -745,11 +757,22 @@ class VideoEditorWidget(QWidget):
         print(f"DEBUG: player speed is now: {self._backend.rate()}")  # Debug
         self._show_speed_label(f"Speed: {rate:.2f}x")
 
+    #: Wie lange Tempo, Zoom und Meldungen im Bild stehen. 2 s waren zu kurz
+    #: zum Lesen (Bernd, 12.09.2026), jetzt 4 s.
+    HINWEIS_DAUER_MS = 4000
+
     def _show_speed_label(self, txt: str):
         self.speed_label.setText(txt)
         self.speed_label.show()
         self._einblendungen_platzieren()
-        QTimer.singleShot(2000, self.speed_label.hide)
+        # Ein neuer Text verlaengert die Anzeige: der alte Timer darf ihn
+        # nicht vorzeitig ausblenden.
+        timer = getattr(self, "_hinweis_timer", None)
+        if timer is None:
+            timer = self._hinweis_timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(self.speed_label.hide)
+        timer.start(self.HINWEIS_DAUER_MS)
 
     # Die drei Setter zeigen seit 6.02 nichts mehr im Bild an (siehe oben),
     # halten die Werte aber weiterhin - sie kommen aus dem Schnitt und aus
@@ -1132,13 +1155,11 @@ class VideoEditorWidget(QWidget):
     # Backend rechnet sie im Shader aus (core/view360.py).
 
     def _nudge_zoom(self, dz: float):
-        """Bildwinkel aendern. Positives dz heisst naeher heran."""
+        """Bildwinkel aendern. Positives dz heisst naeher heran - ein
+        Rasterschritt je Tastendruck, wie beim Rad."""
         if not self._360_bereit(melden=True):
             return
-        # Kleinerer Bildwinkel = staerkere Vergroesserung, deshalb minus.
-        self._blick_verschieben(d_fov=-dz)
-        _, _, fov = self._backend.view360()
-        self._show_speed_label(f"Zoom: {math.degrees(fov):.0f}° FOV")
+        self._zoom_schritte(1 if dz > 0 else -1)
 
     def _nudge_pan(self, dx: float = 0.0, dy: float = 0.0):
         """Schwenken und neigen."""
@@ -1216,6 +1237,12 @@ class VideoEditorWidget(QWidget):
             return False
         return self._backend.set_blickverlauf(verlauf)
 
+    def set_roll_liste(self, liste):
+        """Horizontkorrektur je Video (Radiant) ans Backend geben."""
+        if not self._backend.supports_360():
+            return False
+        return self._backend.set_roll_liste(liste)
+
     def hat_blickverlauf(self):
         """Hat das laufende Video Marken?"""
         try:
@@ -1286,15 +1313,39 @@ class VideoEditorWidget(QWidget):
                                 d_pitch=dy_punkte * je_punkt)
 
     #: Wieviel Bildwinkel eine Rastung des Mausrads aendert.
-    RAD_SCHRITT = math.radians(4.0)
+    #: Zoom-Raster in Grad: eine Raste oder ein Tastendruck = 1 Grad, und
+    #: der Bildwinkel liegt IMMER auf einem ganzen Grad (Bernd, 12.09.2026:
+    #: "natuerlich 1 Grad"). Feine Mausraeder liefern halbe Rasten; die
+    #: werden gesammelt, bis eine ganze voll ist - vorher ergab das 88, 92
+    #: oder 98 Grad, und die 90 war nicht mehr zu treffen.
+    ZOOM_RASTER_GRAD = 1.0
+
+    def _fov_auf_raster(self, fov):
+        raster = math.radians(self.ZOOM_RASTER_GRAD)
+        return round(fov / raster) * raster
+
+    def _zoom_schritte(self, schritte):
+        """Bildwinkel um ganze Rasterschritte aendern (positiv = naeher)."""
+        yaw, pitch, fov = self._backend.view360()
+        neu = self._fov_auf_raster(fov) - schritte * math.radians(self.ZOOM_RASTER_GRAD)
+        neu = max(view360.FOV_MIN, min(view360.FOV_MAX, neu))
+        self._backend.set_view360(yaw, pitch, neu)
+        self._blick_merken()
+        _, _, fov = self._backend.view360()
+        self._show_speed_label(f"Zoom: {math.degrees(fov):.0f}° FOV")
 
     def _auf_blick_zoom(self, schritte):
         if not self._360_bereit(melden=False):
             return
+        # Halbe Rasten sammeln, bis eine ganze voll ist - sonst zerlegt ein
+        # feines Mausrad jeden Schritt in Bruchteile.
+        self._zoom_rest = getattr(self, "_zoom_rest", 0.0) + float(schritte)
+        ganz = int(self._zoom_rest)          # Richtung Null abschneiden
+        if ganz == 0:
+            return
+        self._zoom_rest -= ganz
         # Rad nach vorn (positiv) heisst naeher heran, also kleinerer
         # Bildwinkel.
-        self._blick_verschieben(d_fov=-schritte * self.RAD_SCHRITT)
-        _, _, fov = self._backend.view360()
-        self._show_speed_label(f"Zoom: {math.degrees(fov):.0f}° FOV")
+        self._zoom_schritte(ganz)
 
     

@@ -53,17 +53,41 @@ _angewendet = None
 # Windows.
 _ursprung_palette = None
 _ursprung_stil = None
+_ursprung_stylesheet = None
 
 
 def ursprung_merken(app=None) -> None:
     """Einmal beim Start aufrufen - VOR der ersten Aenderung."""
-    global _ursprung_palette, _ursprung_stil
+    global _ursprung_palette, _ursprung_stil, _ursprung_stylesheet
     from PySide6.QtGui import QPalette as _P
     app = app or QApplication.instance()
     if app is None or _ursprung_palette is not None:
         return
     _ursprung_palette = _P(app.palette())
     _ursprung_stil = app.style().objectName()
+    _ursprung_stylesheet = app.styleSheet() or ""
+
+
+def _dunkles_stylesheet() -> str:
+    """Was die Palette allein nicht schafft.
+
+    Haekchen: Fusion zeichnet das Kaestchen aus Base und einer aus der
+    Fensterfarbe abgedunkelten Kante - auf #2b2b2b ist das ein dunkelgraues
+    Quadrat auf dunkelgrau, und angehakt bleibt nur der Haken ohne Rahmen
+    (gemessen 12.09.2026, Bernd: "man sieht ueberhaupt nicht, dass man hier
+    was setzen kann"). Deshalb ein eigener Rahmen in der gedimmten
+    Textfarbe und angehakt die Akzentfarbe als Fuellung. Den Haken selbst
+    zeichnet Qt mit einem Stylesheet nicht mehr - die blaue Fuellung ist
+    das "an".
+    """
+    f = DUNKEL
+    return (
+        "QCheckBox::indicator { width: 14px; height: 14px; border: 1px solid %s; "
+        "border-radius: 2px; background: %s; }\n"
+        "QCheckBox::indicator:checked { background: %s; border-color: %s; }\n"
+        "QCheckBox::indicator:disabled { border-color: %s; background: %s; }\n"
+        % (f["text_gedimmt"], f["eingabe"], f["akzent"], f["verweis"],
+           f["kante_hell"], f["fenster"]))
 
 # ---------------------------------------------------------------- Farbtafel
 # Die Werte sind an die schon vorhandenen Flaechen angelehnt: der Rahmen ist
@@ -444,6 +468,7 @@ def anwenden(app: QApplication = None, modus: str = None) -> bool:
         # von der Palette hell zeichnet - dunkel bliebe dort wirkungslos.
         app.setStyle("Fusion")
         app.setPalette(_dunkle_palette())
+        app.setStyleSheet((_ursprung_stylesheet or "") + "\n" + _dunkles_stylesheet())
     else:
         # Genau der Zustand von vor der ersten Umschaltung.
         ursprung_merken(app)
@@ -453,6 +478,7 @@ def anwenden(app: QApplication = None, modus: str = None) -> bool:
             app.setStyle(_heller_stil())
         if _ursprung_palette is not None:
             app.setPalette(_ursprung_palette)
+        app.setStyleSheet(_ursprung_stylesheet or "")
 
     # Die Schrift wird hier bewusst NICHT angefasst: "Light" soll genau der
     # Zustand von vor 6.02 sein. _schrift_setzen() steht bereit, falls die

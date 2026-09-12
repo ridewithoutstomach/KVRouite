@@ -87,6 +87,7 @@ from config import TMP_KEYFRAME_DIR, MY_GLOBAL_TMP_DIR, is_soft_opengl_enabled
 from core.mp4_keyframes import keyframe_times_from_index
 from core import view360
 from core import blickverlauf
+from core import fahrtrichtung
 from core import sprache
 from core import stimme
 from core import verkehr
@@ -612,6 +613,13 @@ class MainWindow(QMainWindow):
         # 360-Blickverlauf (Keyframes) auf der Rohzeitachse - siehe
         # _blickverlauf_holen() und core/blickverlauf.py.
         self._blickverlauf = blickverlauf.Blickverlauf()
+        # 360-Blick folgt der Fahrtrichtung (core/fahrtrichtung.py):
+        # Schalter, Glaettung, Vorausschau und je Video der kalibrierte
+        # Versatz (Schluessel: Pfad, damit Umsortieren nichts verschiebt).
+        self._blick_folgen = self._blick_folgen_vorgabe()
+        # Horizontkorrektur (Roll) je Video in GRAD, Schluessel Pfad -
+        # Config > 360 Setup, fuer leicht schiefe Exporte.
+        self._blick_rolls = {}
         # True, sobald ein Projekt den 360-Zustand mitgebracht hat. Dann
         # schaltet die Automatik nicht mehr dazwischen.
         self._360_aus_projekt = False
@@ -843,6 +851,16 @@ class MainWindow(QMainWindow):
         self.overlay_setup_action.setEnabled(False)  # Standard: ausgegraut
         setup_menu.addAction(self.overlay_setup_action)
         self.overlay_setup_action.triggered.connect(self._on_overlay_setup_clicked)
+
+        # 360 Setup (abgesprochen 12.09.2026): Blick folgt der Fahrtrichtung
+        # aus dem GPX, mit Kalibrierung "Forward is here" - siehe
+        # core/fahrtrichtung.py und _on_360_setup_clicked.
+        self.action_360_setup = QAction("360 Setup", self)
+        self.action_360_setup.setStatusTip(
+            "360° video: let the view follow the route direction from the GPX "
+            "track, and tell the app where \"forward\" is.")
+        setup_menu.addAction(self.action_360_setup)
+        self.action_360_setup.triggered.connect(self._on_360_setup_clicked)
         
         
         
@@ -7792,6 +7810,8 @@ class MainWindow(QMainWindow):
         """Integriere die Daten in UI + merke sie in self._gpx_data."""
         self._gpx_data = gpx_data
         self.gpx_widget.set_gpx_data(gpx_data)
+        if self._blick_folgen_holen().get("enabled"):
+            self._blickverlauf_uebernehmen()      # Kurs neu aus den Punkten
 
         self.chart.set_gpx_data(gpx_data)
         if self.mini_chart_widget:
@@ -8185,6 +8205,11 @@ class MainWindow(QMainWindow):
     def remove_from_playlist(self, filepath, action):
         if filepath in self.playlist:
             idx = self.playlist.index(filepath)
+            # Fuer die 360-Blickmarken: die alte Lage der Dateien merken,
+            # danach werden sie auf die neue umgerechnet (siehe
+            # _blickmarken_umrechnen).
+            alte_liste = list(self.playlist)
+            alte_dauern = list(self.video_durations)
             self.playlist.remove(filepath)
             self._sprechstellen.pop(filepath, None)
             self._fahrzeugstellen.pop(filepath, None)
@@ -8201,7 +8226,8 @@ class MainWindow(QMainWindow):
                 self.global_keyframes = []
 
             self.playlist_menu.removeAction(action)
-            
+            self._blickmarken_umrechnen(alte_liste, alte_dauern, self.playlist)
+
             # STATT rebuild_vlc_playlist():
             self.video_editor.set_playlist(self.playlist)
             #self.video_control.activate_controls(
@@ -8811,6 +8837,10 @@ class MainWindow(QMainWindow):
         # Der Audio Zoom zeigt die Schnitte mit - Sprechstellen darin
         # zaehlen nicht, der Export laesst sie ohnehin weg.
         self._sprechstellen_anzeigen()
+        # Folgt der 360-Blick der Fahrtrichtung, haengt der Verlauf an der
+        # Zuordnung Rohzeit -> GPX, und die aendert sich mit jedem Schnitt.
+        if self._blick_folgen_holen().get("enabled"):
+            self._blickverlauf_uebernehmen()
 
     def _refresh_preview_timeline(self):
         """
@@ -9788,8 +9818,9 @@ class MainWindow(QMainWindow):
                 "vehicle_regions": self._fahrzeugstellen_export(),
                 # 360: derselbe Abschnitt wie in der Projektdatei. Ist er an,
                 # rendert ges_encoder_manager das projizierte 16:9-Bild statt
-                # des verzerrten 2:1-Equirects.
-                "view360": self._blick360_export_cfg()
+                # des verzerrten 2:1-Equirects. fuer_export: mit dem
+                # wirksamen Verlauf (Folgen aufgeloest), siehe dort.
+                "view360": self._blick360_export_cfg(fuer_export=True)
             }
 
             
@@ -10053,6 +10084,8 @@ class MainWindow(QMainWindow):
             #recalc_gpx_data(self._gpx_data) #to refresh list
             self.gpx_widget.gpx_list.set_gpx_data(self._gpx_data)
             self.video_control.activate_controls()
+            if self._blick_folgen_holen().get("enabled"):
+                self._blickverlauf_uebernehmen()  # neuer Versatz Video/GPX
             #self.enableVideoGpxSync()
             if hasattr(self, "action_auto_sync_video"):
                 if not self.action_auto_sync_video.isChecked():
@@ -12628,7 +12661,10 @@ class MainWindow(QMainWindow):
                     self._gpx_slots[1]["gpx_data"] = merged
                     if self._active_gpx_slot == 1:
                         self._apply_slot_to_ui()
-                    returnself._set_gpx_data(gpx_data)
+                    # Bis 7.02 stand hier "returnself." ohne Leerzeichen -
+                    # ein NameError, sobald GPX an eine leere Spur angehaengt
+                    # wurde (seit 10/2025, gefunden 12.09.2026 mit pyflakes).
+                    return self._set_gpx_data(gpx_data)
                 else:
                     old_data = self._gpx_data
                     old_snapshot = copy.deepcopy(old_data)
@@ -13085,7 +13121,8 @@ class MainWindow(QMainWindow):
         """
         liste = self._blick360_liste()
         self.video_editor.set_blick360_liste([b.werte() for b in liste])
-        self.video_editor.set_blickverlauf(self._blickverlauf_holen())
+        self.video_editor.set_roll_liste(self._roll_liste_rad())
+        self.video_editor.set_blickverlauf(self._blickverlauf_wirksam())
 
     def _on_blick360_geaendert(self, index, yaw, pitch, fov):
         """Der Editor meldet einen neuen Blickwinkel - merken.
@@ -13107,6 +13144,11 @@ class MainWindow(QMainWindow):
             t = float(self.video_editor.get_current_global_time())
             marke = verlauf.bei(t)
             if marke is not None:
+                # Ein Undo-Schritt je Zug, nicht je Mausbewegung: erst wenn
+                # eine ANDERE Marke gedreht wird, kommt der naechste.
+                if getattr(self, "_blickmarke_zug_undo_t", None) != marke.t:
+                    self._blickmarken_undo_merken("360 keyframe turned")
+                    self._blickmarke_zug_undo_t = marke.t
                 verlauf.setzen(marke.t, yaw, pitch, fov)
                 self._blickverlauf_uebernehmen()
             return
@@ -13133,15 +13175,77 @@ class MainWindow(QMainWindow):
             f"yaw {math.degrees(yaw):+.1f}°, pitch {math.degrees(pitch):+.1f}°, "
             f"field of view {math.degrees(fov):.0f}°")
 
-    def _blick360_export_cfg(self):
-        """Der Abschnitt "view360" für Projektdatei und Export."""
-        return {
+    def _blick360_export_cfg(self, fuer_export=False):
+        """Der Abschnitt "view360" für Projektdatei und Export.
+
+        Projektdatei: die Handmarken plus die Einstellungen des Folgens
+        (Schalter, Glaettung, Vorausschau, Versatz je Video). Export: der
+        WIRKSAME Verlauf - beim Folgen die dichte Liste -, damit der
+        Encoder kein GPX braucht.
+        """
+        verlauf = (self._blickverlauf_wirksam() if fuer_export
+                   else self._blickverlauf_holen())
+        cfg = {
             "enabled": bool(getattr(self.video_editor, "_is_360_mode", False)),
             "views": [b.als_dict() for b in self._blick360_liste()],
             # Blickverlauf (seit 7.02). Aeltere Programmstaende ueberlesen
             # den Schluessel und rendern mit dem festen Blick je Datei.
-            "keyframes": self._blickverlauf_holen().als_liste(),
+            "keyframes": verlauf.als_liste(),
+            # Horizontkorrektur je Video, Radiant, Reihenfolge der Playlist.
+            "rolls": [round(r, 6) for r in self._roll_liste_rad()],
         }
+        if not fuer_export:
+            cfg["follow"] = self._blick_folgen_export()
+            # Fuer die Projektdatei zusaetzlich je Pfad in Grad - so
+            # ueberlebt der Wert das Umsortieren der Playlist.
+            cfg["rolls_by_file"] = {p: round(float(g), 2)
+                                    for p, g in self._roll_liste_grad().items()}
+        return cfg
+
+    # ------------------------------------------------------------------
+    # 360: Horizontkorrektur (Roll) je Video
+    # ------------------------------------------------------------------
+    def _roll_liste_grad(self):
+        r = getattr(self, "_blick_rolls", None)
+        if not isinstance(r, dict):
+            r = self._blick_rolls = {}
+        return r
+
+    def _roll_liste_rad(self):
+        """Radiant je Playlist-Eintrag, in Playlist-Reihenfolge."""
+        rolls = self._roll_liste_grad()
+        return [math.radians(float(rolls.get(p, 0.0))) for p in self.playlist]
+
+    def _rolls_laden(self, roh):
+        self._blick_rolls = {}
+        if isinstance(roh, dict):
+            for p, g in roh.items():
+                try:
+                    self._blick_rolls[str(p)] = float(g)
+                except (TypeError, ValueError):
+                    continue
+
+    def _roll_setzen(self, pfad, grad):
+        """Horizontkorrektur eines Videos setzen, mit Undo."""
+        rolls = self._roll_liste_grad()
+        alt = float(rolls.get(pfad, 0.0))
+        grad = round(float(grad), 1)
+        if abs(alt - grad) < 0.05:
+            return
+        stand = dict(rolls)
+
+        def undo():
+            self._blick_rolls = dict(stand)
+            self.video_editor.set_roll_liste(self._roll_liste_rad())
+            print("[360] Undo: horizon tilt")
+
+        self._undo_ablegen(undo, "360 horizon tilt")
+        if abs(grad) < 0.05:
+            rolls.pop(pfad, None)
+        else:
+            rolls[pfad] = grad
+        self.video_editor.set_roll_liste(self._roll_liste_rad())
+        print(f"[360] Horizon tilt {os.path.basename(pfad)}: {grad:+.1f}°")
 
     # ------------------------------------------------------------------
     # 360: Blickverlauf (Keyframes)
@@ -13168,8 +13272,363 @@ class MainWindow(QMainWindow):
         return float(self.video_editor.get_current_global_time())
 
     def _blickverlauf_uebernehmen(self):
-        self.video_editor.set_blickverlauf(self._blickverlauf_holen())
+        """Den WIRKSAMEN Verlauf an die Vorschau geben: die Handmarken,
+        oder - bei "Follow route direction" - die daraus und aus dem Kurs
+        erzeugte dichte Liste. Auf die Zeitleiste kommen nur Handmarken."""
+        self.video_editor.set_blickverlauf(self._blickverlauf_wirksam())
         self._blickmarken_anzeigen()
+
+    # ------------------------------------------------------------------
+    # 360: Blick folgt der Fahrtrichtung (core/fahrtrichtung.py)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _blick_folgen_vorgabe():
+        return {"enabled": False,
+                "smooth": fahrtrichtung.GLAETTUNG_VORGABE_S,     # Sekunden
+                "ahead": fahrtrichtung.VORAUSSCHAU_VORGABE_S,
+                "offsets": {}}
+
+    def _blick_folgen_holen(self):
+        f = getattr(self, "_blick_folgen", None)
+        if not isinstance(f, dict):
+            f = self._blick_folgen = self._blick_folgen_vorgabe()
+        f.setdefault("offsets", {})
+        return f
+
+    def _blick_folgen_export(self):
+        f = self._blick_folgen_holen()
+        return {"enabled": bool(f.get("enabled")),
+                "smooth": round(float(f.get("smooth", fahrtrichtung.GLAETTUNG_VORGABE_S)), 1),
+                "ahead": float(f.get("ahead", fahrtrichtung.VORAUSSCHAU_VORGABE_S)),
+                "offsets": {p: round(float(o), 6)
+                            for p, o in f.get("offsets", {}).items()}}
+
+    def _blick_folgen_laden(self, roh):
+        f = self._blick_folgen_vorgabe()
+        if isinstance(roh, dict):
+            f["enabled"] = bool(roh.get("enabled"))
+            try:
+                f["smooth"] = max(0.0, float(roh.get("smooth", f["smooth"])))
+                f["ahead"] = max(0.0, float(roh.get("ahead", f["ahead"])))
+            except (TypeError, ValueError):
+                pass
+            offsets = roh.get("offsets")
+            if isinstance(offsets, dict):
+                for p, o in offsets.items():
+                    try:
+                        f["offsets"][str(p)] = float(o)
+                    except (TypeError, ValueError):
+                        continue
+        self._blick_folgen = f
+
+    def _blick_folgen_undo_merken(self, name):
+        stand = copy.deepcopy(self._blick_folgen_holen())
+
+        def undo():
+            self._blick_folgen = copy.deepcopy(stand)
+            self._blickverlauf_uebernehmen()
+            print(f"[360] Undo: {name}")
+
+        self._undo_ablegen(undo, name)
+
+    def _blick_folgen_moeglich(self):
+        """(True, "") oder (False, Grund) - was dem Folgen gerade fehlt."""
+        if not self.playlist:
+            return False, "No video loaded."
+        if not getattr(self, "_gpx_data", None):
+            return False, "No GPX track loaded."
+        if not is_gpx_video_shift_set():
+            return False, "Video and GPX are not synchronised yet (SetSync)."
+        return True, ""
+
+    def _kurs_funktion(self):
+        """
+        kurs_bei(t_roh) -> Kurs in Radiant an der Rohzeit, Vorausschau
+        eingerechnet, oder None. Rechnet die Kurse EINMAL je Aufruf dieser
+        Funktion (fuer alle Stellen des Verlaufs), nicht je Stelle.
+        """
+        ok, _grund = self._blick_folgen_moeglich()
+        if not ok:
+            return None
+        f = self._blick_folgen_holen()
+        # Die Kurse haengen nur an den Punkten und der Glaettung. Beim
+        # Drehen auf einer Marke wird der Verlauf je Mausbewegung neu
+        # gebaut - die Kurse dafuer jedes Mal neu zu rechnen waere bei
+        # langen Spuren spuerbar. Deshalb ein kleiner Zwischenspeicher.
+        fenster = fahrtrichtung.fenster_punkte(
+            self._gpx_data, f.get("smooth", fahrtrichtung.GLAETTUNG_VORGABE_S))
+        schluessel = (id(self._gpx_data), len(self._gpx_data), fenster)
+        zwischen = getattr(self, "_kurs_zwischen", None)
+        if zwischen and zwischen[0] == schluessel:
+            kurse = zwischen[1]
+        else:
+            kurse = fahrtrichtung.kurse(self._gpx_data, fenster)
+            self._kurs_zwischen = (schluessel, kurse)
+        if not kurse:
+            return None
+        voraus = float(f.get("ahead", 0.0) or 0.0)
+        zeiten = list(getattr(self.gpx_widget.gpx_list, "_gpx_times", []) or [])
+        if len(zeiten) != len(kurse) or not zeiten:
+            return None
+        von_gpx, bis_gpx = zeiten[0], zeiten[-1]
+
+        def kurs_bei(t_roh):
+            final_s = self.get_final_time_for_global(t_roh) + voraus
+            if final_s < von_gpx - 1.0 or final_s > bis_gpx + 1.0:
+                return None
+            i = self.gpx_widget.get_closest_index_for_time(final_s)
+            if not (0 <= i < len(kurse)):
+                return None
+            return kurse[i]
+
+        return kurs_bei
+
+    def _blickverlauf_wirksam(self):
+        """
+        Der Verlauf, den Vorschau und Export abspielen.
+
+        Ohne "Follow route direction": die Handmarken. Mit: je kalibriertem
+        Video eine dichte Liste aus Kurs + Versatz (Yaw) und Handmarken
+        bzw. Grundblick (Neigung, Bildwinkel); nicht kalibrierte Videos
+        behalten ihre Handmarken.
+        """
+        hand = self._blickverlauf_holen()
+        f = self._blick_folgen_holen()
+        if not f.get("enabled") or not f.get("offsets"):
+            return hand
+        kurs_bei = self._kurs_funktion()
+        if kurs_bei is None:
+            print("[360] Follow route direction: " + self._blick_folgen_moeglich()[1])
+            return hand
+        hand_kurve = hand.einfrieren()
+        grundblicke = self._blick360_liste()
+        neu = []
+        versatz = 0.0
+        for index, (pfad, dauer) in enumerate(zip(self.playlist, self.video_durations)):
+            von, bis = versatz, versatz + float(dauer)
+            versatz = bis
+            offset = f["offsets"].get(pfad)
+            if offset is None:
+                neu.extend(hand.im_bereich(von, bis))
+                continue
+            grund = grundblicke[index] if index < len(grundblicke) else view360.Blickwinkel()
+
+            def blick_bei(t, _k=hand_kurve, _v=von, _b=bis, _g=grund):
+                b = _k.blick_bei(t, _v, _b, _g) if _k is not None else None
+                return b if b is not None else _g
+
+            neu.extend(fahrtrichtung.folgemarken(von, bis, float(offset),
+                                                 kurs_bei, blick_bei))
+        return blickverlauf.Blickverlauf(neu)
+
+    def _on_360_setup_clicked(self):
+        """Dialog "360 Setup": Folgen an/aus, Glaettung, Vorausschau, und
+        die Kalibrierung "Forward is here" fuer das Video unterm Marker."""
+        from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox,
+                                       QDoubleSpinBox, QFormLayout, QLabel,
+                                       QPushButton, QVBoxLayout)
+        f = self._blick_folgen_holen()
+        dlg = QDialog(self)
+        dlg.setWindowTitle("360 Setup")
+        aussen = QVBoxLayout(dlg)
+
+        erklaerung = QLabel(dlg)
+        erklaerung.setWordWrap(True)
+        erklaerung.setText(
+            "Only for 360° videos exported with Direction Lock (Insta360 "
+            "Studio) or World Lock (GoPro Player). In such a video the "
+            "picture centre stays on a fixed compass direction, so the "
+            "camera no longer turns with the road. \"Follow route "
+            "direction\" turns it into every bend again, using the course "
+            "from the GPX track.\n\n"
+            "With a normal export the picture centre already follows the "
+            "camera - leave this off there, it would turn the view away.\n\n"
+            "The app has to learn once per video where \"forward\" is: put "
+            "the marker anywhere in the video, drag the picture so that you "
+            "look straight ahead along the road, then press \"Forward is "
+            "here\". Keyframes then only set tilt and zoom; the direction "
+            "comes from the track.")
+        aussen.addWidget(erklaerung)
+
+        form = QFormLayout()
+        cb = QCheckBox("Follow route direction", dlg)
+        cb.setChecked(bool(f.get("enabled")))
+        form.addRow(cb)
+
+        def _einschalten_gefragt(zustand):
+            # Warnung beim Einschalten (Bernd, 12.09.2026): die Funktion ist
+            # ein Sonderfall, und bei einem normalen Export richtet sie
+            # Schaden an. Wer sie doch will, bestaetigt das einmal.
+            if not zustand or bool(f.get("enabled")):
+                return
+            antwort = QMessageBox.question(
+                dlg, "Follow route direction",
+                "This is meant ONLY for 360° videos exported with Direction "
+                "Lock (Insta360 Studio) or World Lock (GoPro Player), where "
+                "the picture centre stays on a fixed compass direction.\n\n"
+                "With a normal 360° export the camera already follows the "
+                "road, and this function would turn the view AWAY from it.\n\n"
+                "Was this video exported with Direction Lock / World Lock?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if antwort != QMessageBox.Yes:
+                cb.setChecked(False)
+
+        cb.toggled.connect(_einschalten_gefragt)
+        sb_glatt = QDoubleSpinBox(dlg)
+        sb_glatt.setRange(0.0, 10.0)
+        sb_glatt.setDecimals(1)
+        sb_glatt.setSingleStep(0.5)
+        sb_glatt.setSuffix(" s")
+        sb_glatt.setValue(float(f.get("smooth", fahrtrichtung.GLAETTUNG_VORGABE_S)))
+        sb_glatt.setToolTip("Course averaged over this many seconds of track "
+                            "on each side - more is calmer, less is quicker.")
+        form.addRow("Smoothing", sb_glatt)
+        sb_voraus = QDoubleSpinBox(dlg)
+        sb_voraus.setRange(0.0, 10.0)
+        sb_voraus.setDecimals(1)
+        sb_voraus.setSingleStep(0.5)
+        sb_voraus.setSuffix(" s")
+        sb_voraus.setValue(float(f.get("ahead", fahrtrichtung.VORAUSSCHAU_VORGABE_S)))
+        sb_voraus.setToolTip("Look where you will be in this many seconds, "
+                             "not where you are right now.")
+        form.addRow("Look ahead", sb_voraus)
+
+        # Horizontkorrektur des Videos unterm Marker - unabhaengig vom
+        # Folgen, deshalb ein eigener Wert mit eigenem Titel.
+        pfad_roll, _s = self._global_zu_datei(
+            float(self.video_editor.get_current_global_time()))
+        sb_roll = QDoubleSpinBox(dlg)
+        sb_roll.setRange(-45.0, 45.0)
+        sb_roll.setDecimals(1)
+        sb_roll.setSingleStep(0.5)
+        sb_roll.setSuffix("°")
+        sb_roll.setValue(float(self._roll_liste_grad().get(pfad_roll, 0.0))
+                         if pfad_roll else 0.0)
+        sb_roll.setEnabled(bool(pfad_roll))
+        sb_roll.setToolTip(
+            "Tilts the picture around the viewing axis - for a 360° export "
+            "whose horizon is slightly off. Positive turns clockwise. "
+            "Applies to the current video only; 0 = no correction.")
+        form.addRow("Horizon tilt (%s)" % (os.path.basename(pfad_roll)
+                                           if pfad_roll else "no video"), sb_roll)
+        # Sofort zeigen, damit man den Horizont beim Drehen sieht; OK
+        # behaelt den Wert, Cancel stellt den alten wieder her.
+        roll_vorher = sb_roll.value()
+
+        def _roll_vorschau(wert):
+            if pfad_roll:
+                vorschau = dict(self._roll_liste_grad())
+                if abs(wert) < 0.05:
+                    vorschau.pop(pfad_roll, None)
+                else:
+                    vorschau[pfad_roll] = float(wert)
+                self.video_editor.set_roll_liste(
+                    [math.radians(float(vorschau.get(p, 0.0))) for p in self.playlist])
+
+        sb_roll.valueChanged.connect(_roll_vorschau)
+        aussen.addLayout(form)
+
+        stand = QLabel(dlg)
+        stand.setWordWrap(True)
+        aussen.addWidget(stand)
+        knopf = QPushButton("Forward is here", dlg)
+        knopf.setToolTip("Use the current view at the marker as \"straight "
+                         "ahead\" for this video.")
+        aussen.addWidget(knopf)
+
+        def _stand_zeigen():
+            ok, grund = self._blick_folgen_moeglich()
+            pfad, _s = self._global_zu_datei(
+                float(self.video_editor.get_current_global_time()))
+            zeilen = []
+            if not ok:
+                zeilen.append(grund)
+            if pfad:
+                o = self._blick_folgen_holen()["offsets"].get(pfad)
+                zeilen.append(
+                    f"Current video: {os.path.basename(pfad)} - "
+                    + (f"calibrated (offset {math.degrees(o):+.0f}°)"
+                       if o is not None else "NOT calibrated, will not follow"))
+            kal = len(self._blick_folgen_holen()["offsets"])
+            zeilen.append(f"{kal} of {len(self.playlist)} video(s) calibrated.")
+            stand.setText("\n".join(zeilen))
+            knopf.setEnabled(ok and bool(getattr(self.video_editor, "_is_360_mode", False)))
+            if ok and not getattr(self.video_editor, "_is_360_mode", False):
+                stand.setText(stand.text() + "\nSwitch 360° mode on (key V) to calibrate.")
+
+        def _kalibrieren():
+            self._blick_folgen_kalibrieren(dlg)
+            _stand_zeigen()
+
+        knopf.clicked.connect(_kalibrieren)
+        _stand_zeigen()
+
+        knoepfe = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dlg)
+        aussen.addWidget(knoepfe)
+        knoepfe.accepted.connect(dlg.accept)
+        knoepfe.rejected.connect(dlg.reject)
+        if dlg.exec() != QDialog.Accepted:
+            _roll_vorschau(roll_vorher)      # Vorschau zuruecknehmen
+            return
+        if pfad_roll:
+            self._roll_setzen(pfad_roll, sb_roll.value())
+        neu = (bool(cb.isChecked()), round(float(sb_glatt.value()), 1),
+               round(float(sb_voraus.value()), 1))
+        alt = (bool(f.get("enabled")), round(float(f.get("smooth", 0.0)), 1),
+               round(float(f.get("ahead", 0.0)), 1))
+        if neu == alt:
+            return
+        self._blick_folgen_undo_merken("360 follow settings")
+        f["enabled"], f["smooth"], f["ahead"] = neu
+        self._blickverlauf_uebernehmen()
+        print(f"[360] Follow route direction: {'on' if neu[0] else 'off'}, "
+              f"smoothing {neu[1]:.1f} s, look ahead {neu[2]:.1f} s")
+
+    def _blick_folgen_kalibrieren(self, parent=None):
+        """"Forward is here": Handblick am Marker gegen den Kurs dort."""
+        ok, grund = self._blick_folgen_moeglich()
+        if not ok:
+            QMessageBox.information(parent or self, "360 Setup", grund)
+            return
+        if not getattr(self.video_editor, "_is_360_mode", False):
+            QMessageBox.information(parent or self, "360 Setup",
+                                    "Switch 360° mode on first (key V).")
+            return
+        t = float(self.video_editor.get_current_global_time())
+        pfad, _s = self._global_zu_datei(t)
+        if not pfad:
+            return
+        f = self._blick_folgen_holen()
+        # Kurs OHNE Vorausschau: der Nutzer schaut jetzt nach vorn, nicht
+        # dahin, wo er in zwei Sekunden ist.
+        kurse = fahrtrichtung.kurse(
+            self._gpx_data, fahrtrichtung.fenster_punkte(
+                self._gpx_data, f.get("smooth", fahrtrichtung.GLAETTUNG_VORGABE_S)))
+        final_s = self.get_final_time_for_global(t)
+        i = self.gpx_widget.get_closest_index_for_time(final_s)
+        if not kurse or not (0 <= i < len(kurse)):
+            QMessageBox.information(parent or self, "360 Setup",
+                                    "No GPX point for this position.")
+            return
+        yaw, _p, _f = self.video_editor.blick360()
+        offset = fahrtrichtung.offset_bestimmen(yaw, kurse[i])
+        antwort = QMessageBox.question(
+            parent or self, "Forward is here",
+            f"Use the current view as \"straight ahead\" for\n"
+            f"{os.path.basename(pfad)}?\n\n"
+            f"Video time {t:.1f} s, route course {math.degrees(kurse[i]):.0f}°, "
+            f"view yaw {math.degrees(yaw):+.0f}° -> offset "
+            f"{math.degrees(offset):+.0f}° (undo possible).",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if antwort != QMessageBox.Yes:
+            return
+        self._blick_folgen_undo_merken("360 forward calibration")
+        f["offsets"][pfad] = float(offset)
+        self._blickverlauf_uebernehmen()
+        print(f"[360] Forward is here: {os.path.basename(pfad)} offset "
+              f"{math.degrees(offset):+.1f}° (course {math.degrees(kurse[i]):.0f}°, "
+              f"yaw {math.degrees(yaw):+.0f}° at {t:.2f}s)")
 
     def _blickmarken_anzeigen(self):
         """Die Marken auf die Zeitleiste geben - sichtbar nur bei 360."""
@@ -13184,6 +13643,105 @@ class MainWindow(QMainWindow):
         m = verlauf.bei(t)
         return verlauf.zeiten().index(m.t) + 1 if m is not None else 0
 
+    def _blickmarken_kopieren(self, t):
+        """
+        Die Marken des Videos, in dem t liegt, auf alle anderen Videos
+        uebertragen - zeitlich relativ zum Videoanfang. Die bisherigen
+        Marken der anderen Videos werden ersetzt; Marken hinter dem Ende
+        eines kuerzeren Videos fallen dort weg. Mit Rueckfrage und Undo.
+        """
+        pfad, _s = self._global_zu_datei(t)
+        if not pfad or pfad not in self.playlist or len(self.playlist) < 2:
+            return
+        von = float(self._datei_versatz(pfad))
+        index = self.playlist.index(pfad)
+        dauer = float(self.video_durations[index]) if index < len(self.video_durations) else 0.0
+        verlauf = self._blickverlauf_holen()
+        quelle = verlauf.im_bereich(von, von + dauer) if dauer > 0 else []
+        if not quelle:
+            self._blickmarke_melden("This video has no keyframes to copy")
+            return
+        antwort = QMessageBox.question(
+            self, "Copy keyframes",
+            f"Copy the {len(quelle)} keyframe(s) of {os.path.basename(pfad)} to "
+            f"the other {len(self.playlist) - 1} video(s)?\n\n"
+            "Their existing keyframes are replaced (undo possible).",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if antwort != QMessageBox.Yes:
+            return
+        self._blickmarken_undo_merken("360 keyframes copied")
+        neu = list(quelle)
+        versatz = 0.0
+        for i, (p, d) in enumerate(zip(self.playlist, self.video_durations)):
+            start, d = versatz, float(d)
+            versatz += d
+            if i == index:
+                continue
+            for m in quelle:
+                rel = m.t - von
+                if rel < d:
+                    neu.append(blickverlauf.Blickmarke(start + rel, m.yaw, m.pitch,
+                                                       m.fov, m.art))
+        self._blickverlauf = blickverlauf.Blickverlauf(neu)
+        self._blickverlauf_uebernehmen()
+        self._blickmarke_melden(
+            f"{len(quelle)} keyframe(s) copied to {len(self.playlist) - 1} video(s)")
+
+    def _blickmarken_undo_merken(self, name):
+        """Den Stand der Marken auf den Undo-Stapel legen (Muster
+        register_video_undo_snapshot). Ein Schritt je Aktion."""
+        stand = self._blickverlauf_holen().kopie()
+
+        def undo():
+            self._blickverlauf = stand.kopie()
+            self._blickverlauf_uebernehmen()
+            print(f"[360] Undo: {name} ({len(self._blickverlauf)} keyframe(s))")
+
+        self._undo_ablegen(undo, name)
+
+    def _blickmarken_umrechnen(self, alte_liste, alte_dauern, neue_liste):
+        """
+        Marken nach einer Aenderung der Playlist auf die neue Lage ihrer
+        Datei umrechnen. Marken gehoeren zur Datei; faellt die Datei weg,
+        fallen sie mit. Dauer je Datei bleibt gleich, deshalb reichen die
+        alten Dauern fuer beide Rechnungen.
+        """
+        verlauf = self._blickverlauf_holen()
+        if verlauf.leer():
+            return
+        dauer_je_pfad = {}
+        for pfad, dauer in zip(alte_liste, alte_dauern):
+            dauer_je_pfad.setdefault(pfad, float(dauer))
+        alte_start = []
+        versatz = 0.0
+        for pfad, dauer in zip(alte_liste, alte_dauern):
+            alte_start.append(versatz)
+            versatz += float(dauer)
+        neue_start = {}
+        versatz = 0.0
+        for pfad in neue_liste:
+            neue_start.setdefault(pfad, versatz)
+            versatz += dauer_je_pfad.get(pfad, 0.0)
+        neu = []
+        weg = 0
+        for m in verlauf:
+            i = max((k for k, s in enumerate(alte_start) if s <= m.t),
+                    default=None)
+            if i is None or i >= len(alte_liste):
+                weg += 1
+                continue
+            pfad = alte_liste[i]
+            if pfad not in neue_start:
+                weg += 1
+                continue
+            neu.append(blickverlauf.Blickmarke(
+                neue_start[pfad] + (m.t - alte_start[i]),
+                m.yaw, m.pitch, m.fov, m.art))
+        self._blickverlauf = blickverlauf.Blickverlauf(neu)
+        self._blickverlauf_uebernehmen()
+        if weg:
+            print(f"[360] {weg} keyframe(s) dropped with removed video(s)")
+
     def _on_blickmarke_verschieben(self, t_alt, t_neu):
         """Raute auf der Zeitleiste gezogen und losgelassen."""
         verlauf = self._blickverlauf_holen()
@@ -13191,6 +13749,8 @@ class MainWindow(QMainWindow):
             self._blickmarke_melden(
                 f"There is already a keyframe at {t_neu:.2f}s")
             return
+        if verlauf.bei(t_alt) is not None:
+            self._blickmarken_undo_merken("360 keyframe moved")
         if verlauf.verschieben(t_alt, t_neu):
             self._blickverlauf_uebernehmen()
             self._blickmarke_melden(
@@ -13201,6 +13761,9 @@ class MainWindow(QMainWindow):
         """Entf auf der ausgewaehlten Raute."""
         verlauf = self._blickverlauf_holen()
         nummer = self._blickmarke_nummer(t)
+        if verlauf.bei(t) is None:
+            return
+        self._blickmarken_undo_merken("360 keyframe removed")
         if verlauf.entfernen(t):
             self._blickverlauf_uebernehmen()
             self._blickmarke_melden(
@@ -13222,12 +13785,17 @@ class MainWindow(QMainWindow):
             f"FOV {math.degrees(marke.fov):.0f}°)")
         titel.setEnabled(False)
         menue.addSeparator()
-        a_weich = menue.addAction("Smooth move to next keyframe")
+        # Die Art gehoert zum Weg IN diese Marke: schwenkt die Kamera vom
+        # vorigen Blick her, oder springt sie hier um?
+        a_weich = menue.addAction("Smooth move into this keyframe")
         a_weich.setCheckable(True)
         a_weich.setChecked(marke.art == blickverlauf.WEICH)
-        a_hart = menue.addAction("Hard cut to next keyframe")
+        a_hart = menue.addAction("Hard cut into this keyframe")
         a_hart.setCheckable(True)
         a_hart.setChecked(marke.art == blickverlauf.HART)
+        menue.addSeparator()
+        a_kopie = menue.addAction("Copy the keyframes of this video to all videos")
+        a_kopie.setEnabled(len(self.playlist) > 1)
         menue.addSeparator()
         a_weg = menue.addAction("Remove keyframe\tDel")
 
@@ -13236,13 +13804,17 @@ class MainWindow(QMainWindow):
             return
         if gewaehlt is a_weg:
             self._on_blickmarke_loeschen_zeit(marke.t)
+        elif gewaehlt is a_kopie:
+            self._blickmarken_kopieren(marke.t)
         elif gewaehlt is a_weich or gewaehlt is a_hart:
             art = blickverlauf.WEICH if gewaehlt is a_weich else blickverlauf.HART
+            if marke.art != art:
+                self._blickmarken_undo_merken("360 keyframe transition")
             if verlauf.art_setzen(marke.t, art):
                 self._blickverlauf_uebernehmen()
                 self._blickmarke_melden(
-                    f"Keyframe {nummer}: {'smooth move' if art == blickverlauf.WEICH else 'hard cut'} "
-                    f"to the next keyframe")
+                    f"Keyframe {nummer}: reached by a "
+                    f"{'smooth move' if art == blickverlauf.WEICH else 'hard cut'}")
 
     def _blickmarke_melden(self, text):
         """Ins Bild UND auf die Konsole - damit man sieht, was passiert."""
@@ -13256,6 +13828,9 @@ class MainWindow(QMainWindow):
         yaw, pitch, fov = self.video_editor.blick360()
         verlauf = self._blickverlauf_holen()
         vorhanden = verlauf.bei(t) is not None
+        self._blickmarken_undo_merken(
+            "360 keyframe updated" if vorhanden else "360 keyframe set")
+        self._blickmarke_zug_undo_t = None
         verlauf.setzen(t, yaw, pitch, fov)
         self._blickverlauf_uebernehmen()
         nummer = verlauf.zeiten().index(verlauf.bei(t).t) + 1
@@ -13271,6 +13846,8 @@ class MainWindow(QMainWindow):
         if t is None:
             return
         verlauf = self._blickverlauf_holen()
+        if verlauf.bei(t) is not None:
+            self._blickmarken_undo_merken("360 keyframe removed")
         if verlauf.entfernen(t):
             self._blickverlauf_uebernehmen()
             self._blickmarke_melden(
@@ -13470,6 +14047,8 @@ class MainWindow(QMainWindow):
         self.view360_views = []
         self._360_aus_projekt = False
         self._blickverlauf = blickverlauf.Blickverlauf()
+        self._blick_folgen = self._blick_folgen_vorgabe()
+        self._blick_rolls = {}
         try:
             self.timeline.set_blickmarken([], zeigen=False)
         except Exception:
@@ -13628,6 +14207,8 @@ class MainWindow(QMainWindow):
         self._blick360_liste()          # auf die Länge der Playlist bringen
         self._blickverlauf = blickverlauf.Blickverlauf.aus_liste(
             daten.get("keyframes"))
+        self._blick_folgen_laden(daten.get("follow"))
+        self._rolls_laden(daten.get("rolls_by_file"))
         an = bool(daten.get("enabled"))
         if an and not self.video_editor.supports_360():
             self._360_aus_projekt = False
@@ -14230,7 +14811,11 @@ class MainWindow(QMainWindow):
                 return
 
         # Anwenden – KEIN Undo
+        alte_liste = list(self.playlist)
+        alte_dauern = list(self.video_durations)
         self.playlist = new_order[:]                  # 1) Reihenfolge setzen
+        # 360-Blickmarken gehoeren zur Datei und wandern mit ihr mit.
+        self._blickmarken_umrechnen(alte_liste, alte_dauern, self.playlist)
         self.video_editor.set_playlist(self.playlist) # 2) Playlist neu
         self.rebuild_timeline()                       # 3) Timeline neu berechnen
         self._rebuild_playlist_menu()                 # 4) Menü neu aufbauen

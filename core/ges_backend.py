@@ -260,6 +260,10 @@ class GesPlayerBackend:
         # Verlaufs und darf sich beim Bearbeiten einer Marke nicht mitdrehen.
         self._blick_hand_index = -1
         self._blick_hand = None
+        # Horizontkorrektur (Roll, Radiant) je Quelldatei, parallel zu
+        # _assets. Fester Wert, kein Teil der Blickmarken - siehe
+        # view360.FRAGMENT und set_roll_liste().
+        self._rolls = []
         # Drosselung fuers Auffrischen des Standbilds beim Schwenken.
         self._blick_timer = QTimer()
         self._blick_timer.setSingleShot(True)
@@ -613,7 +617,7 @@ class GesPlayerBackend:
         breite, hoehe = self._preview_groesse()
         effekt = view360.effekt_anhaengen(
             clip, self._blick_statisch(index, roh_ns, quelle),
-            view360.ziel_aspect(breite, hoehe))
+            view360.ziel_aspect(breite, hoehe), self._roll(index))
         if effekt is None:
             self._note("360-Effekt liess sich nicht anhaengen")
             return
@@ -625,6 +629,23 @@ class GesPlayerBackend:
         if 0 <= index < len(self._blicke):
             return self._blicke[index]
         return self._blick_vorgabe
+
+    def _roll(self, index):
+        """Horizontkorrektur der Quelldatei mit diesem Platz, Radiant."""
+        if 0 <= index < len(self._rolls):
+            return float(self._rolls[index])
+        return 0.0
+
+    def set_roll_liste(self, liste):
+        """Horizontkorrektur je Video (Radiant), Reihenfolge der Playlist.
+        Greift ohne Timeline-Umbau ueber die Uniforms."""
+        self._rolls = [float(r or 0.0) for r in (liste or [])]
+        if not self._360_an:
+            return True
+        self._alle_uniforms_setzen()
+        if self._paused:
+            self._blick_auffrischen_anstossen()
+        return True
 
     def _datei_bereich_s(self, index):
         """(von, bis) der Quelldatei auf der Rohzeitachse, in Sekunden."""
@@ -680,7 +701,8 @@ class GesPlayerBackend:
             if not view360.probe_anhaengen(
                     effekt, von, von, bis,
                     lambda i=index: self._kurve_fuer(i), aspect,
-                    lambda i=index: self._blick(i)):
+                    lambda i=index: self._blick(i),
+                    lambda i=index: self._roll(i)):
                 fehl += 1
         if fehl:
             self._note(f"Blickverlauf: {fehl} Probe(n) nicht angehaengt")
@@ -1524,7 +1546,8 @@ class GesPlayerBackend:
         aspect = view360.ziel_aspect(breite, hoehe)
         for index, effekt, roh_ns, quelle in self._effekte:
             view360.uniforms_setzen(
-                effekt, self._blick_statisch(index, roh_ns, quelle), aspect)
+                effekt, self._blick_statisch(index, roh_ns, quelle), aspect,
+                self._roll(index))
 
     # ------------------------------------------------------------------
     # Blickverlauf (Keyframes)

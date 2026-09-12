@@ -770,7 +770,7 @@ def _bereiche_beschraenken(bereiche, stellen, rand_s):
 
 def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_d,
                     log, blicke=None, merge_fades=None, verkehr_cfg=None,
-                    kurve=None):
+                    kurve=None, rolls=None):
     """verkehr_cfg: None, oder {"daempfer_db": dB, "analysen": {pfad: daten}}
     mit den Fundstellen aus core/verkehr.analyse - siehe _verkehr_setzen.
 
@@ -780,10 +780,16 @@ def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_
     der Merge-Fades bekommen den festen Wert der Kurve an ihrer Rohzeit."""
     timeline = GES.Timeline.new_audio_video()
     blicke = blicke or []
+    rolls = rolls or []          # Horizontkorrektur je Video, Radiant
     aspect = view360.ziel_aspect(breite, hoehe)
-    # (effekt, rohstart_s, von_s, bis_s) - die Proben kommen erst nach dem
-    # commit_sync() dran, vorher gibt es das Shader-Element noch nicht.
+    # (effekt, rohstart_s, von_s, bis_s, grundblick, roll) - die Proben
+    # kommen erst nach dem commit_sync() dran, vorher gibt es das
+    # Shader-Element noch nicht.
     proben = []
+
+    def roll_fuer(rohstart):
+        index = quellen.index_bei(rohstart)
+        return float(rolls[index]) if 0 <= index < len(rolls) else 0.0
 
     def blick_fuer(rohstart, statisch=False):
         """Blickwinkel des Videos, aus dem dieses Stueck stammt.
@@ -862,7 +868,8 @@ def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_
         ist_quelle = any(asset is a for a in quellen.assets)
         blick = blick_fuer(rohstart, statisch=not ist_quelle)
         if blick is not None:
-            effekt = view360.effekt_anhaengen(clip, blick, aspect)
+            roll = roll_fuer(rohstart)
+            effekt = view360.effekt_anhaengen(clip, blick, aspect, roll)
             if effekt is None:
                 raise GesRenderError(
                     "360 effect could not be attached: "
@@ -872,7 +879,7 @@ def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_
                 index = quellen.index_bei(rohstart)
                 von, bis = quellen.grenzen[index]
                 proben.append((effekt, von / NS, von / NS, bis / NS,
-                               blicke[index]))
+                               blicke[index], roll))
         return clip
 
     def ton_setzen(layer, clip, asset, start, inpoint, dauer):
@@ -991,10 +998,11 @@ def _timeline_bauen(quellen, skip_list, overlay_list, breite, hoehe, fps_n, fps_
     timeline.commit_sync()
     if proben:
         fehl = 0
-        for effekt, rohstart_s, von_s, bis_s, grund in proben:
+        for effekt, rohstart_s, von_s, bis_s, grund, roll in proben:
             if not view360.probe_anhaengen(effekt, rohstart_s, von_s, bis_s,
                                            lambda: kurve, aspect,
-                                           lambda g=grund: g):
+                                           lambda g=grund: g,
+                                           lambda r=roll: r):
                 fehl += 1
         if fehl:
             raise GesRenderError(
@@ -1256,12 +1264,17 @@ def _overlays_setzen(layer, overlay_list, breite, hoehe, abbildung,
 # Encoding-Profil
 # ---------------------------------------------------------------------------
 
-def _profil(encoder, hw_encode, crf, preset, bitrate_mbps, log, audio=None):
+def _profil(encoder, hw_encode, crf, preset, bitrate_mbps, log, audio=None,
+            eingangsformat=None):
     """Das Encoding-Profil fuer encodebin.
 
     audio: None fuer ein Video ohne Tonspur (so war es bis 6.14, und so
     laeuft weiterhin der Probelauf der Hardware-Erkennung), sonst die
     Bitrate der AAC-Tonspur in kbit/s.
+
+    eingangsformat: None (Vorgabe) oder ein Caps-String, den encodebin dem
+    Encoder als Eingang vorschreibt. Nur der 360-Export setzt ihn - siehe
+    _profil_bauen. Ohne ihn ist das Profil genau das von vor 7.02.
     """
     hw = (hw_encode or "none").lower()
     if hw and hw != "none":
@@ -1290,7 +1303,7 @@ def _profil(encoder, hw_encode, crf, preset, bitrate_mbps, log, audio=None):
         return _profil_bauen(element, caps,
                              _gpu_eigenschaften(element, crf, preset,
                                                 bitrate_mbps),
-                             log, audio)
+                             log, audio, eingangsformat)
 
     element, caps = _CPU_ENCODER.get((encoder or "libx265").lower(),
                                      ("x265enc", _H265))
@@ -1299,7 +1312,8 @@ def _profil(encoder, hw_encode, crf, preset, bitrate_mbps, log, audio=None):
             f"Encoder {element} is missing. On Linux: "
             f"sudo apt install gstreamer1.0-plugins-ugly")
     return _profil_bauen(element, caps,
-                         _cpu_eigenschaften(element, crf, preset), log, audio)
+                         _cpu_eigenschaften(element, crf, preset), log, audio,
+                         eingangsformat)
 
 
 # Ein Deckel, der praktisch nie greift. x264enc benutzt seine
@@ -1470,7 +1484,25 @@ def _audio_profil(kbps, log):
     return profil
 
 
-def _profil_bauen(element, video_caps, eigenschaften, log, audio=None):
+#: Eingangsformat des Encoders beim 360-EXPORT - und nur dort. Ohne das
+#: blieb ein 360-Export mit NVENC stehen (12.09.2026, gemessen mit
+#: GST_DEBUG): die 360-Kette liefert RGBA, nvh265enc nimmt das zunaechst an
+#: und legt damit ein HEVC-Profil fest; bei der Neuverhandlung kurz danach
+#: passt RGBA nicht mehr zu diesem Profil ("Returning EMPTY"), videoconvert
+#: meldet "not negotiated", und die Pipeline steht ohne Fehler. x264/x265
+#: nehmen kein RGBA, dort wandelte encodebin schon immer vorher. Mit der
+#: Vorgabe wandelt es fuer jeden Encoder: NV12 fuer NVENC und die anderen
+#: GPU-Encoder, I420 fuer x265enc, x264enc kann beides.
+#:
+#: Bewusst NICHT fuer alle Exporte: dort liefert der Decoder ohnehin 4:2:0,
+#: und der Pfad soll genau der von vor 7.02 bleiben (Bernd, 12.09.2026:
+#: "ich kann es mir nicht leisten, dass am Encoder etwas Grundlegendes
+#: geaendert wird").
+EINGANGSFORMAT_360 = "video/x-raw,format={ NV12, I420 }"
+
+
+def _profil_bauen(element, video_caps, eigenschaften, log, audio=None,
+                  eingangsformat=None):
     _anmelden(element, log)
     behaelter = GstPbutils.EncodingContainerProfile.new(
         "KVRouite", "MP4" if audio is not None else "MP4 without audio",
@@ -1478,6 +1510,9 @@ def _profil_bauen(element, video_caps, eigenschaften, log, audio=None):
     video = GstPbutils.EncodingVideoProfile.new(
         Gst.Caps.from_string(video_caps), None, None, 0)
     video.set_preset_name(element)
+    if eingangsformat:
+        video.set_restriction(Gst.Caps.from_string(eingangsformat))
+        log(f"[GES] Encoder input fixed to {eingangsformat} (360)")
     _eigenschaften_setzen(video, element, eigenschaften, log)
     behaelter.add_profile(video)
 
@@ -1857,6 +1892,7 @@ def ges_xfade_main(cfg_path, abbruch=None):
 
     blicke = _blicke_liste(quellen, view360_cfg)
     kurve = None
+    rolls = []
     if blicke:
         grund = view360.fehlgrund()
         if grund:
@@ -1868,6 +1904,14 @@ def ges_xfade_main(cfg_path, abbruch=None):
         # feste Blick, wie bis 7.01.
         kurve = blickverlauf.Blickverlauf.aus_liste(
             view360_cfg.get("keyframes")).einfrieren()
+        # Horizontkorrektur je Video (Radiant), Reihenfolge der Videoliste.
+        try:
+            rolls = [float(r or 0.0) for r in (view360_cfg.get("rolls") or [])]
+        except (TypeError, ValueError):
+            rolls = []
+        if any(rolls):
+            log("[GES] 360 horizon tilt: "
+                + ", ".join(f"{math.degrees(r):+.1f}°" for r in rolls))
 
     # Stimmen entfernen (core/stimme): je Quelldatei einmal die Tonspur
     # durch das Trennmodell - mit Zwischenspeicher - und die WAV ohne Stimme
@@ -1994,9 +2038,10 @@ def ges_xfade_main(cfg_path, abbruch=None):
     timeline, gesamt_ns = _timeline_bauen(quellen, skip_list, overlay_list,
                                           breite, hoehe, fps_n, fps_d, log,
                                           blicke, merge_fades, verkehr_cfg,
-                                          kurve)
+                                          kurve, rolls)
     profil = _profil(encoder, hw_encode, crf, preset, bitrate_mbps, log,
-                     audio_kbps)
+                     audio_kbps,
+                     EINGANGSFORMAT_360 if ist_360 else None)
 
     ordner = os.path.dirname(os.path.abspath(final_out))
     if ordner and not os.path.isdir(ordner):

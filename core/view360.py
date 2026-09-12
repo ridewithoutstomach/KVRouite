@@ -98,6 +98,12 @@ EFFEKT_BIN = ("glupload ! glcolorconvert ! glshader name=kvr360 ! "
 # "aspect" ist das Seitenverhaeltnis der AUSGABE, nicht das der Textur. Damit
 # ist die ungleichmaessige Streckung 2:1 -> 16:9, die der Positioner danach
 # vornimmt, genau ausgeglichen: gerade Linien bleiben gerade.
+#
+# "roll" (seit 7.02) kippt das Bild um die Blickachse - die Horizont-
+# korrektur fuer einen leicht schiefen Export. Ein fester Wert je Video
+# (Config > 360 Setup), kein Teil der Blickmarken. Positiv = im
+# Uhrzeigersinn, angewandt VOR pitch und yaw, damit die Korrektur wie eine
+# Neigung der Kamera wirkt und nicht wie ein Kippen des fertigen Bildes.
 FRAGMENT = """
 #ifdef GL_ES
 precision mediump float;
@@ -108,11 +114,14 @@ uniform float yaw;
 uniform float pitch;
 uniform float fov;
 uniform float aspect;
+uniform float roll;
 void main() {
   vec2 uv = (v_texcoord - 0.5) * 2.0;
   uv.x *= aspect;
   float f = 1.0 / tan(fov * 0.5);
   vec3 d = normalize(vec3(uv.x, -uv.y, f));
+  float cr = cos(roll), sr = sin(roll);
+  d = vec3(d.x * cr - d.y * sr, d.x * sr + d.y * cr, d.z);
   float cp = cos(pitch), sp = sin(pitch);
   d = vec3(d.x, d.y * cp + d.z * sp, -d.y * sp + d.z * cp);
   float cy = cos(yaw), sy = sin(yaw);
@@ -282,16 +291,17 @@ def _fval(wert):
     return v
 
 
-def _uniforms(blickwinkel, aspect):
+def _uniforms(blickwinkel, aspect, roll=0.0):
     st = Gst.Structure.new_empty("uniforms")
     st.set_value("yaw", _fval(blickwinkel.yaw))
     st.set_value("pitch", _fval(blickwinkel.pitch))
     st.set_value("fov", _fval(blickwinkel.fov))
     st.set_value("aspect", _fval(aspect))
+    st.set_value("roll", _fval(roll))
     return st
 
 
-def effekt_anhaengen(clip, blickwinkel, aspect):
+def effekt_anhaengen(clip, blickwinkel, aspect, roll=0.0):
     """
     Den 360-Shader an einen Clip haengen.
 
@@ -307,13 +317,13 @@ def effekt_anhaengen(clip, blickwinkel, aspect):
             return None
         clip.add_top_effect(effekt, -1)
         effekt.set_child_property("fragment", FRAGMENT)
-        effekt.set_child_property("uniforms", _uniforms(blickwinkel, aspect))
+        effekt.set_child_property("uniforms", _uniforms(blickwinkel, aspect, roll))
         return effekt
     except Exception:
         return None
 
 
-def uniforms_setzen(effekt, blickwinkel, aspect):
+def uniforms_setzen(effekt, blickwinkel, aspect, roll=0.0):
     """
     Nur die Werte neu setzen, ohne die Timeline anzufassen.
 
@@ -324,7 +334,7 @@ def uniforms_setzen(effekt, blickwinkel, aspect):
     if effekt is None or _GST_IMPORT_ERROR is not None:
         return False
     try:
-        effekt.set_child_property("uniforms", _uniforms(blickwinkel, aspect))
+        effekt.set_child_property("uniforms", _uniforms(blickwinkel, aspect, roll))
         return True
     except Exception:
         return False
@@ -361,8 +371,25 @@ def shader_element(effekt):
     return None
 
 
+def _element_in_bin(effekt, fabrikname):
+    """Das erste Element dieser Fabrik in der Effekt-Bin - oder None."""
+    if effekt is None or _GST_IMPORT_ERROR is not None:
+        return None
+    try:
+        wurzel = effekt.get_nleobject()
+        if wurzel is None or not isinstance(wurzel, Gst.Bin):
+            return None
+        for kind in wurzel.iterate_recurse():
+            fabrik = kind.get_factory()
+            if fabrik is not None and fabrik.get_name() == fabrikname:
+                return kind
+    except Exception:
+        pass
+    return None
+
+
 def probe_anhaengen(effekt, rohstart_s, von_s, bis_s, kurve_holen, aspect,
-                    grundblick_holen=None):
+                    grundblick_holen=None, roll_holen=None):
     """
     Blickverlauf JE BILD: eine Buffer-Probe am Sink-Pad des Shaders.
 
@@ -391,12 +418,26 @@ def probe_anhaengen(effekt, rohstart_s, von_s, bis_s, kurve_holen, aspect,
     von_s/bis_s: Rohbereich der Quelldatei - nur Marken darin zaehlen.
     grundblick_holen: Funktion ohne Argumente, die den festen Blick der
     Datei liefert - der Ausgangspunkt vor der ersten Marke (siehe
-    blickverlauf.Kurve.blick_bei). Liefert True, wenn die Probe haengt.
+    blickverlauf.Kurve.blick_bei). roll_holen: dasselbe fuer die
+    Horizontkorrektur der Datei (Radiant). Liefert True, wenn die Probe
+    haengt.
     """
     shader = shader_element(effekt)
     if shader is None:
         return False
-    pad = shader.get_static_pad("sink")
+    # Die Probe sitzt am Eingang von glupload, NICHT am Shader: dort ist der
+    # Puffer noch normaler Speicher und der Thread der des Decoders. Am
+    # Sink-Pad des Shaders lief die Probe im GL-Thread; mit x264enc ging
+    # das, mit nvh265enc blieb die Pipeline stehen (12.09.2026, kleiner
+    # Testclip, nach 150 s abgebrochen - siehe doc/Plan_360_Editor.md).
+    # Der Puffer ist derselbe, der gleich durch den Shader geht; die
+    # Uniforms greifen deshalb weiterhin fuer genau dieses Bild.
+    pad = None
+    hochlader = _element_in_bin(effekt, "glupload")
+    if hochlader is not None:
+        pad = hochlader.get_static_pad("sink")
+    if pad is None:
+        pad = shader.get_static_pad("sink")
     if pad is None:
         return False
     ns = float(Gst.SECOND)
@@ -413,7 +454,8 @@ def probe_anhaengen(effekt, rohstart_s, von_s, bis_s, kurve_holen, aspect,
             blick = kurve.blick_bei(rohstart_s + puffer.pts / ns, von_s, bis_s,
                                     grund)
             if blick is not None:
-                shader.set_property("uniforms", _uniforms(blick, aspect))
+                roll = roll_holen() if roll_holen is not None else 0.0
+                shader.set_property("uniforms", _uniforms(blick, aspect, roll))
         except Exception:
             pass
         return Gst.PadProbeReturn.OK

@@ -590,7 +590,12 @@ class VideoTimelineWidget(QWidget):
     # ---- 360-Blickmarken ---------------------------------------------------
     #: Halbe Breite der Raute in Pixeln; die Trefferzone ist etwas groesser.
     _BLICKMARKE_PX = 6
-    _BLICKMARKE_HOEHE = 14
+    #: Oberkante der Rauten. Sie haengen UNTER dem Pfeil des weissen Markers
+    #: (der belegt die obersten 10 Pixel): nach einem Klick steht der Marker
+    #: genau auf der Raute, und laegen beide auf gleicher Hoehe, waere die
+    #: Raute nicht mehr zu sehen und schwer zu fassen (Bernd, 12.09.2026).
+    _BLICKMARKE_OBEN = 13
+    _BLICKMARKE_HOEHE = 12
 
     def set_blickmarken(self, marken, zeigen=True):
         """Marken [(rohzeit_s, art)] uebernehmen; zeigen=False blendet sie
@@ -608,7 +613,9 @@ class VideoTimelineWidget(QWidget):
         oben; ein Klick weiter unten meint den Marker, nicht die Marke."""
         if not self._blickmarken_zeigen or not self._blickmarken:
             return None
-        if y_mouse is not None and y_mouse > self._BLICKMARKE_HOEHE + 4:
+        if y_mouse is not None and not (
+                self._BLICKMARKE_OBEN - 4 <= y_mouse
+                <= self._BLICKMARKE_OBEN + self._BLICKMARKE_HOEHE + 4):
             return None
         beste, abstand = None, self._BLICKMARKE_PX + 2
         for t, _art in self._blickmarken:
@@ -641,9 +648,14 @@ class VideoTimelineWidget(QWidget):
                 or self.total_duration <= 0:
             return
         r = self._BLICKMARKE_PX
-        mitte = self._BLICKMARKE_HOEHE / 2.0 + 1
+        mitte = self._BLICKMARKE_OBEN + self._BLICKMARKE_HOEHE / 2.0
         for t, art in self._blickmarken:
-            x = self._x_bei_zeit(t)
+            # Waehrend Ctrl+Ziehen laeuft die gezogene Raute mit der Maus
+            # mit - uebernommen wird die Marke erst beim Loslassen.
+            if t == self._zieh_blickmarke and self._zieh_blickmarke_neu is not None:
+                x = self._x_bei_zeit(self._zieh_blickmarke_neu)
+            else:
+                x = self._x_bei_zeit(t)
             if not (-20 < x < w + 20):
                 continue
             raute = QPolygonF([QPointF(x, mitte - r), QPointF(x + r, mitte),
@@ -1202,16 +1214,22 @@ class VideoTimelineWidget(QWidget):
             event.accept()
             return
         if event.button() == Qt.LeftButton:
-            # Vor allem anderen die 360-Blickmarken oben am Rand: Klick
-            # waehlt aus und setzt den Marker dorthin; Ziehen verschiebt
-            # sie, entschieden wird beim Loslassen (wie beim Schnitt).
+            # Vor allem anderen die 360-Blickmarken oben am Rand. Klick
+            # waehlt aus und setzt den Marker dorthin. Verschoben wird die
+            # Raute NUR mit Ctrl: nach dem Klick liegen Marker und Raute
+            # uebereinander, und ohne die Taste waere es Zufall, was man
+            # greift (Bernd, 12.09.2026). Ohne Ctrl zieht man den Marker,
+            # mit Ctrl die Raute - das Bild laeuft in beiden Faellen mit.
             marke = self._blickmarke_unter(event.pos().x(), event.pos().y())
             if marke is not None:
                 self._blickmarke_waehlen(marke)
-                self._zieh_blickmarke = marke
-                self._zieh_blickmarke_neu = marke
                 self.set_marker_position(marke)
                 self.markerMoved.emit(marke)
+                if event.modifiers() & Qt.ControlModifier:
+                    self._zieh_blickmarke = marke
+                    self._zieh_blickmarke_neu = marke
+                else:
+                    self._dragging_marker = True
                 event.accept()
                 return
             self._blickmarke_waehlen(None)
@@ -1286,7 +1304,9 @@ class VideoTimelineWidget(QWidget):
             _s, art = self._kante_unter(event.pos().x())
             if art is None:
                 _o, art = self._overlay_unter(event.pos().x())
-            if naht is not None or marke is not None:
+            if marke is not None and event.modifiers() & Qt.ControlModifier:
+                self._zeiger_setzen(Qt.SizeHorCursor)      # Ctrl: Raute ziehen
+            elif naht is not None or marke is not None:
                 self._zeiger_setzen(Qt.PointingHandCursor)
             elif art in ("links", "rechts"):
                 self._zeiger_setzen(Qt.SizeHorCursor)
@@ -2061,9 +2081,6 @@ class VideoTimelineWidget(QWidget):
                 painter.drawLine(x_b, 0, x_b, h)
         painter.setPen(pen_blue)
 
-        # Blickmarken vor dem Marker: der weisse Zeiger bleibt obenauf.
-        self._draw_blickmarken(painter, w, h, timeline_real_width)
-
         pen_marker = QPen(QColor("white"), 2)
         painter.setPen(pen_marker)
         painter.setBrush(QBrush(QColor("white")))
@@ -2080,6 +2097,10 @@ class VideoTimelineWidget(QWidget):
                     QPoint(marker_x, arrow_height),
                 ]
                 painter.drawPolygon(QPolygon(arrow_points))
+
+        # Blickmarken NACH dem Marker: sie liegen unter seinem Pfeil und
+        # muessen ueber der weissen Linie sichtbar bleiben.
+        self._draw_blickmarken(painter, w, h, timeline_real_width)
 
         pen_yellow = QPen(QColor("yellow"), 2)
         painter.setPen(pen_yellow)

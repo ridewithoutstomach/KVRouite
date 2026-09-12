@@ -29,7 +29,13 @@ Begriffe:
 
     Blickmarke   ein Zeitpunkt (Rohzeit ueber alle Videos, Sekunden, wie
                  die Schnitte im cut_manager) mit yaw/pitch/fov und der
-                 Uebergangsart ZUM NAECHSTEN Punkt: "smooth" oder "hard".
+                 Uebergangsart IN DIESE MARKE HINEIN: "smooth" = die Kamera
+                 schwenkt vom vorigen Blick her und kommt hier an, "hard" =
+                 der vorige Blick bleibt stehen und springt hier um.
+                 (Bis zum 12.09.2026 galt die Art fuer den Abschnitt NACH
+                 der Marke - Bernd hat "hard" auf der Marke gesetzt, an der
+                 der Sprung sein soll, und nichts gesehen. So herum passt
+                 es auch fuer die erste Marke ab dem Grundblick.)
     Blickverlauf die sortierte Liste der Marken. Sie wird bearbeitet
                  (Hauptthread) und fuer die Wiedergabe EINGEFROREN.
     Kurve        der eingefrorene Verlauf. Unveraenderlich, deshalb darf
@@ -48,8 +54,8 @@ Regeln, siehe doc/Plan_360_Editor.md, Abschnitt 3.1:
     (12.09.2026): "das Video muss von Anfang so laufen, wie es gestartet
     ist, und ab dem KF erst die neue Position haben" - niemand setzt eine
     Marke bei 0, nur um den Start festzuhalten. Nach der letzten Marke
-    gilt die letzte. Dazwischen wird interpoliert, ausser die vordere
-    Marke ist "hard": dann gilt sie bis zur naechsten.
+    gilt die letzte. Dazwischen wird interpoliert, ausser die HINTERE
+    Marke ist "hard": dann bleibt die vordere stehen und springt dort um.
   - Yaw geht den kuerzeren Weg ueber die Naht bei +-180 Grad. Pitch und
     Bildwinkel gehen linear.
   - "smooth" ist Smoothstep (weich anfahren, weich abbremsen). Linear
@@ -133,11 +139,12 @@ def _yaw_weg(von, nach):
 
 
 def _zwischen(a, b, t):
-    """Blick zwischen den Marken a und b zur Zeit t (a.t <= t <= b.t)."""
+    """Blick zwischen den Marken a und b zur Zeit t (a.t <= t <= b.t).
+    Die Art von b sagt, wie b erreicht wird: hart = a bleibt bis b stehen."""
     if b.t <= a.t:
         return b.blick()
-    if a.art == HART:
-        return a.blick()
+    if b.art == HART:
+        return a.blick() if t < b.t else b.blick()
     s = (t - a.t) / (b.t - a.t)
     s = 0.0 if s < 0.0 else 1.0 if s > 1.0 else s
     s = s * s * (3.0 - 2.0 * s)                 # Smoothstep
@@ -171,8 +178,9 @@ class Kurve:
         Datei, das entscheidet der Aufrufer.
 
         grundblick: der feste Blick der Datei. Vor der ersten Marke wird
-        von ihm aus (ab Dateianfang `von`) weich zur ersten Marke
-        geschwenkt. Ohne Angabe gilt vor der ersten Marke die erste.
+        von ihm aus (ab Dateianfang `von`) zur ersten Marke geschwenkt -
+        oder er bleibt stehen, wenn die erste Marke "hard" ist. Ohne
+        Angabe gilt vor der ersten Marke die erste.
         """
         lo = bisect.bisect_left(self.zeiten, von)
         hi = bisect.bisect_left(self.zeiten, bis)
