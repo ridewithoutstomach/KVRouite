@@ -76,18 +76,20 @@ def _dunkles_stylesheet() -> str:
     Quadrat auf dunkelgrau, und angehakt bleibt nur der Haken ohne Rahmen
     (gemessen 12.09.2026, Bernd: "man sieht ueberhaupt nicht, dass man hier
     was setzen kann"). Deshalb ein eigener Rahmen in der gedimmten
-    Textfarbe und angehakt die Akzentfarbe als Fuellung. Den Haken selbst
-    zeichnet Qt mit einem Stylesheet nicht mehr - die blaue Fuellung ist
-    das "an".
+    Textfarbe. Den Haken selbst zeichnet Qt mit einem Stylesheet nicht mehr,
+    deshalb kommt er als Bild aus icon/haken_dunkel.png (weisser Haken auf
+    durchsichtig). Eine blaue Fuellung statt des Hakens hat Bernd abgelehnt
+    ("passt null zu dark mode", 12.09.2026).
     """
+    from config import finde_datei
     f = DUNKEL
+    haken = finde_datei("icon", "haken_dunkel.png").replace("\\", "/")
     return (
         "QCheckBox::indicator { width: 14px; height: 14px; border: 1px solid %s; "
         "border-radius: 2px; background: %s; }\n"
-        "QCheckBox::indicator:checked { background: %s; border-color: %s; }\n"
+        "QCheckBox::indicator:checked { image: url(\"%s\"); }\n"
         "QCheckBox::indicator:disabled { border-color: %s; background: %s; }\n"
-        % (f["text_gedimmt"], f["eingabe"], f["akzent"], f["verweis"],
-           f["kante_hell"], f["fenster"]))
+        % (f["text_gedimmt"], f["eingabe"], haken, f["kante_hell"], f["fenster"]))
 
 # ---------------------------------------------------------------- Farbtafel
 # Die Werte sind an die schon vorhandenen Flaechen angelehnt: der Rahmen ist

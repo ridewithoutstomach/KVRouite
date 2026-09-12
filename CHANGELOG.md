@@ -108,8 +108,8 @@ towards the left and stays for 4 seconds; a new message restarts the time.
 
 Fusion drew the box in the input colour with an edge darkened from the
 window colour - dark grey on dark grey, and a ticked box showed only the
-tick. In the dark theme every check box now has a visible grey frame and
-turns blue when ticked.
+tick. In the dark theme every check box now has a visible grey frame with a
+white tick when ticked.
 
 **Appending a GPX track to an empty track crashed**
 
