@@ -95,3 +95,7 @@ requirements-build-macos.txt
 tools/pruefe_macos_buendel.py
 .github/workflows/build-macos.yml
 .github/workflows/macos-binary-testen.yml
+
+# Interne Plaene und Notizen in doc/ (z.B. Plan_360_Editor.md) - nur lokal.
+# Handbuch (.docx/.pdf) und Feature-Liste bleiben im Repo.
+doc/*.md
