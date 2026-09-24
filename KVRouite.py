@@ -294,7 +294,11 @@ if current_os == "Darwin":
 base_dir = os.path.dirname(os.path.abspath(__file__))
 
 ## das ist für die map:
-os.environ["QSG_RHI_BACKEND"] = "opengl"
+# Nicht unter macOS: dort ist Metal die Vorgabe, und mit erzwungenem OpenGL
+# steht die Karte senkrecht gespiegelt (von einem Mac-Nutzer bestaetigt,
+# September 2026). Windows und Linux bleiben wie bisher.
+if platform.system() != "Darwin":
+    os.environ["QSG_RHI_BACKEND"] = "opengl"
 
 def resource_path(rel_path: str) -> str:
     """
@@ -506,6 +510,11 @@ def main():
     # der geteilte Kontext auch sonst etwas stabilisiert, ist nicht gemessen,
     # und es kostet nichts.
     QGuiApplication.setAttribute(Qt.AA_ShareOpenGLContexts, True)
+
+    # macOS 27: natives NSAlert stuerzt in CoreUI ab.
+    # Qt zeichnet Messageboxen dann selbst.
+    if platform.system() == "Darwin":
+        QGuiApplication.setAttribute(Qt.AA_DontUseNativeDialogs, True)
 
     app = QApplication(sys.argv)
 

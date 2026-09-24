@@ -19,6 +19,7 @@
 #
 
 import bisect
+import functools
 import math
 from datetime import datetime, timedelta
 import platform
@@ -47,6 +48,18 @@ class MarkColumnDelegate(QStyledItemDelegate):
             option.state &= ~QStyle.State_Selected
         super().paint(painter, option, index)
 
+
+def _zellmeldungen_gebuendelt(methode):
+    """Zellmeldungen der Methode buendeln: eine dataChanged-Meldung am Ende
+    statt einer je Zelle. Siehe GPXListWidget._zellmeldungen_sammeln."""
+    @functools.wraps(methode)
+    def huelle(self, *args, **kwargs):
+        self._zellmeldungen_sammeln(True)
+        try:
+            return methode(self, *args, **kwargs)
+        finally:
+            self._zellmeldungen_sammeln(False)
+    return huelle
 
 
 class GPXListWidget(QWidget):
@@ -139,6 +152,8 @@ class GPXListWidget(QWidget):
         self._updating_table = False
         self._prev_resize_modes = None
         self._prev_sorting_enabled = None
+        # Verschachtelungstiefe von _zellmeldungen_sammeln
+        self._zellmeldungen_tiefe = 0
 
         # Wenn die Auswahl (Selektion) geändert wird
         self.table.itemSelectionChanged.connect(self._on_table_selection_changed)
@@ -199,6 +214,7 @@ class GPXListWidget(QWidget):
                 % {"gitter": f["gitter"], "kopf": f["kopfzeile"], "text": f["text"]})
         return stil
 
+    @_zellmeldungen_gebuendelt
     def theme_aktualisieren(self):
         """Wird von core/theme.anwenden() gerufen, wenn umgeschaltet wurde."""
         from core import theme
@@ -450,6 +466,7 @@ class GPXListWidget(QWidget):
     # ---------------------------------------------------------
     # Helper-Funktionen
     # ---------------------------------------------------------
+    @_zellmeldungen_gebuendelt
     def _mark_range(self, row_start: int, row_end: int):
         """
         Färbt Zeilen row_start..row_end (Spalte 8) rot
@@ -457,6 +474,7 @@ class GPXListWidget(QWidget):
         for r in range(row_start, row_end+1):
             self._color_mark_cell(r, QColor("red"))
 
+    @_zellmeldungen_gebuendelt
     def _unmark_range(self, row_start: int, row_end: int):
         """
         Färbt Zeilen row_start..row_end (Spalte 8) wieder weiß
@@ -466,6 +484,7 @@ class GPXListWidget(QWidget):
         
     
     
+    @_zellmeldungen_gebuendelt
     def _color_mark_cell(self, row: int, color: QColor):
         col_mark = 8
         item = self.table.item(row, col_mark)
@@ -474,6 +493,7 @@ class GPXListWidget(QWidget):
             self.table.setItem(row, col_mark, item)
         item.setBackground(color)
         
+    @_zellmeldungen_gebuendelt
     def _mark_row_bg_except_markcol(self, row: int, color):
         """
         Färbt Spalten 0..7 von `row` in `color`,
@@ -519,6 +539,7 @@ class GPXListWidget(QWidget):
         if not schon_gemerkt:
             self._schrift_vorher[row] = gemerkt
 
+    @_zellmeldungen_gebuendelt
     def _zeile_klar(self, row: int):
         """Die Faerbung des Balkens zuruecknehmen.
 
@@ -549,6 +570,7 @@ class GPXListWidget(QWidget):
             else:
                 item.setData(Qt.ForegroundRole, None)
     
+    @_zellmeldungen_gebuendelt
     def _set_row_foreground(self, row: int, color):
         col_count = self.table.columnCount()
         for col in range(col_count):
@@ -892,8 +914,9 @@ class GPXListWidget(QWidget):
             n = len(data)
             self.table.clearContents()
             self.table.setRowCount(n)
-            
-            
+            # Erst NACH setRowCount: die Tabelle muss die Zeilenzahl kennen.
+            self._zellmeldungen_sammeln(True)
+
             self._gpx_times = [0.0] * n
             self._gpx_times_sortiert = True
             self._last_video_row = None
@@ -963,6 +986,7 @@ class GPXListWidget(QWidget):
                     self._set_row_foreground(row_idx, self.gedimmte_schrift())
         finally:
             # End of bulk update: restore widget state
+            self._zellmeldungen_sammeln(False)
             self._end_table_update()
             
             if hasattr(self, "_dnd_overlay"):
@@ -1121,6 +1145,41 @@ class GPXListWidget(QWidget):
     # ---------------------------------------------------
     # Internal: freeze/unfreeze table for bulk updates
     # ---------------------------------------------------
+    def _zellmeldungen_sammeln(self, an: bool):
+        """Zellmeldungen buendeln: eine dataChanged-Meldung am Ende statt
+        einer je Zelle.
+
+        Jede geaenderte Zelle sendet dataChanged. Sind die Bedienungshilfen
+        aktiv, baut Qt unter macOS bei JEDER Meldung die Zeilenliste der
+        Tabelle neu auf, ein Objekt je Zeile, freigegeben erst wenn die
+        Ereignisschleife wieder laeuft. Bei 25.000 Punkten sind das
+        Milliarden Objekte, macOS beendet den Prozess (Issue #47).
+        blockSignals auf der Tabelle hilft nicht, die Meldung kommt vom
+        Modell.
+
+        Verschachtelbar ueber einen Zaehler. Nur fuer Zellinhalte und
+        -farben: setRowCount und clearContents muessen ausserhalb bleiben,
+        sonst kennt die Tabelle die neue Zeilenzahl nicht.
+        """
+        modell = self.table.model()
+        if an:
+            if self._zellmeldungen_tiefe == 0:
+                modell.blockSignals(True)
+            self._zellmeldungen_tiefe += 1
+            return
+        self._zellmeldungen_tiefe -= 1
+        if self._zellmeldungen_tiefe > 0:
+            return
+        self._zellmeldungen_tiefe = 0
+        modell.blockSignals(False)
+        zeilen = modell.rowCount()
+        spalten = modell.columnCount()
+        # Leere Tabelle (Projekt geschlossen): nichts zu melden, die Indizes
+        # waeren ungueltig.
+        if zeilen > 0 and spalten > 0:
+            modell.dataChanged.emit(modell.index(0, 0),
+                                    modell.index(zeilen - 1, spalten - 1))
+
     def _begin_table_update(self):
         if self._updating_table:
             return

@@ -8,6 +8,60 @@ Versions up to and including 5.0 are documented in the GitHub releases only.
 
 ---
 
+## 7.03 - unreleased
+
+Three macOS fixes. None of these problems ever occurred on Windows or
+Linux: two of the changes run on macOS only, the third (bundled table
+signals) runs everywhere but changes nothing visible there.
+
+### Fixed
+
+**macOS 27: the application crashed at the first message box**
+
+Qt shows a QMessageBox on macOS as a native NSAlert, and macOS 27.0
+crashes while drawing the alert icon in CoreUI (crash report: NSAlert
+runModal -> CUINamedVectorGlyph -> _crashOnException). Every message box
+of the application was affected, so the app died at its first dialog. On
+macOS the application now sets `Qt.AA_DontUseNativeDialogs` before the
+QApplication is created and Qt draws message boxes itself. The attribute
+applies to all Qt dialogs, so on macOS the file and folder dialogs are now
+drawn by Qt as well. Confirmed by a Mac user: the app starts again.
+Windows and Linux are untouched.
+
+**macOS: memory ran out with a large GPX track (issue #47)**
+
+Every changed cell of the GPX table sends `dataChanged`. With the
+accessibility features active, Qt on macOS rebuilds the table's row list
+on EVERY notification, one object per row, released only when the event
+loop runs again. With 25,000 GPX points that is billions of objects; macOS
+killed the process (JetsamEvent, about 180 GB). Blocking the signals of
+the table widget did not help, the notification comes from the model. The
+table now bundles its cell notifications: the model's signals are blocked
+while cells are filled or coloured and ONE `dataChanged` for the whole
+table is sent at the end. Measured with 25,000 points: filling the table
+529,000 -> 1 notification, marking 20,000 rows 20,001 -> 1. Times, colours
+and the B/E marks stay as before. On Windows the same measurement shows
+filling the table a quarter faster (2.0 s -> 1.5 s, offscreen); no memory
+problem ever existed there.
+
+**macOS: the map was mirrored vertically**
+
+The application forces the OpenGL backend for the Qt scene graph, which
+the map view renders through. On macOS the default is Metal, and with
+OpenGL forced the map stood upside down. The backend is now forced on
+Windows and Linux only; macOS keeps its default. Confirmed by a Mac user.
+
+### Changed
+
+**Leftovers of the removed "Use Software OpenGL" menu entry**
+
+The menu entry was removed in April 2025 (software OpenGL is on by default
+on Linux, off elsewhere), but the README still told Linux users to enable
+it, and the main window still imported the setting reader it no longer
+used. Both are gone.
+
+---
+
 ## 7.02 - 2026-09-12
 
 Full 360° editing. Up to 7.01 a 360° video had one fixed viewing direction

@@ -83,7 +83,7 @@ from PySide6.QtGui import QDesktopServices
 from .encoder_setup_dialog import EncoderSetupDialog  # Import Dialog
 from .export_bestaetigung import ExportBestaetigung
 
-from config import TMP_KEYFRAME_DIR, MY_GLOBAL_TMP_DIR, is_soft_opengl_enabled
+from config import TMP_KEYFRAME_DIR, MY_GLOBAL_TMP_DIR
 from core.mp4_keyframes import keyframe_times_from_index
 from core import view360
 from core import blickverlauf

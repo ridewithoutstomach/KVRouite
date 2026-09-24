@@ -408,9 +408,7 @@ To start KVRouite:
 
     python KVRouite.py
 
-Important for Linux users:
-After launching the application, please enable "Use Software OpenGL" 
-in the Config menu to ensure proper video playback.
+On Linux the application uses the software OpenGL renderer by default; there is nothing to switch on.
 
 -------------------------------------------------------------------------------
 
