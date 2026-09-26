@@ -8000,8 +8000,13 @@ class MainWindow(QMainWindow):
                     btn.blockSignals(False)
                 except Exception as e:
                     print(f"[DEBUG] Slot1-AutoActivate UI update skipped: {e}")
-                    
-                    
+
+            # Seit dem Slot-Umbau (cc55b77) lief die Pruefung nur noch ueber
+            # _set_gpx_data, also nur beim Anhaengen - beim Laden fehlte die
+            # Warnung vor Way/Time Errors (gemerkt 26.09.2026, FIT mit 862
+            # doppelten Koordinaten ohne Hinweis geladen).
+            self.check_gpx_errors(new_data)
+
         elif mode == "append":
             if not self._gpx_data:
                 # --- Append ausschließlich in Slot 1 ---
@@ -8011,7 +8016,9 @@ class MainWindow(QMainWindow):
                 # Slot-1 UI nur aktualisieren, wenn Slot 1 aktiv ist
                 if self._active_gpx_slot == 1:
                     self._apply_slot_to_ui()
-                return    
+                # Einziger Anhaengen-Pfad ohne _set_gpx_data - Warnung hier
+                self.check_gpx_errors(merged)
+                return
             else:
                 # => alte + neue zusammen
                 old_data = self._gpx_data
@@ -12651,8 +12658,10 @@ class MainWindow(QMainWindow):
                         btn.blockSignals(False)
                     except Exception as e:
                         print(f"[DEBUG] Slot1-AutoActivate UI update skipped: {e}")
-                        
-                        
+
+                # Warnung vor Way/Time Errors, wie in process_open_gpx
+                self.check_gpx_errors(gpx_data)
+
             elif mode == "append":
                 if not self._gpx_data:
                         # --- Append ausschließlich in Slot 1 ---

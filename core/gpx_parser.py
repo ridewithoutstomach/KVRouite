@@ -50,8 +50,21 @@ def parse_gpx(gpx_file_path):
     tree = ET.parse(gpx_file_path)
     root = tree.getroot()
 
-    ns = {"default": "http://www.topografix.com/GPX/1/1"}
-    trkpts = root.findall(".//default:trkpt", ns)
+    # Elemente am Namen erkennen, nicht am Namespace. Bis 26.09.2026 wurde nur
+    # im GPX-1.1-Namespace gesucht; Dateien ohne xmlns (KINOfade-Export aus
+    # FIT, GPX_XML-Hardt) oder mit GPX 1.0 ergaben 0 Punkte -> "File is empty
+    # or invalid."
+    def _name(el):
+        # Kommentare/Processing Instructions haben keinen String als tag
+        return el.tag.rsplit("}", 1)[-1] if isinstance(el.tag, str) else ""
+
+    def _kind(el, name):
+        for c in el:
+            if _name(c) == name:
+                return c
+        return None
+
+    trkpts = [el for el in root.iter() if _name(el) == "trkpt"]
     if not trkpts:
         print("[DEBUG] Keine <trkpt> Elemente gefunden!")
         return []
@@ -60,9 +73,9 @@ def parse_gpx(gpx_file_path):
     for pt in trkpts:
         lat = float(pt.attrib["lat"])
         lon = float(pt.attrib["lon"])
-        ele_el = pt.find("default:ele", ns)
+        ele_el = _kind(pt, "ele")
         ele = float(ele_el.text) if ele_el is not None else 0.0
-        time_el = pt.find("default:time", ns)
+        time_el = _kind(pt, "time")
         if time_el is not None:
             time_str = time_el.text
             try:

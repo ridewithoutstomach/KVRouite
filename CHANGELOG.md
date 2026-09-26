@@ -8,7 +8,45 @@ Versions up to and including 5.0 are documented in the GitHub releases only.
 
 ---
 
-## 7.03 - unreleased
+## 7.04 - 2026-09-26
+
+Two fixes for loading tracks. Found while comparing a FIT file from a user
+with the result of an external spike-removal tool.
+
+### Fixed
+
+**The warning about time errors and way errors was missing when a track was
+loaded**
+
+When a GPX or FIT file is loaded, KVRouite checks it for time errors (two
+points with the same timestamp) and way errors (two consecutive points with
+the same coordinates) and says how many it found, pointing to the "..." menu
+to fix them. Since GPX slots were introduced, this check only ran when a
+track was appended; loading a new GPX or FIT showed nothing. It now runs
+again when a GPX or FIT is loaded as a new track, and as before when one is
+appended; switching between slot 1 and slot 2 shows no message. Found with
+a FIT file from a bike computer with 862 way errors: the device had written
+the same position twice at 586 places while riding (one second at 0 km/h,
+the next at double speed). The file loaded without any hint; now the
+warning appears and "Delete Way Errors" fixes them. Checked with a test
+file containing both kinds: "We found 2 time errors (0s step) and 2 way
+errors (duplicate coordinates)".
+
+**GPX files without a namespace could not be loaded**
+
+The GPX reader looked for track points only in the GPX 1.1 namespace
+(`xmlns="http://www.topografix.com/GPX/1/1"`). Files that do not declare it,
+or declare GPX 1.0, were read as empty: "File is empty or invalid." Such
+files are written for example by the FIT import of the web tool KINOfade
+and by GPX_XML. Track points, elevation and time are now recognised by
+their name, whatever namespace the file uses. Checked with 60 GPX files:
+57 are read exactly as before (every value of every point), the 3 without a
+namespace now load (24,972 and 8,928 points instead of 0); a GPX 1.0 test
+file loads 20 of 20 points instead of 0.
+
+---
+
+## 7.03 - 2026-09-24
 
 Three macOS fixes. None of these problems ever occurred on Windows or
 Linux: two of the changes run on macOS only, the third (bundled table
