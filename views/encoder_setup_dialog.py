@@ -24,7 +24,7 @@ import json
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QDialogButtonBox,
     QLabel, QComboBox, QSpinBox, QPushButton, QMessageBox,
-    QProgressDialog, QHBoxLayout, QInputDialog, QTabWidget, QWidget
+    QProgressDialog, QHBoxLayout, QInputDialog, QTabWidget, QWidget, QCheckBox
 )
 from PySide6.QtCore import QSettings, Qt
 
@@ -123,10 +123,26 @@ class EncoderSetupDialog(QDialog):
             self.preset_combo.addItem(p)
         form_layout.addRow("Preset:", self.preset_combo)
 
-        # (H) Bitrate (Mbit/s)
+        # (H) Bitrate (Mbit/s) mit Haken "No limit". Gespeichert wird eine
+        # Zahl: die Bitrate, oder 0 fuer "kein Deckel, nur die Qualitaet
+        # zaehlt" - wie das beim jeweiligen Hersteller-Encoder umgesetzt wird,
+        # steht in ges_encoder_manager._gpu_eigenschaften. Lesen und Setzen
+        # nur ueber _bitrate_wert() / _bitrate_setzen().
+        # Fuer die CPU gilt beides nicht (x264/x265 laufen nur nach CRF),
+        # deshalb dort gesperrt, siehe _bitrate_freigeben().
         self.bitrate_spin = QSpinBox()
         self.bitrate_spin.setRange(1, 200)
-        form_layout.addRow("Bitrate (Mbit/s):", self.bitrate_spin)
+        self.bitrate_spin.setToolTip(
+            "Upper bitrate limit for GPU encoding.\n"
+            "Not used for CPU encoding, which always follows CRF.")
+        self.bitrate_aus_check = QCheckBox("No limit")
+        self.bitrate_aus_check.setToolTip(
+            "No bitrate limit - only the CRF (Quality) value decides.\n"
+            "The file size then depends on the scene.")
+        bitrate_zeile = QHBoxLayout()
+        bitrate_zeile.addWidget(self.bitrate_spin, 1)
+        bitrate_zeile.addWidget(self.bitrate_aus_check)
+        form_layout.addRow("Bitrate (Mbit/s):", bitrate_zeile)
 
         # (F) FPS - Auswahl statt freier Eingabe.
         # Eine Bildrate ist ein Bruch: NTSC-Material laeuft mit 30000/1001,
@@ -155,11 +171,14 @@ class EncoderSetupDialog(QDialog):
         btns.rejected.connect(self.reject)
         self.btn_detect_hw.clicked.connect(self.on_detect_hw_clicked)
         self.container_combo.currentIndexChanged.connect(self.update_hw_options)
+        self.hw_combo.currentTextChanged.connect(self._bitrate_freigeben)
+        self.bitrate_aus_check.toggled.connect(self._bitrate_freigeben)
 
         # Erst aus QSettings laden
         self.load_from_settings()
         # Dann HW-Combo aktualisieren
         self.update_hw_options()
+        self._bitrate_freigeben()
 
         # ----- WICHTIG: Signale, die Widgets im Dialog live ändern, erst ganz am Ende verbinden.
         # Dadurch verhindern wir, dass Slots feuern bevor Widgets existieren.
@@ -206,7 +225,7 @@ class EncoderSetupDialog(QDialog):
             "fps": framerate.als_text(*wert) if wert else
                    self.settings.value("encoder/fps", "30", type=str),
             "xfade": self.xfade_spin.value(),
-            "bitrate_mbps": self.bitrate_spin.value(),
+            "bitrate_mbps": self._bitrate_wert(),
         }
         werte.update(self.audio_seite.werte())
         return werte
@@ -252,7 +271,7 @@ class EncoderSetupDialog(QDialog):
                 self.fps_combo.setCurrentIndex(self.fps_combo.count() - 1)
 
         self.xfade_spin.setValue(int(werte.get("xfade", 2)))
-        self.bitrate_spin.setValue(int(werte.get("bitrate_mbps", 20)))
+        self._bitrate_setzen(werte.get("bitrate_mbps", 20))
         self.audio_seite.setzen(werte)
 
     def _on_vorlage_gewaehlt(self, _index):
@@ -331,6 +350,10 @@ class EncoderSetupDialog(QDialog):
             print("[WARN] Bitrate spinbox not found; skip auto-update.")
             return
 
+        # Der Haken "No limit" bleibt, wie er ist - wer den Deckel
+        # abgeschaltet hat, will ihn nicht zurueck. Die Zahl dahinter geht
+        # trotzdem auf die Vorgabe der neuen Aufloesung, damit sie passt,
+        # falls der Haken spaeter entfernt wird.
         w, h = self.resolution_combo.currentData()
         default_bitrate = self._default_bitrate_for((w, h))
 
@@ -338,6 +361,43 @@ class EncoderSetupDialog(QDialog):
         spin.blockSignals(True)
         spin.setValue(default_bitrate)
         spin.blockSignals(False)
+
+    def _bitrate_wert(self) -> int:
+        """Die Bitrate so, wie sie gespeichert wird: 0 = "No limit"."""
+        if self.bitrate_aus_check.isChecked():
+            return 0
+        return self.bitrate_spin.value()
+
+    def _bitrate_setzen(self, wert):
+        """Gespeicherten Wert in Haken und Zahl verteilen.
+
+        0 ist "No limit". Die Zahl dahinter kennt man dann nicht mehr - sie
+        bekommt die Vorgabe der eingestellten Aufloesung, damit beim Entfernen
+        des Hakens ein sinnvoller Wert dasteht.
+        """
+        try:
+            wert = int(wert or 0)
+        except (TypeError, ValueError):
+            wert = 0
+        if wert > 0:
+            self.bitrate_spin.setValue(wert)
+        else:
+            w, h = self.resolution_combo.currentData()
+            self.bitrate_spin.setValue(self._default_bitrate_for((w, h)))
+        self.bitrate_aus_check.setChecked(wert <= 0)
+        self._bitrate_freigeben()
+
+    def _bitrate_freigeben(self, *_):
+        """Bitrate nur fuer GPU-Encoder bedienbar, die Zahl nur ohne Haken.
+
+        Die CPU-Encoder benutzen die Bitrate nicht (siehe _cpu_eigenschaften
+        im ges_encoder_manager). Haken und Zahl bleiben beim Sperren stehen
+        und werden weiter gespeichert, damit sie beim Wechsel zurueck auf die
+        GPU wieder da sind.
+        """
+        gpu = self.hw_combo.currentText() != "CPU"
+        self.bitrate_aus_check.setEnabled(gpu)
+        self.bitrate_spin.setEnabled(gpu and not self.bitrate_aus_check.isChecked())
 
 
     # ---------------------------
@@ -404,7 +464,7 @@ class EncoderSetupDialog(QDialog):
         bitrate_val = self.settings.value("encoder/bitrate_mbps", None)
         if bitrate_val is None:
             bitrate_val = self._default_bitrate_for(stored_res)
-        self.bitrate_spin.setValue(int(bitrate_val))
+        self._bitrate_setzen(bitrate_val)
 
         # 7b) Seite "Audio" - als Zahlen abgelegt, siehe core/encoder_presets
         self.audio_seite.setzen({
@@ -579,7 +639,7 @@ class EncoderSetupDialog(QDialog):
             QMessageBox.warning(self, "Invalid X-Fade", "The X-Fade must be >= 1 second.")
             return
         self.settings.setValue("encoder/xfade", xfade_val)
-        self.settings.setValue("encoder/bitrate_mbps", self.bitrate_spin.value())
+        self.settings.setValue("encoder/bitrate_mbps", self._bitrate_wert())
 
         # Seite "Audio"
         for schluessel, wert in self.audio_seite.werte().items():

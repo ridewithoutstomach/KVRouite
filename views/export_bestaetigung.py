@@ -142,7 +142,10 @@ class ExportBestaetigung(QDialog):
             "hw": "CPU" if hw in ("none", "", "CPU") else hw,
             "crf": str(w.get("crf", "")),
             "preset": str(w.get("preset", "")),
-            "bitrate_mbps": f"{w.get('bitrate_mbps')} Mbit/s",
+            # 0 ist "Off" im Encoder Setup; die CPU benutzt die Bitrate nicht.
+            "bitrate_mbps": ("not used (CPU)" if hw in ("none", "", "CPU")
+                             else "Off" if not w.get("bitrate_mbps")
+                             else f"{w.get('bitrate_mbps')} Mbit/s"),
             # Die Rate liegt als Bruch in den Einstellungen ("30000/1001");
             # angezeigt wird sie wie im Encoder Setup ("29.97").
             "fps": framerate.anzeige(*framerate.parsen(str(w.get("fps", "30")))),

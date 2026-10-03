@@ -1361,44 +1361,145 @@ def _cpu_eigenschaften(element, crf, preset):
     return werte
 
 
-def _gpu_eigenschaften(element, crf, preset, bitrate_mbps):
-    """Dieselbe Rate-Steuerung wie im ffmpeg-Weg.
+# "Off" im Bitrate-Feld des Encoder Setup (gespeichert als 0): kein Deckel,
+# nur die Qualitaet aus dem CRF-Feld zaehlt.
+#
+# NVENC kennt keinen Qualitaetsmodus ohne Bitrate. Setzt man keine, nimmt der
+# Treiber still seine eigene Vorgabe - am 28.09.2026 gemessen (nvh265enc,
+# 2560x1440, const-quality 22, zwei verschiedene Stellen): beide Male
+# 21,6 Mb/s, obwohl die Stufe dort 57-62 Mb/s braucht. "Off" setzt deshalb
+# eine Grenze, die praktisch nicht greift - derselbe Weg wie
+# _X264_KEIN_DECKEL, nur wegen des Levels niedriger (siehe unten). Gleich
+# mitgemessen: Grenze 60, 150 und 200 Mb/s ergaben 57,0 / 57,1 / 57,1 Mb/s.
+#
+# Hoeher als 75 Mb/s darf die Grenze nicht sein: NVENC waehlt das Level im
+# Datenstrom nach ihr, und ein Level vorgeben laesst sich an nvh26xenc nicht
+# (die Ausgabe kennt nur "profile"; level=5.1 in den Caps bricht die
+# Verhandlung ab). Gemessen am 28.09.2026 in 2560x1440 und 3840x2160:
+# bis 75 -> Level 5.1, 80-100 -> 5.2, ab 120 -> 6.1. Level 5.1 spielt jedes
+# Geraet ab, das HEVC in 4K kann; hoehere Level lehnen manche ab.
+# In 2K greift die Grenze nur an den allerschwersten Stellen bei sehr hoher
+# Qualitaet (Stufe 22: 57-62 Mb/s gebraucht).
+_NVENC_KEIN_DECKEL = 75000      # kbit/s
 
-    ffmpeg fuer NVENC (get_gpu_encode_params):
-        -rc vbr_hq  -cq N  -b:v XM  -maxrate XM  -bufsize 2XM
-    Also ein Qualitaetsziel UND ein Bitratendeckel. Hier entsprechend:
+
+def _gpu_eigenschaften(element, crf, preset, bitrate_mbps):
+    """Rate-Steuerung der Hersteller-Encoder aus CRF-Feld und Bitrate-Feld.
+
+    bitrate_mbps 0 (oder leer) ist "Off": dann gilt nur die Qualitaet.
+
+    NVIDIA - gemessen:
         rc-mode=Variable Bit Rate, const-quality=N ("const-quality" ist
         NVENCs targetQuality, genau ffmpegs -cq), bitrate/max-bitrate=X,
-        vbv-buffer-size=2X.
+        vbv-buffer-size=2X. Also ein Qualitaetsziel UND ein Deckel; bei 35
+        Mb/s greift der Deckel in 2K fast immer (28.09.2026: fertige
+        Exporte lagen 90-98 % der Zeit daran).
 
-    NICHT "Constant Quantization" mit qp-const nehmen: dabei ignoriert NVENC
-    jede Bitratengrenze. Am 29.08.2026 so gemessen - aus 1,15 GB bei 35 Mb/s
-    wurden 3,3 GB bei 107 Mb/s, bei gleicher Einstellung.
+        NICHT "Constant Quantization" mit qp-const nehmen: dabei ignoriert
+        NVENC jede Bitratengrenze. Am 29.08.2026 so gemessen - aus 1,15 GB
+        bei 35 Mb/s wurden 3,3 GB bei 107 Mb/s, bei gleicher Einstellung.
+
+    Intel, AMD, VA-API - NICHT gemessen, es steht keine solche Hardware zur
+    Verfuegung. Gebaut nach der GStreamer-Dokumentation; jeder Name unten ist
+    in beiden ausgelieferten Staenden nachgesehen: im Windows-Bundle 1.28.6
+    (gstqsv.dll, gstamfcodec.dll) und in GStreamer 1.24.2 unter Ubuntu 24.04
+    (libgstqsv.so, libgstva.so). Die Modi werden beim Namen gesetzt, nicht
+    als Zahl; ein unbekannter Name landet ueber _eigenschaften_setzen() im
+    Log, statt still etwas anderes zu tun. Bis zum 28.09.2026 bekamen diese
+    drei nur die Bitrate - das CRF-Feld kam nie an, und VA-API lief in
+    seiner Vorgabe "cbr".
+
+        qsvh26x   mit Bitrate: rate-control=qvbr ("VBR with CQP"),
+                  qvbr-quality=N, bitrate/max-bitrate=X - wie NVIDIA.
+                  Off: rate-control=icq ("Intelligent CQP"), icq-quality=N.
+        amfh26x   Das Element kennt keinen Qualitaetsmodus mit Deckel, nur
+                  cqp, lcvbr, vbr, cbr. Mit Bitrate: rate-control=vbr
+                  ("Peak Constrained VBR"), bitrate/max-bitrate=X - das
+                  CRF-Feld bleibt dann wirkungslos.
+                  Off: rate-control=cqp, qp-i/qp-p=N.
+        vah26x    Wie AMD: icq und qvbr gibt es erst in neueren GStreamern
+                  und nur mit passendem Treiber, 1.24 hat sie nicht. Mit
+                  Bitrate: rate-control=vbr, bitrate=X (Mittelwert; die
+                  Spitzen regelt target-percentage, Vorgabe 66 %). Eine
+                  Eigenschaft "max-bitrate" hat vah26xenc nicht.
+                  Off: rate-control=cqp, qpi/qpp/qpb=N.
+
+    Level im Datenstrom. Keines der Elemente laesst es sich vorgeben (die
+    Ausgabe-Caps kennen nur "profile"). Wer es bestimmt - nachgesehen im
+    GStreamer-Quelltext 1.28 und in den Hersteller-Dokumentationen:
+        nvh26x    der Treiber, nach der Bitratengrenze; deshalb
+                  _NVENC_KEIN_DECKEL. Gemessen, HEVC und H.264, 2K und 4K.
+        vah26x    GStreamer selbst (_h265_calculate_tier_level bzw.
+                  _calculate_level): aus Bildgroesse und Bildrate, bei H.264
+                  zusaetzlich aus einer gesetzten Bitrate. Mit cqp faellt
+                  die Bitrate weg - das Level wird also nie hoeher als mit
+                  Bitrate. HEVC 2K30/4K30 = 5.0, 4K60 = 5.1.
+        qsvh26x   die Intel-Laufzeit: CodecLevel bleibt unbestimmt, laut
+                  oneVPL "from other sources, such as resolution and bitrate".
+        amfh26x   die AMF-Laufzeit, feste Vorgabe unabhaengig von allem hier:
+                  HEVC 5.2, H.264 4.2 (AMF_Video_Encode_HEVC_API.md /
+                  AMF_Video_Encode_API.md). Galt schon vor "Off" genauso.
+
+    Die Stufen der Hersteller sind nicht gleich geeicht: dieselbe Zahl gibt
+    bei NVIDIA, Intel und AMD nicht dieselbe Bildqualitaet. Kleiner ist
+    ueberall besser; den passenden Wert muss man auf seiner Karte ausprobieren.
 
     Die Presetnamen der Hersteller-Encoder unterscheiden sich von denen der
     CPU-Encoder, deshalb wird das Preset hier nicht durchgereicht.
     """
     werte = {}
     kbit = int(bitrate_mbps) * 1000 if bitrate_mbps else 0
-    qualitaet = None if crf is None else float(max(0, min(51, int(crf))))
+    qualitaet = None if crf is None else max(0, min(51, int(crf)))
 
     if element.startswith("nvh26"):
         if qualitaet is not None:
             werte["rc-mode"] = 3            # Variable Bit Rate = vbr_hq
-            werte["const-quality"] = qualitaet
+            werte["const-quality"] = float(qualitaet)
+            if not kbit:
+                kbit = _NVENC_KEIN_DECKEL
         if kbit:
             werte["bitrate"] = kbit
             werte["max-bitrate"] = kbit
             werte["vbv-buffer-size"] = kbit * 2
         return werte
 
-    # Intel, AMD und VA-API sind hier nicht geprueft - es steht keine passende
-    # Hardware zur Verfuegung. Deshalb nur der Bitratendeckel, den alle
-    # kennen; die Feinsteuerung bleibt beim Element. Wer solche Hardware hat,
-    # sollte das Ergebnis gegen den ffmpeg-Weg messen.
+    if element.startswith("qsvh26"):
+        if kbit:
+            if qualitaet is not None:
+                werte["rate-control"] = "qvbr"
+                werte["qvbr-quality"] = qualitaet
+            werte["bitrate"] = kbit
+            werte["max-bitrate"] = kbit
+        elif qualitaet is not None:
+            werte["rate-control"] = "icq"
+            werte["icq-quality"] = qualitaet
+        return werte
+
+    if element.startswith("amfh26"):
+        if kbit:
+            werte["rate-control"] = "vbr"
+            werte["bitrate"] = kbit
+            werte["max-bitrate"] = kbit
+        elif qualitaet is not None:
+            werte["rate-control"] = "cqp"
+            werte["qp-i"] = qualitaet
+            werte["qp-p"] = qualitaet
+        return werte
+
+    if element.startswith("vah26"):
+        if kbit:
+            werte["rate-control"] = "vbr"
+            werte["bitrate"] = kbit
+        elif qualitaet is not None:
+            werte["rate-control"] = "cqp"
+            werte["qpi"] = qualitaet
+            werte["qpp"] = qualitaet
+            werte["qpb"] = qualitaet
+        return werte
+
+    # Unbekanntes Element: nur der Deckel, den alle kennen.
     if kbit:
         werte["bitrate"] = kbit
-        werte["max-bitrate"] = kbit
     return werte
 
 
@@ -1765,7 +1866,14 @@ def probelauf(hw_encode, encoder="libx264"):
         if eintrag is not None and not _element_da(eintrag[0]):
             return False, "%s is not installed" % eintrag[0], zeilen
 
-        profil = _profil(encoder, hw_encode, 28, None, 0, zeilen.append)
+        # Fuer die GPU ohne Qualitaet und ohne Bitrate: dann setzt
+        # _gpu_eigenschaften() nichts, und das Element laeuft mit seinen
+        # Vorgaben. Bitrate 0 allein hiesse seit dem 28.09.2026 "Off" und
+        # wuerde bei Intel/AMD/VA-API die Modi icq bzw. cqp pruefen - kann
+        # eine aeltere Karte die nicht, fiele ihr Encoder aus der Liste,
+        # obwohl er mit Bitrate exportieren kann.
+        crf = None if (hw_encode or "none").lower() != "none" else 28
+        profil = _profil(encoder, hw_encode, crf, None, 0, zeilen.append)
 
         _rendern(timeline, profil, ziel, dauer_ns, zeilen.append)
     except Exception as exc:
