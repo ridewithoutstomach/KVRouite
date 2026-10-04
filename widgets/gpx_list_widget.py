@@ -36,6 +36,13 @@ from PySide6.QtGui import QColor, QBrush
 from core.gpx_parser import get_gpx_video_shift, is_gpx_video_shift_set, set_gpx_video_shift
 
 
+# Rollen fuer GPXListWidget._zellen_vormerken. Einmal angelegt, weil das
+# Vormerken beim Markieren eines B/E-Bereichs je Zeile laeuft.
+_ROLLE_HG = frozenset((Qt.BackgroundRole,))
+_ROLLE_VG = frozenset((Qt.ForegroundRole,))
+_ROLLE_HG_VG = frozenset((Qt.BackgroundRole, Qt.ForegroundRole))
+
+
 class MarkColumnDelegate(QStyledItemDelegate):
     """
     Delegate für Spalte 8 ("Mark"):
@@ -55,6 +62,20 @@ def _zellmeldungen_gebuendelt(methode):
     @functools.wraps(methode)
     def huelle(self, *args, **kwargs):
         self._zellmeldungen_sammeln(True)
+        try:
+            return methode(self, *args, **kwargs)
+        finally:
+            self._zellmeldungen_sammeln(False)
+    return huelle
+
+
+def _zellmeldungen_gebuendelt_genau(methode):
+    """Wie _zellmeldungen_gebuendelt, aber die Meldung nennt nur die Zeilen
+    und Rollen, die die Methode mit _zellen_vormerken angibt. Nur fuer
+    Methoden, die JEDE ihrer Aenderungen vormerken."""
+    @functools.wraps(methode)
+    def huelle(self, *args, **kwargs):
+        self._zellmeldungen_sammeln(True, genau=True)
         try:
             return methode(self, *args, **kwargs)
         finally:
@@ -154,6 +175,10 @@ class GPXListWidget(QWidget):
         self._prev_sorting_enabled = None
         # Verschachtelungstiefe von _zellmeldungen_sammeln
         self._zellmeldungen_tiefe = 0
+        # Fuer die genaue Meldung, siehe _zellen_vormerken
+        self._vorgemerkt_alles = True
+        self._vorgemerkt_zeilen = None
+        self._vorgemerkt_rollen = None
 
         # Wenn die Auswahl (Selektion) geändert wird
         self.table.itemSelectionChanged.connect(self._on_table_selection_changed)
@@ -466,34 +491,44 @@ class GPXListWidget(QWidget):
     # ---------------------------------------------------------
     # Helper-Funktionen
     # ---------------------------------------------------------
-    @_zellmeldungen_gebuendelt
+    @_zellmeldungen_gebuendelt_genau
     def _mark_range(self, row_start: int, row_end: int):
         """
         Färbt Zeilen row_start..row_end (Spalte 8) rot
         """
+        # Den ganzen Bereich einmal vormerken, nicht je Zeile - siehe
+        # _color_mark_cell.
+        self._zellen_vormerken(row_start, row_end, _ROLLE_HG)
         for r in range(row_start, row_end+1):
             self._color_mark_cell(r, QColor("red"))
 
-    @_zellmeldungen_gebuendelt
+    @_zellmeldungen_gebuendelt_genau
     def _unmark_range(self, row_start: int, row_end: int):
         """
         Färbt Zeilen row_start..row_end (Spalte 8) wieder weiß
         """
+        self._zellen_vormerken(row_start, row_end, _ROLLE_HG)
         for r in range(row_start, row_end+1):
             self._color_mark_cell(r, QColor("white"))
         
     
     
-    @_zellmeldungen_gebuendelt
+    @_zellmeldungen_gebuendelt_genau
     def _color_mark_cell(self, row: int, color: QColor):
         col_mark = 8
         item = self.table.item(row, col_mark)
         if not item:
             item = QTableWidgetItem("")
             self.table.setItem(row, col_mark, item)
+            self._zellen_vormerken(row, row, None)
         item.setBackground(color)
+        # Nur als aeusserste Klammer selbst vormerken. Aus _mark_range und
+        # _unmark_range heraus ist der Bereich schon vorgemerkt, der Aufruf
+        # je Zeile kostete dort messbar Zeit.
+        if self._zellmeldungen_tiefe == 1:
+            self._zellen_vormerken(row, row, _ROLLE_HG)
         
-    @_zellmeldungen_gebuendelt
+    @_zellmeldungen_gebuendelt_genau
     def _mark_row_bg_except_markcol(self, row: int, color):
         """
         Färbt Spalten 0..7 von `row` in `color`,
@@ -527,6 +562,7 @@ class GPXListWidget(QWidget):
             if not item:
                 item = QTableWidgetItem("")
                 self.table.setItem(row, col, item)
+                self._zellen_vormerken(row, row, None)
             # Die bisherige Schrift merken: Punkte vor dem Sync-Punkt stehen
             # zurueckgenommen da, und das soll nach dem Balken wieder gelten.
             # Ueber data(ForegroundRole), nicht ueber foreground(): letzteres
@@ -536,10 +572,11 @@ class GPXListWidget(QWidget):
                 gemerkt.append((col, item.data(Qt.ForegroundRole)))
             item.setBackground(farbe)
             item.setForeground(schrift)
+        self._zellen_vormerken(row, row, _ROLLE_HG_VG)
         if not schon_gemerkt:
             self._schrift_vorher[row] = gemerkt
 
-    @_zellmeldungen_gebuendelt
+    @_zellmeldungen_gebuendelt_genau
     def _zeile_klar(self, row: int):
         """Die Faerbung des Balkens zuruecknehmen.
 
@@ -569,14 +606,16 @@ class GPXListWidget(QWidget):
                 item.setForeground(vorher)
             else:
                 item.setData(Qt.ForegroundRole, None)
+        self._zellen_vormerken(row, row, _ROLLE_HG_VG)
     
-    @_zellmeldungen_gebuendelt
+    @_zellmeldungen_gebuendelt_genau
     def _set_row_foreground(self, row: int, color):
         col_count = self.table.columnCount()
         for col in range(col_count):
             if col != 8:
                 item = self.table.item(row, col)
                 item.setForeground(color)
+        self._zellen_vormerken(row, row, _ROLLE_VG)
 
     def gedimmte_schrift(self) -> QColor:
         """Farbe fuer Punkte vor dem Sync-Punkt.
@@ -1145,7 +1184,7 @@ class GPXListWidget(QWidget):
     # ---------------------------------------------------
     # Internal: freeze/unfreeze table for bulk updates
     # ---------------------------------------------------
-    def _zellmeldungen_sammeln(self, an: bool):
+    def _zellmeldungen_sammeln(self, an: bool, genau: bool = False):
         """Zellmeldungen buendeln: eine dataChanged-Meldung am Ende statt
         einer je Zelle.
 
@@ -1165,6 +1204,12 @@ class GPXListWidget(QWidget):
         if an:
             if self._zellmeldungen_tiefe == 0:
                 modell.blockSignals(True)
+                # Ueber "genau" entscheidet nur die aeusserste Klammer: liegt
+                # eine genaue Methode in einer allgemeinen (Fuellen der
+                # Tabelle), bleibt es bei der Meldung fuer alles.
+                self._vorgemerkt_alles = not genau
+                self._vorgemerkt_zeilen = None
+                self._vorgemerkt_rollen = None
             self._zellmeldungen_tiefe += 1
             return
         self._zellmeldungen_tiefe -= 1
@@ -1172,13 +1217,61 @@ class GPXListWidget(QWidget):
             return
         self._zellmeldungen_tiefe = 0
         modell.blockSignals(False)
+        alles = self._vorgemerkt_alles
+        vorgemerkt, rollen = self._vorgemerkt_zeilen, self._vorgemerkt_rollen
+        self._vorgemerkt_alles = True
+        self._vorgemerkt_zeilen = None
+        self._vorgemerkt_rollen = None
         zeilen = modell.rowCount()
         spalten = modell.columnCount()
         # Leere Tabelle (Projekt geschlossen): nichts zu melden, die Indizes
         # waeren ungueltig.
-        if zeilen > 0 and spalten > 0:
+        if zeilen <= 0 or spalten <= 0:
+            return
+        if not alles and vorgemerkt is None:
+            # Genaue Methode, die nichts geaendert hat
+            return
+        if alles or rollen is None:
             modell.dataChanged.emit(modell.index(0, 0),
                                     modell.index(zeilen - 1, spalten - 1))
+            return
+        # Nur die vorgemerkten Zeilen, und MIT den Rollen. Ohne Rollen nimmt
+        # QHeaderView::dataChanged an, die Groesse der Zellen koenne sich
+        # geaendert haben, und misst bei ResizeToContents (Linux, macOS) die
+        # Spalten neu - beim Abspielen alle 200 ms (Qt 6.11,
+        # qheaderview.cpp). Hinter- und Vordergrund aendern keine Groesse, mit
+        # diesen Rollen kehrt der Header sofort zurueck. Die Einzelmeldungen
+        # vor dem Buendeln trugen dieselben Rollen.
+        erste = max(0, min(vorgemerkt[0], zeilen - 1))
+        letzte = max(0, min(vorgemerkt[1], zeilen - 1))
+        modell.dataChanged.emit(modell.index(erste, 0),
+                                modell.index(letzte, spalten - 1),
+                                sorted(int(r.value) for r in rollen))
+
+    def _zellen_vormerken(self, erste: int, letzte: int, rollen):
+        """Fuer die genaue Meldung festhalten, was geaendert wurde.
+
+        rollen: die geaenderten Datenrollen als frozenset (_ROLLE_...), oder
+        None, wenn sich alles geaendert haben kann (neu angelegte Zelle) -
+        dann wird wie bisher die ganze Tabelle ohne Rollen gemeldet. Wirkt
+        nur innerhalb einer aeussersten Klammer mit genau=True.
+        """
+        if self._zellmeldungen_tiefe == 0 or self._vorgemerkt_alles:
+            return
+        zeilen = self._vorgemerkt_zeilen
+        if zeilen is None:
+            self._vorgemerkt_zeilen = (erste, letzte)
+            self._vorgemerkt_rollen = rollen
+            return
+        if erste < zeilen[0] or letzte > zeilen[1]:
+            self._vorgemerkt_zeilen = (min(zeilen[0], erste), max(zeilen[1], letzte))
+        bisher = self._vorgemerkt_rollen
+        if bisher is None:
+            return
+        if rollen is None:
+            self._vorgemerkt_rollen = None
+        elif not rollen <= bisher:
+            self._vorgemerkt_rollen = bisher | rollen
 
     def _begin_table_update(self):
         if self._updating_table:

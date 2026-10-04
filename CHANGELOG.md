@@ -8,6 +8,33 @@ Versions up to and including 5.0 are documented in the GitHub releases only.
 
 ---
 
+## 7.05 - 2026-10-04
+
+### Added
+
+**Encoder Setup: "No limit" for the bitrate**
+
+A "No limit" checkbox next to the bitrate field (GPU encoders only; for CPU
+encoding the field is disabled, x264/x265 follow CRF only). With it, only the
+CRF value decides the quality. NVIDIA: the limit is set to 75 Mbit/s, which
+keeps the stream at level 5.1. Intel, AMD and VA-API now get a quality mode
+(before, the CRF value never reached them); built from the GStreamer
+documentation, not tested on such hardware. The export confirmation shows
+"Off" or "not used (CPU)" instead of a number.
+
+### Fixed
+
+**Video playback stuttered on Linux since 7.03**
+
+The 7.03 change to the GPX table (one notification per operation, issue #47)
+made Qt re-measure all table columns every 200 ms during playback, about
+25 ms each time on Linux. The table now reports only the changed rows and
+roles. Measured: 25 ms -> 0.4 ms per step on Linux, 3.8 -> 0.5 ms on Windows.
+Number of notifications unchanged, contents and picture of the table
+identical.
+
+---
+
 ## 7.04 - 2026-09-26
 
 Two fixes for loading tracks. Found while comparing a FIT file from a user
