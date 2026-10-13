@@ -1,0 +1,58 @@
+HOWTO: Black map on Windows
+===========================
+
+# Symptom
+#
+# The map area in KVRouite stays completely black, right after starting the
+# app. Video, chart and GPX table work normally.
+#
+# This is NOT a missing map key. Without any key the map still shows
+# OpenStreetMap. A black area means the map view itself is not being drawn.
+
+# Cause
+#
+# The map is a built-in web view (Qt WebEngine / Chromium) that uses the
+# graphics card to draw. Some older graphics drivers cannot handle this, for
+# example Intel HD Graphics 5500 with its last available driver
+# (20.19.15.5171). Updating the driver usually does not help, because these
+# chips no longer get new drivers.
+
+# Fix: start KVRouite without graphics acceleration for the map
+#
+# The map is then drawn by the processor instead of the graphics card. Video
+# playback is not affected by this setting.
+#
+# 1. Open the KVRouite folder (the one that contains KVRouite.exe).
+# 2. Create a new text file there and name it KVRouite_noGPU.bat.
+#    Make sure Windows does not save it as KVRouite_noGPU.bat.txt
+#    (in Explorer: View -> enable File name extensions).
+# 3. Open it with Notepad and paste these three lines:
+
+@echo off
+set QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu
+start "" "%~dp0KVRouite.exe" %*
+
+# 4. Save and close.
+# 5. Right-click KVRouite_noGPU.bat -> Send to -> Desktop (create shortcut).
+# 6. Optional: right-click the new shortcut -> Properties -> Run: Minimized.
+#    Then no console window flashes up when starting.
+#
+# From now on, start KVRouite with this shortcut.
+#
+# The setting only applies to KVRouite when it is started through this file.
+# No other program and no system setting is changed. To undo it, simply start
+# KVRouite.exe directly again, or delete the .bat file and its shortcut.
+
+# Do not use setx
+#
+# You may find advice to set QTWEBENGINE_CHROMIUM_FLAGS permanently with setx
+# or in the Windows environment variables. Don't do that: it would apply to
+# EVERY program on your computer that uses Qt WebEngine, not only to KVRouite.
+
+# Still black?
+#
+# Please open an issue on GitHub and include:
+# - your Windows version
+# - your graphics card and driver version (Win+R -> dxdiag -> Display tab)
+# - a screenshot of KVRouite
+# - whether the map worked in an earlier KVRouite version

@@ -95,6 +95,7 @@ from core.fade_cache import FadeJob, FadeRenderer
 from core.thumb_cache import ThumbCache
 from .dialogs import PreviewPrepareDialog, OutputFrameRateDialog
 from core import framerate
+from core import encoder_presets
 
 from widgets.video_editor_widget import VideoEditorWidget
 from widgets.video_timeline_widget import VideoTimelineWidget
@@ -9070,8 +9071,9 @@ class MainWindow(QMainWindow):
         """
         if not getattr(self, "playlist", None):
             return None
-        s = QSettings("KVRouite", "KVRouite")
-        breite = int(s.value("encoder/res_w", 1280, type=int) or 1280)
+        # Dieselbe Quelle wie Export und Export-Fenster: encoder_presets.
+        w = encoder_presets.aus_einstellungen()
+        breite = int(w["res_w"])
         daten = framerate.eckdaten(self.playlist[0]) or {}
         qb, qh = daten.get("breite", 0), daten.get("hoehe", 0)
         if qb > 0 and qh > 0:
@@ -9079,7 +9081,7 @@ class MainWindow(QMainWindow):
             if hoehe % 2:
                 hoehe += 1
         else:
-            hoehe = int(s.value("encoder/res_h", 720, type=int) or 720)
+            hoehe = int(w["res_h"])
         return breite, hoehe
 
     def _overlay_undo_merken(self, stand):
@@ -9697,22 +9699,29 @@ class MainWindow(QMainWindow):
         # NEUE LOGIK: Wenn Edit-Mode == "encode" => JSON schreiben
         if self._edit_mode == "encode":
             
-            # 1) Daten aus QSettings lesen (Encoder Setup)
-            s = QSettings("KVRouite","KVRouite")
-            # Die Blendenlaenge steht nicht mehr hier: sie kann je
-            # Schnitt abweichen und wird unten Schnitt fuer Schnitt
-            # ueber _blende_fuer() bestimmt.
-            hw_encode   = s.value("encoder/hw", "none", type=str)
-            container   = s.value("encoder/container", "x265", type=str)
-            crf_val     = s.value("encoder/crf", 25, type=int)
+            # 1) Daten aus den Einstellungen lesen (Encoder Setup)
+            #
+            # Derselbe Satz, den das Fenster vor dem Export anzeigt
+            # (views/export_bestaetigung): encoder_presets.FELDER ist die
+            # EINZIGE Liste der Vorgabewerte. Bis 7.05 standen hier eigene
+            # Vorgaben (1280 breit, CRF 25); wer das Encoder Setup nie mit
+            # OK bestaetigt hatte, sah im Fenster 1920x1080 und bekam ein
+            # 1280x720-Video.
+            #
+            # Die Blendenlaenge steht nicht hier: sie kann je Schnitt
+            # abweichen und wird unten Schnitt fuer Schnitt ueber
+            # _blende_fuer() bestimmt.
+            w = encoder_presets.aus_einstellungen()
+            hw_encode   = w["hw"]
+            container   = w["container"]
+            crf_val     = w["crf"]
             # Als BRUCH weitergeben ("30000/1001"), nicht als gerundete
             # Zahl - sonst ist die Genauigkeit sofort wieder dahin.
             # Beide Encoder-Wege verstehen die Schreibweise: ffmpeg als
             # "-r 30000/1001", GES als Zaehler und Nenner.
-            fps_val     = framerate.als_text(
-                *framerate.parsen(s.value("encoder/fps", "30", type=str)))
-            preset_val  = s.value("encoder/preset", "fast", type=str)
-            width_val   = s.value("encoder/res_w", 1280, type=int)
+            fps_val     = framerate.als_text(*framerate.parsen(w["fps"]))
+            preset_val  = w["preset"]
+            width_val   = w["res_w"]
             # Seite "Audio" im Encoder Setup (ab 7.0): Tonspur an/aus und
             # ihre Bitrate. Als Zahl abgelegt, siehe core/encoder_presets.
             # Tonspur und Daempfer sind reines GStreamer und gehen auch in
@@ -9721,14 +9730,14 @@ class MainWindow(QMainWindow):
             # bleibt der Schalter wirkungslos, was immer in den
             # Einstellungen steht.
             voice_da    = stimme.verfuegbar()[0]
-            audio_an    = bool(s.value("encoder/audio", 1, type=int))
-            audio_kbps  = s.value("encoder/audio_kbps", 128, type=int)
-            traffic_an  = bool(s.value("encoder/traffic", 0, type=int))
-            traffic_db  = s.value("encoder/traffic_db", 12, type=int)
-            traffic_hz  = s.value("encoder/traffic_fill_hz", 0, type=int)
-            traffic_pct = s.value("encoder/traffic_fill_pct", 100, type=int)
-            voice_an    = voice_da and bool(s.value("encoder/voice", 0, type=int))
-            voice_model = s.value("encoder/voice_model", "mdx", type=str)
+            audio_an    = bool(w["audio"])
+            audio_kbps  = w["audio_kbps"]
+            traffic_an  = bool(w["traffic"])
+            traffic_db  = w["traffic_db"]
+            traffic_hz  = w["traffic_fill_hz"]
+            traffic_pct = w["traffic_fill_pct"]
+            voice_an    = voice_da and bool(w["voice"])
+            voice_model = w["voice_model"]
 
             # 2) Cuts => skip_instructions
             #   Format [start_s, end_s, xfade]
