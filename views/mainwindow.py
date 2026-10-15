@@ -235,7 +235,15 @@ class GoProExtractorDialog(QDialog):
             if not metadata:
                 self.text_append("✗ No GPS metadata found in video")
                 return None
-    
+
+            # Kamera und GPS-Format anzeigen (GPS5 bis HERO11, GPS9 ab HERO11)
+            try:
+                from core.gopro_extractor import telemetrie_info
+                kamera, gps_format = telemetrie_info(metadata)
+                self.text_append(f"→ Camera: {kamera}, format: {gps_format}")
+            except Exception as e:
+                self.text_append(f"⚠ Camera info not readable: {e}")
+
             # Rohpunkte extrahieren (Liste von Tuples (lat,lon,alt,datetime))
             points = parse_gps5_data(metadata)
             if not points:
@@ -664,7 +672,7 @@ class MainWindow(QMainWindow):
         
         
         file_menu.addSeparator()
-        extract_gopro_gps_action = QAction("*Gopo-Extractor", self)
+        extract_gopro_gps_action = QAction("*GoPro-Extractor", self)
         extract_gopro_gps_action.setStatusTip("Extract GPS from all loaded GoPro videos")
         extract_gopro_gps_action.triggered.connect(self._on_extract_gopro_gps)
         file_menu.addSeparator()

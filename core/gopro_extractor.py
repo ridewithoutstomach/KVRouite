@@ -193,7 +193,9 @@ def find_gpsu_time(metadata):
                 time_data = metadata[data_start:data_start+20]
                 time_str = time_data.decode('ascii', errors='ignore').split('\x00')[0]
                 if len(time_str) >= 14:
-                    full_time_str = ('20' if time_str[0] in ['0','1'] else '19') + time_str
+                    # GPSU traegt nur zwei Jahresziffern (yymmddhhmmss.sss).
+                    # GoPro-Kameras mit GPS gibt es seit 2016, also immer 20yy.
+                    full_time_str = '20' + time_str
                     try:
                         gpsu_time = datetime.strptime(full_time_str[:17], '%Y%m%d%H%M%S.%f')
                     except ValueError:
@@ -210,19 +212,66 @@ def find_gpsu_time(metadata):
     return None
 
 def parse_gps5_data(metadata):
-    points = []
+    """Liest die GPS-Punkte aus der rohen Telemetriespur.
+
+    Zwei Formate, je nach Kamera:
+    - GPS5 (bis HERO11): 5 Werte je Messung, die Zeit kommt aus dem
+      vorangehenden GPSU-Block, die Messungen liegen 0,2 s auseinander.
+    - GPS9 (HERO11 zusaetzlich, ab HERO13 ausschliesslich, auch MAX 2 und
+      MISSION 1): 9 Werte je Messung, jede traegt ihre eigene Zeit
+      (Tage seit 2000-01-01 und Millisekunden seit Mitternacht). GPSU und
+      GPS5 fehlen dort komplett. Die Skalierung steht im SCAL-Block mit
+      9 Werten direkt vor dem GPS9-Block. Aufbau an einer HERO13-Datei
+      geprueft: TYPE "lllllllSS", 32 Byte je Messung, SCAL
+      10000000, 10000000, 1000, 1000, 100, 1, 1000, 100, 1.
+    """
+    # Beide Formate getrennt sammeln: HERO11 schreibt GPS5 und GPS9
+    # nebeneinander, zusammengeworfen gaebe das jeden Punkt doppelt.
+    points = []        # GPS5
+    points_gps9 = []   # GPS9
     pos = 0
     current_time = None
+    # Vorgabe laut GoPro-Doku, wird vom SCAL-Block der Datei ueberschrieben
+    gps9_scale = (10000000.0, 10000000.0, 1000.0, 1000.0, 100.0, 1.0, 1000.0, 100.0, 1.0)
+    gps9_epoche = datetime(2000, 1, 1)
 
     while pos < len(metadata) - 8:
         try:
+            # SCAL mit 9 Werten → Skalierung fuer GPS9 merken
+            if metadata[pos:pos+4] == b'SCAL' and metadata[pos+4] == 0x6C \
+                    and metadata[pos+5] == 4 \
+                    and struct.unpack_from('>H', metadata, pos+6)[0] == 9 \
+                    and pos + 8 + 36 <= len(metadata):
+                werte = struct.unpack_from('>9i', metadata, pos + 8)
+                if all(w > 0 for w in werte):
+                    gps9_scale = tuple(float(w) for w in werte)
+
+            # GPS9 → Positionsdaten mit eigener Zeit je Messung
+            if metadata[pos:pos+4] == b'GPS9' and metadata[pos+5] == 32:
+                repeat = struct.unpack_from('>H', metadata, pos+6)[0]
+                data_start = pos + 8
+                for i in range(repeat):
+                    offset = data_start + i*32
+                    if offset + 32 <= len(metadata):
+                        values = struct.unpack_from('>7i2h', metadata, offset)
+                        lat = values[0] / gps9_scale[0]
+                        lon = values[1] / gps9_scale[1]
+                        alt = values[2] / gps9_scale[2]
+                        tage = values[5] / gps9_scale[5]
+                        sekunden = values[6] / gps9_scale[6]
+                        if -90 <= lat <= 90 and -180 <= lon <= 180 and 0 < tage < 20000:
+                            timestamp = gps9_epoche + timedelta(days=tage, seconds=sekunden)
+                            points_gps9.append((lat, lon, alt, timestamp))
+
             # GPSU → Zeitstempel extrahieren
             if metadata[pos:pos+4] == b'GPSU':
                 data_start = pos + 8
                 time_data = metadata[data_start:data_start+20]
                 time_str = time_data.decode('ascii', errors='ignore').split('\x00')[0]
                 if len(time_str) >= 14:
-                    full_time_str = ('20' if time_str[0] in ['0','1'] else '19') + time_str
+                    # GPSU traegt nur zwei Jahresziffern (yymmddhhmmss.sss).
+                    # GoPro-Kameras mit GPS gibt es seit 2016, also immer 20yy.
+                    full_time_str = '20' + time_str
                     try:
                         current_time = datetime.strptime(full_time_str[:17], '%Y%m%d%H%M%S.%f')
                     except ValueError:
@@ -250,10 +299,53 @@ def parse_gps5_data(metadata):
             pos += 1
             continue
 
+    # GPS9 hat Vorrang (genauere Zeit, 10 Hz); GPS5 nur, wenn es das
+    # einzige Format in der Datei ist (Kameras bis HERO10).
+    if points_gps9:
+        print(f"GPS9 points: {len(points_gps9)} (GPS5 ignored: {len(points)})")
+        points = points_gps9
+
     #points = trim_invalid_gps_points(points)
     print(f"GPS without trimming: {len(points)}")
     #print(f"Remaining GPS points after trimming: {len(points)}")
     return points
+
+
+def telemetrie_info(metadata):
+    """Kameraname und GPS-Format der Telemetriespur, fuer die Anzeige.
+
+    Der Kameraname steht im DVNM-Block des Geraets (z. B. "HERO10 Black",
+    "HERO13 Black"); daneben gibt es DVNM-Eintraege fuer Untergeraete
+    ("Global Settings" u. ae.), die werden uebersprungen. Das Format ist
+    das, was parse_gps5_data tatsaechlich benutzt: GPS9 vor GPS5.
+    Liefert (kamera, format), beides Strings, kamera ggf. "unknown".
+    """
+    kamera = "unknown"
+    if metadata:
+        pos = 0
+        while True:
+            pos = metadata.find(b'DVNM', pos)
+            if pos < 0 or pos + 8 > len(metadata):
+                break
+            try:
+                typ = metadata[pos+4]
+                laenge = metadata[pos+5] * struct.unpack_from('>H', metadata, pos+6)[0]
+                if typ == 0x63 and laenge > 0:  # 'c' = Text
+                    name = metadata[pos+8:pos+8+laenge].rstrip(b'\x00').decode('ascii', 'replace').strip()
+                    if name.upper().startswith(("HERO", "MAX", "MISSION", "FUSION")):
+                        kamera = name
+                        break
+            except Exception:
+                pass
+            pos += 4
+
+    if metadata and b'GPS9' in metadata:
+        fmt = "GPS9"
+    elif metadata and b'GPS5' in metadata:
+        fmt = "GPS5"
+    else:
+        fmt = "no GPS"
+    return kamera, fmt
 
 
 # -----------------------------
