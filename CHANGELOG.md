@@ -8,6 +8,57 @@ Versions up to and including 5.0 are documented in the GitHub releases only.
 
 ---
 
+## 7.06 - 2026-10-15
+
+### Added
+
+**GoPro Extractor: reads GPS9, the format of HERO13 and newer**
+
+GoPro changed the GPS record in the telemetry track: HERO11 writes the old
+GPS5 and the new GPS9 side by side, HERO12 has no GPS at all, HERO13, MAX 2
+and MISSION 1 write GPS9 only. The extractor only knew GPS5 and reported
+"No GPS points extracted" for these cameras. It now reads GPS9 as well: nine
+values per sample at about 10 Hz, every sample with its own time (days since
+2000 and milliseconds since midnight), scaled by the SCAL block of the file.
+When a file contains both records, GPS9 is used and GPS5 is skipped,
+otherwise every point would appear twice. Checked with a HERO13 file (10250
+points over 1025 s of video, GPS span 1024.9 s) and a HERO10 file (GPS5
+only, read as before).
+
+**GoPro Extractor shows the camera and the GPS format**
+
+The extraction window prints one line per video, for example "Camera:
+HERO13 Black, format: GPS9". The camera name comes from the device entry of
+the telemetry track, the format is the one the extractor actually uses.
+
+**HOWTO for a black map area on Windows**
+
+`doc/HOWTO_Windows_Black_Map.txt`: what to do when the map stays black right
+after start on older graphics drivers.
+
+### Fixed
+
+**Export used its own default values when the Encoder Setup was never
+confirmed with OK**
+
+The export read the encoder settings with defaults of its own (1280 wide,
+CRF 25), while the Encoder Setup and the export confirmation showed the real
+defaults (1920x1080, CRF 20). Whoever never pressed OK in the Encoder Setup
+saw 1920x1080 in the confirmation and got a 1280x720 video. The export and
+the frame size used for placing overlays now read the same single list of
+defaults as the windows do (`core/encoder_presets`).
+
+**GPS5 timestamps from 2020 on got the wrong century**
+
+The GPSU time record of GPS5 carries two digits for the year. The parser
+used 20xx only for years starting with 0 or 1, so a recording from 2025 got
+the year 1925. It is always 20xx now; GoPro cameras with GPS exist since
+2016.
+
+**Menu: "Gopo-Extractor" is spelled "GoPro-Extractor"**
+
+---
+
 ## 7.05 - 2026-10-04
 
 ### Added
