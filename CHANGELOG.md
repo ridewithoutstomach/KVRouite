@@ -6,6 +6,23 @@ detailed record.
 
 Versions up to and including 5.0 are documented in the GitHub releases only.
 
+## 7.07 - unreleased
+
+### Added
+
+**Export for Shotcut (.mlt)**
+
+The timeline with all cuts, crossfades, and multi-file chapter sequences can now
+be exported as a Shotcut project file (`.mlt`). This allows non-destructive
+further editing in Shotcut:
+- All source files remain referenced with their full length, so head and tail
+  handles can still be adjusted.
+- Crossfades are converted to native Shotcut transition blocks on Track V1 (with
+  luma dissolve and audio mixing).
+- Hard cuts sit directly adjacent without gaps.
+- When Shotcut is installed, KVRouite offers to open the exported project
+  immediately.
+
 ---
 
 ## 7.06 - 2026-10-15
