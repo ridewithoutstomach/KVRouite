@@ -86,6 +86,7 @@ _OPTIONEN = {
     "screenshot": "screenshot",
     "menuup":     "menuup",
     "menu-up":    "menuup",
+    "probe-encoder": "probe-encoder",
 }
 
 #: Wie die Optionen in einer Meldung aufgezaehlt werden.
@@ -95,6 +96,7 @@ _OPTIONEN_HILFE = (
     "  -selftest / --selftest    check this installation and exit",
     "  -screenshot / --screenshot    load a test project, play it, save three pictures and exit",
     "  -menuup / --menu-up    open the '...' menu of the GPX table upwards (for screen recordings)",
+    "  -probe-encoder / --probe-encoder <id>    test a hardware encoder in isolated process and exit",
 )
 
 
@@ -109,6 +111,8 @@ def _optionen_lesen(argv):
         if not arg.startswith("-"):
             continue
         name = arg.lstrip("-").lower()
+        if "=" in name:
+            name = name.split("=", 1)[0]
         if name in _OPTIONEN:
             erkannt.add(_OPTIONEN[name])
         else:
@@ -132,6 +136,18 @@ if "help" in _optionen_lesen(sys.argv)[0]:
     sys.exit(0)
 
 
+# Encoder-Probelauf-Option erfassen:
+def _probe_encoder_abfragen():
+    for i, arg in enumerate(sys.argv):
+        if arg.startswith(("--probe-encoder=", "-probe-encoder=")):
+            return arg.split("=", 1)[1]
+        if arg.lower() in ("--probe-encoder", "-probe-encoder") and i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+    return None
+
+_probe_id = _probe_encoder_abfragen()
+
+
 def _is_verbose():
     erkannt, _unbekannt = _optionen_lesen(sys.argv)
     if "verbose" in erkannt:
@@ -152,7 +168,8 @@ def _is_verbose():
 DEBUG = _is_verbose()
 
 # Python-Prints im Non-Verbose vollständig stummschalten (ohne Performance-Kosten)
-if not DEBUG:
+# Aber NICHT während eines Encoder-Probelaufs: das Ergebnis muss die Eltern-App erreichen!
+if not DEBUG and _probe_id is None:
     def _noop_print(*args, **kwargs): 
         return None
     builtins.print = _noop_print
@@ -190,11 +207,10 @@ if not DEBUG:
 
 # Konsolenfenster herrichten - Titel, Puffer leeren, Hinweis, verstecken.
 #
-# Ausdruecklich NUR in der ausgelieferten EXE. Beim Aufruf ueber
-# "python KVRouite.py" gehoert die Konsole dem Entwickler: dort darf die App
-# weder den Titel umbiegen noch den Puffer leeren - das loescht alles, was
-# vorher in dem Fenster stand.
-if platform.system() == "Windows" and getattr(sys, "frozen", False):
+# Ausdruecklich NUR in der ausgelieferten EXE, und NICHT beim Encoder-Probelauf
+# (damit die geteilte Eltern-Konsole nicht manipuliert wird).
+if platform.system() == "Windows" and getattr(sys, "frozen", False) and _probe_id is None:
+
     try:
         import ctypes, ctypes.wintypes as wt
         k32 = ctypes.windll.kernel32
@@ -377,7 +393,26 @@ if getattr(sys, "frozen", False):
         print("[WARN] Ort der GStreamer-Plugin-Liste nicht bestaetigt:", _exc3)
 
 # ---------------------------------------------------------
+# Encoder-Probelauf im isolierten Unterprozess (--probe-encoder <id>)
+# Laeuft nach dem Aufbau der GStreamer-Umgebung (auch im gepackten Zustand)
+# und vor dem Import von Qt / PySide6.
+if _probe_id is not None:
+    try:
+        from managers.ges_encoder_manager import probelauf
+        ok, grund, _zeilen = probelauf(_probe_id)
+        if ok:
+            force_print("PROBE_RESULT:OK")
+            sys.exit(0)
+        else:
+            force_print("PROBE_RESULT:ERR:" + str(grund))
+            sys.exit(0)
+    except Exception as exc:
+        force_print("PROBE_RESULT:ERR:" + str(exc))
+        sys.exit(1)
+
+# ---------------------------------------------------------
 import path_manager
+
 
 # ---------------------------------------------------------
 # Jetzt erst den Rest importieren
