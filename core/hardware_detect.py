@@ -81,18 +81,61 @@ def can_encode_with_gst(kennung):
     dieselben zwei Funktionen, die auch jeder Export benutzt, in dieselbe Art
     Zieldatei. Was hier durchlaeuft, laeuft auch im Export durch.
 
+    Warum die Pruefung in einem eigenen Unterprozess ausgefuehrt wird:
+    Hardware-Treiber (insbesondere Intel QSV/oneVPL ueber qsvh264enc auf
+    aelteren Chips wie Haswell, oder instabile GPU-Treiber) koennen bei
+    Inkompatibilitaeten hart auf C-Ebene mit abort() / SIGABRT abstuerzen
+    (z.B. fehlgeschlagene vaSts-Assertion in mfx_h264_encode_vaapi).
+    Laeuft die Erkennung im Hauptprozess, beendet ein solcher Absturz die
+    gesamte Anwendung. Im isolierten Unterprozess wird der Absturz sauber
+    abgefangen: der fehlerhafte Treiber wird als nicht verfuegbar markiert,
+    und nachfolgende Encoder (z.B. funktionierendes vaapi_h264) werden
+    weiterhin zuverlaessig erkannt.
+
     kennung ist die Programmkennung ("nvidia_h264", "vaapi_h264", ...).
     Liefert (True, "") oder (False, grund). Der Grund landet im Log; wenn ein
     Anwender meldet, seine Karte werde nicht erkannt, steht dort, woran es lag.
     """
     if not gstreamer_verfuegbar():
         return False, "GStreamer not available"
+
+    import json
+    import subprocess
+    import sys
+
+    code = f"""import sys, json
+try:
+    from managers.ges_encoder_manager import probelauf
+    ok, grund, _zeilen = probelauf({repr(kennung)})
+    sys.stdout.write(json.dumps({{"ok": ok, "grund": grund}}))
+    sys.exit(0)
+except Exception as e:
+    sys.stdout.write(json.dumps({{"ok": False, "grund": str(e)}}))
+    sys.exit(1)
+"""
+
     try:
-        from managers.ges_encoder_manager import probelauf
+        res = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=15
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            data = json.loads(res.stdout.strip())
+            return data.get("ok", False), data.get("grund", "")
+        else:
+            err = res.stderr.strip()
+            if not err and res.returncode != 0:
+                err = f"Driver / probe process crashed (exit code {res.returncode})"
+            else:
+                err = err.splitlines()[-1] if err else "Probe failed"
+            return False, err
+    except subprocess.TimeoutExpired:
+        return False, "Probe timed out"
     except Exception as exc:
-        return False, "export path could not be loaded: %s" % exc
-    ok, grund, _zeilen = probelauf(kennung)
-    return ok, grund
+        return False, f"Probe error: {exc}"
+
 
 
 def detect_hw_encoders_gst():
