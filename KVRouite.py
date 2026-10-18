@@ -86,6 +86,7 @@ _OPTIONEN = {
     "screenshot": "screenshot",
     "menuup":     "menuup",
     "menu-up":    "menuup",
+    "probe-encoder": "probe-encoder",
 }
 
 #: Wie die Optionen in einer Meldung aufgezaehlt werden.
@@ -95,6 +96,7 @@ _OPTIONEN_HILFE = (
     "  -selftest / --selftest    check this installation and exit",
     "  -screenshot / --screenshot    load a test project, play it, save three pictures and exit",
     "  -menuup / --menu-up    open the '...' menu of the GPX table upwards (for screen recordings)",
+    "  -probe-encoder / --probe-encoder <id>    test a hardware encoder in isolated process and exit",
 )
 
 
@@ -109,6 +111,8 @@ def _optionen_lesen(argv):
         if not arg.startswith("-"):
             continue
         name = arg.lstrip("-").lower()
+        if "=" in name:
+            name = name.split("=", 1)[0]
         if name in _OPTIONEN:
             erkannt.add(_OPTIONEN[name])
         else:
@@ -130,6 +134,33 @@ def _hilfe_ausgeben():
 if "help" in _optionen_lesen(sys.argv)[0]:
     _hilfe_ausgeben()
     sys.exit(0)
+
+
+# Encoder-Probelauf im isolierten Unterprozess: laeuft vor Qt und ohne
+# Oberflaeche. Druckt genau eine Zeile "PROBE_RESULT:OK" oder
+# "PROBE_RESULT:ERR:<grund>" auf STDOUT und beendet sich.
+def _probe_encoder_abfragen():
+    for i, arg in enumerate(sys.argv):
+        if arg.startswith(("--probe-encoder=", "-probe-encoder=")):
+            return arg.split("=", 1)[1]
+        if arg.lower() in ("--probe-encoder", "-probe-encoder") and i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+    return None
+
+_probe_id = _probe_encoder_abfragen()
+if _probe_id is not None:
+    try:
+        from managers.ges_encoder_manager import probelauf
+        ok, grund, _zeilen = probelauf(_probe_id)
+        if ok:
+            force_print("PROBE_RESULT:OK")
+            sys.exit(0)
+        else:
+            force_print("PROBE_RESULT:ERR:" + str(grund))
+            sys.exit(0)
+    except Exception as exc:
+        force_print("PROBE_RESULT:ERR:" + str(exc))
+        sys.exit(1)
 
 
 def _is_verbose():

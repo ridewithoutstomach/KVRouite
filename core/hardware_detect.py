@@ -99,42 +99,41 @@ def can_encode_with_gst(kennung):
     if not gstreamer_verfuegbar():
         return False, "GStreamer not available"
 
-    import json
+    import os
     import subprocess
     import sys
 
-    code = f"""import sys, json
-try:
-    from managers.ges_encoder_manager import probelauf
-    ok, grund, _zeilen = probelauf({repr(kennung)})
-    sys.stdout.write(json.dumps({{"ok": ok, "grund": grund}}))
-    sys.exit(0)
-except Exception as e:
-    sys.stdout.write(json.dumps({{"ok": False, "grund": str(e)}}))
-    sys.exit(1)
-"""
+    if getattr(sys, "frozen", False):
+        cmd = [sys.executable, "--probe-encoder", kennung]
+    else:
+        main_py = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "KVRouite.py"))
+        cmd = [sys.executable, main_py, "--probe-encoder", kennung]
 
     try:
         res = subprocess.run(
-            [sys.executable, "-c", code],
+            cmd,
             capture_output=True,
             text=True,
             timeout=15
         )
-        if res.returncode == 0 and res.stdout.strip():
-            data = json.loads(res.stdout.strip())
-            return data.get("ok", False), data.get("grund", "")
+        for line in res.stdout.splitlines():
+            line = line.strip()
+            if line == "PROBE_RESULT:OK":
+                return True, ""
+            if line.startswith("PROBE_RESULT:ERR:"):
+                return False, line[len("PROBE_RESULT:ERR:"):]
+
+        err = res.stderr.strip()
+        if not err and res.returncode != 0:
+            err = f"Driver / probe process crashed (exit code {res.returncode})"
         else:
-            err = res.stderr.strip()
-            if not err and res.returncode != 0:
-                err = f"Driver / probe process crashed (exit code {res.returncode})"
-            else:
-                err = err.splitlines()[-1] if err else "Probe failed"
-            return False, err
+            err = err.splitlines()[-1] if err else "Probe failed"
+        return False, err
     except subprocess.TimeoutExpired:
         return False, "Probe timed out"
     except Exception as exc:
         return False, f"Probe error: {exc}"
+
 
 
 
