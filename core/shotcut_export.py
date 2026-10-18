@@ -158,6 +158,17 @@ def _resolve_partials(global_start: float, global_end: float, video_durations: L
     return results
 
 
+def _auf_ausgabe(rohzeit: float, abbildung: List[Tuple[float, float, float]]) -> Optional[float]:
+    """
+    Map raw source timestamp to output timeline timestamp.
+    Returns None if the timestamp falls completely inside a cut.
+    """
+    for roh_von, roh_bis, out_s in abbildung:
+        if roh_von <= rohzeit <= roh_bis:
+            return out_s + (rohzeit - roh_von)
+    return None
+
+
 def export_to_shotcut(
     videos: List[str],
     video_durations: List[float],
@@ -246,10 +257,13 @@ def export_to_shotcut(
     # Build pieces and transitions
     playlist_entries = []
     trans_counter = 0
+    abbildung: List[Tuple[float, float, float]] = []
+    timeline_sec_cursor = 0.0
 
     for i, stueck in enumerate(stuecke):
         von, bis, bl_davor, bl_danach = stueck
         _roh_von, _roh_bis, bl_davor, bl_danach, _halb_davor, _halb_danach = _rohbereich(*stueck)
+        seg_duration = bis - von
 
         # 1) Transition before this piece
         if i > 0 and bl_davor > 0:
@@ -307,6 +321,7 @@ def export_to_shotcut(
             ET.SubElement(tr_a, "property", {"name": "combine"}).text = "1"
 
             playlist_entries.append(("tractor", tr, t_id, trans_frames))
+            timeline_sec_cursor += trans_dur
 
         # 2) Solo section of this piece
         solo_start_s = von + (bl_davor / 2.0 if bl_davor > 0 else 0.0)
@@ -316,6 +331,9 @@ def export_to_shotcut(
                 in_f = sec_to_frame(p_st)
                 out_f = max(in_f, sec_to_frame(p_en) - 1)
                 playlist_entries.append(("entry", f"producer{p_idx}", in_f, out_f))
+                timeline_sec_cursor += (p_en - p_st)
+
+        abbildung.append((von, bis, timeline_sec_cursor - seg_duration))
 
     # Append all transition tractors to the root before the playlist
     for item in playlist_entries:
@@ -346,11 +364,38 @@ def export_to_shotcut(
             })
             total_timeline_frames += (out_f - in_f + 1)
 
-    # Optional Track V2 for Overlays
+    # Optional Track V2 for Overlays (Transformed via _auf_ausgabe)
     has_overlays = bool(overlays)
     if has_overlays:
-        # Sort overlays by start time
-        valid_ovls = [ov for ov in overlays if ov.get("image") and os.path.isfile(ov.get("image"))]
+        valid_ovls = []
+        for ov in overlays:
+            bild = ov.get("image") or ""
+            if not bild or not os.path.isfile(bild):
+                continue
+            raw_start = float(ov.get("start", 0.0))
+            raw_end = float(ov.get("end", 0.0))
+            if raw_end <= raw_start:
+                continue
+
+            out_start = _auf_ausgabe(raw_start, abbildung)
+            out_end = _auf_ausgabe(raw_end, abbildung)
+
+            # If completely inside a cut, skip
+            if out_start is None and out_end is None:
+                continue
+            if out_start is None:
+                out_start = _auf_ausgabe(raw_end, abbildung)
+            if out_end is None:
+                out_end = out_start + (raw_end - raw_start)
+
+            valid_ovls.append({
+                "image": bild,
+                "start": out_start,
+                "end": max(out_start + 0.1, out_end),
+                "fade_in": float(ov.get("fade_in", 0.0) or 0.0),
+                "fade_out": float(ov.get("fade_out", 0.0) or 0.0)
+            })
+
         valid_ovls.sort(key=lambda x: float(x.get("start", 0.0)))
         if valid_ovls:
             pl1 = ET.SubElement(root, "playlist", {"id": "playlist1"})
