@@ -696,6 +696,11 @@ class MainWindow(QMainWindow):
         render_action.triggered.connect(self.on_render_clicked)
         file_menu.addAction(render_action)
 
+        export_shotcut_action = QAction("Export for Shotcut (.mlt)...", self)
+        export_shotcut_action.setStatusTip("Export timeline cuts and crossfades as a Shotcut project (.mlt).")
+        export_shotcut_action.triggered.connect(self.on_export_shotcut_clicked)
+        file_menu.addAction(export_shotcut_action)
+
         # --- Shortcuts-Menü (ehemals "Edit") ---
         shortcuts_menu = menubar.addMenu("Edit")
         shortcuts_menu.setStatusTip("Keyboard shortcuts and player controls")
@@ -9662,8 +9667,115 @@ class MainWindow(QMainWindow):
         self.video_editor.set_preview_cuts(fertig)
         self._overlays_an_vorschau()
         QTimer.singleShot(0, self._maybe_ask_index)
-        
-        
+    def on_export_shotcut_clicked(self):
+        """Export the loaded playlist, cuts, crossfades, and overlays to a Shotcut project (.mlt)."""
+        if not self.playlist:
+            QMessageBox.warning(self, "Error", "No videos in playlist!")
+            return
+
+        total_dur = float(getattr(self, "real_total_duration", 0.0) or 0.0)
+        durations = list(getattr(self, "video_durations", []))
+        if not durations or sum(durations) <= 0.0:
+            if total_dur > 0.0:
+                durations = [total_dur]
+            else:
+                QMessageBox.warning(self, "Error", "Video durations are not available!")
+                return
+
+        first_video = self.playlist[0]
+        base_name = os.path.splitext(os.path.basename(first_video))[0]
+        default_dir = os.path.dirname(first_video)
+        default_path = os.path.join(default_dir, f"{base_name}_shotcut.mlt")
+
+        out_file, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export for Shotcut",
+            default_path,
+            "Shotcut Project (*.mlt);;All Files (*)"
+        )
+        if not out_file:
+            return
+
+        if not out_file.lower().endswith(".mlt"):
+            out_file += ".mlt"
+
+        cuts = self.cut_manager.get_cut_intervals()
+        skip_array = []
+        for (cstart, cend) in sorted(cuts, key=lambda x: x[0]):
+            if abs(cstart - 0.0) < 0.1:
+                skip_array.append([cstart, cend, -2])  # Startcut
+            elif abs(cend - total_dur) < 0.1:
+                skip_array.append([cstart, cend, -1])  # Endcut
+            else:
+                skip_array.append([cstart, cend, self._blende_fuer(cstart, cend, total_dur)])
+
+        w_val, h_val = 0, 0
+        try:
+            w_val, h_val = self.video_editor.get_video_size()
+        except Exception:
+            pass
+        if not w_val or not h_val:
+            preset = encoder_presets.aus_einstellungen()
+            w_val = int(preset.get("res_w", 1920))
+            h_val = 1080 if w_val == 1920 else int(w_val * 9 / 16)
+
+        fps_n, fps_d = 30, 1
+        try:
+            s = QSettings("KVRouite", "KVRouite")
+            fps_source_str = s.value("encoder/fps_source", "", type=str)
+            if fps_source_str:
+                fps_parsed = framerate.parsen(fps_source_str, None)
+                if fps_parsed:
+                    fps_n, fps_d = fps_parsed
+            else:
+                preset = encoder_presets.aus_einstellungen()
+                fps_parsed = framerate.parsen(str(preset.get("fps", "30")), (30, 1))
+                if fps_parsed:
+                    fps_n, fps_d = fps_parsed
+        except Exception:
+            pass
+
+        all_ovls = []
+        try:
+            all_ovls = self._overlay_manager.get_all_overlays()
+        except Exception:
+            pass
+
+        from core import shotcut_export
+        try:
+            shotcut_export.export_to_shotcut(
+                videos=self.playlist,
+                video_durations=durations,
+                skip_list=skip_array,
+                out_mlt_path=out_file,
+                width=w_val,
+                height=h_val,
+                fps_num=fps_n,
+                fps_den=fps_d,
+                title=f"KVRouite - {base_name}",
+                overlays=all_ovls
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Export Failed", f"Could not create Shotcut project:\n\n{exc}")
+            return
+
+        if shotcut_export.can_open_in_shotcut():
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Export Successful")
+            msg.setText(f"Shotcut project exported successfully:\n\n{out_file}\n\nDo you want to open it in Shotcut now?")
+            btn_open = msg.addButton("Open in Shotcut", QMessageBox.AcceptRole)
+            btn_close = msg.addButton("Close", QMessageBox.RejectRole)
+            msg.setDefaultButton(btn_open)
+            msg.exec()
+            if msg.clickedButton() == btn_open:
+                shotcut_export.open_in_shotcut(out_file)
+        else:
+            QMessageBox.information(
+                self,
+                "Export Successful",
+                f"Shotcut project exported successfully:\n\n{out_file}"
+            )
+
     ## on_safe_click
     def on_render_clicked(self):
         # 1) Sicherheitsabfrage. Im Encode-Mode zeigt sie zugleich die
