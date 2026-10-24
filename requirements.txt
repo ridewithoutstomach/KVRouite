@@ -9,7 +9,7 @@
 
 fitparse==1.2.0
 gstreamer-bundle==1.28.6; sys_platform != "linux"
-pillow==12.3.0
+pillow==13.0.0
 PySide6==6.11.2
 PySide6_Addons==6.11.2
 PySide6_Essentials==6.11.2
