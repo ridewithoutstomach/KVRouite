@@ -21,6 +21,12 @@
 
 # core/hardware_detect.py
 
+import json
+import os
+import signal
+import subprocess
+import sys
+
 
 # ---------------------------------------------------------------------------
 # Encoder-Test ueber GStreamer
@@ -87,12 +93,90 @@ def can_encode_with_gst(kennung):
     """
     if not gstreamer_verfuegbar():
         return False, "GStreamer not available"
+    if sys.platform.startswith("linux"):
+        return _probelauf_eigener_prozess(kennung)
     try:
         from managers.ges_encoder_manager import probelauf
     except Exception as exc:
         return False, "export path could not be loaded: %s" % exc
     ok, grund, _zeilen = probelauf(kennung)
     return ok, grund
+
+
+# ---------------------------------------------------------------------------
+# Linux: jeder Probelauf in einem eigenen Python-Prozess
+# ---------------------------------------------------------------------------
+# Gemeldet in PR #53 (Okt. 2026): Haswell-Notebook unter Linux Mint, VA-API
+# mit dem i965-Treiber, dazu qsvh264enc aus gstreamer1.0-plugins-bad. Die
+# Intel Media SDK bricht beim Testlauf mit einer C-Assertion ab (SIGABRT) -
+# das laesst sich in Python nicht abfangen, KVRouite war sofort weg. Der
+# vah264enc auf derselben Maschine haette funktioniert, kam aber nie dran.
+#
+# Deshalb laeuft unter Linux jeder Kandidat in einem eigenen Prozess. Stirbt
+# der, faellt nur dieser Encoder durch, und die Erkennung macht mit dem
+# naechsten weiter.
+#
+# Nur Linux: Unter Windows gab es so einen Absturz nie, und die exe von
+# PyInstaller hat keinen Python-Interpreter, mit dem sich der Probelauf
+# starten liesse. Unter Linux laeuft KVRouite aus dem Quellcode,
+# sys.executable ist also ein echtes Python.
+
+# Ergebniszeile des Kindprozesses. Treiber und GStreamer schreiben gern
+# eigene Zeilen auf stdout; gelesen wird nur die mit dieser Marke.
+_MARKE = "KVROUITE_PROBE_RESULT:"
+
+# Ein Probelauf braucht normalerweise unter einer Sekunde, dazu das Laden
+# der Module. Haengt ein Treiber, wird der Prozess nach dieser Zeit beendet.
+_PROBE_TIMEOUT_S = 60
+
+_KIND_SKRIPT = """
+import json, sys
+try:
+    from managers.ges_encoder_manager import probelauf
+    ok, grund, _zeilen = probelauf(sys.argv[1])
+except Exception as exc:
+    ok, grund = False, "export path could not be loaded: %s" % exc
+sys.stdout.flush()
+print(""" + repr(_MARKE) + """ + json.dumps([bool(ok), str(grund)]), flush=True)
+"""
+
+
+def _probelauf_eigener_prozess(kennung):
+    """probelauf(kennung) in einem eigenen Prozess. Liefert (ok, grund)."""
+    wurzel = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    try:
+        erg = subprocess.run(
+            [sys.executable, "-c", _KIND_SKRIPT, kennung],
+            cwd=wurzel, stdin=subprocess.DEVNULL,
+            capture_output=True, text=True, errors="replace",
+            timeout=_PROBE_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        return False, "probe timed out after %d s" % _PROBE_TIMEOUT_S
+    except Exception as exc:
+        return False, "probe process could not be started: %s" % exc
+
+    for zeile in reversed(erg.stdout.splitlines()):
+        if zeile.startswith(_MARKE):
+            try:
+                ok, grund = json.loads(zeile[len(_MARKE):])
+                return bool(ok), grund
+            except ValueError:
+                break
+
+    # Keine Ergebniszeile: der Prozess ist unterwegs gestorben. Die letzte
+    # Zeile von stderr ist meist die Assertion des Treibers.
+    if erg.returncode < 0:
+        try:
+            wie = signal.Signals(-erg.returncode).name
+        except ValueError:
+            wie = "signal %d" % -erg.returncode
+        grund = "probe process crashed (%s)" % wie
+    else:
+        grund = "probe process ended without result (exit code %d)" % erg.returncode
+    letzte = [z.strip() for z in erg.stderr.splitlines() if z.strip()]
+    if letzte:
+        grund += ": " + letzte[-1][:300]
+    return False, grund
 
 
 def detect_hw_encoders_gst():

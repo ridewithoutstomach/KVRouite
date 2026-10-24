@@ -220,9 +220,13 @@ def _testvideo_bauen(ziel):
     # Beschreibung geschrieben: parse_launch() liest den Text, und ein
     # Windows-Pfad verliert dabei seine Backslashes - aus C:\Users\... wurde
     # C:Users..., und das Schreiben scheiterte mit "Permission denied".
+    # format=I420 muss dabeistehen: ohne nimmt x264enc sein erstes Format,
+    # und das Testvideo wurde H.264 High 4:4:4 mit 10 Bit - so etwas liefert
+    # keine Kamera. Unter Linux mit NVIDIA scheiterte daran der Export mit
+    # nvidia_hevc ("not-negotiated"), obwohl HEVC-Exporte echter Videos laufen.
     rohr = Gst.parse_launch(
         "videotestsrc num-buffers=%d pattern=ball ! "
-        "video/x-raw,width=%d,height=%d,framerate=%d/1 ! "
+        "video/x-raw,format=I420,width=%d,height=%d,framerate=%d/1 ! "
         "x264enc key-int-max=%d ! mp4mux ! filesink name=ziel"
         % (QUELLE_SEKUNDEN * QUELLE_FPS, QUELLE_BREITE, QUELLE_HOEHE,
            QUELLE_FPS, QUELLE_FPS))
